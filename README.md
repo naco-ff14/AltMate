@@ -43,6 +43,7 @@ The ZIP contains `AltMate.dll`, `AltMate.json`, and `images/icon.png` at the pac
 - Documented locally stored identifiers, privacy behavior, and optional integrations
 - Updated public plugin metadata and distribution exclusions
 - Configured GitHub Actions to download the Dalamud development assemblies before building
+- Made release packaging independent of the SDK's platform-specific output directory
 
 ## v1.17.0
 

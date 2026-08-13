@@ -52,8 +52,10 @@ jobs:
       - name: Package Dalamud plugin
         shell: pwsh
         run: |
-          $output = Join-Path $PWD "bin\x64\Release"
-          $dll = Get-ChildItem $output -Recurse -Filter AltMate.dll | Select-Object -First 1
+          $output = Join-Path $PWD "bin"
+          $dll = Get-ChildItem $output -Recurse -Filter AltMate.dll |
+            Where-Object { $_.FullName -match '[\\/]Release[\\/]' } |
+            Select-Object -First 1
           if (-not $dll) { throw "AltMate.dll was not produced." }
           $package = Join-Path $PWD "package"
           New-Item -ItemType Directory -Force $package | Out-Null
