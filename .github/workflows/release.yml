@@ -62,7 +62,11 @@ jobs:
           Copy-Item $dll.FullName $package
           $deps = [IO.Path]::ChangeExtension($dll.FullName, ".deps.json")
           if (Test-Path $deps) { Copy-Item $deps $package }
-          Copy-Item AltMate.json $package
+          $manifest = [IO.Path]::ChangeExtension($dll.FullName, ".json")
+          if (-not (Test-Path $manifest)) {
+            throw "The SDK-generated AltMate.json was not produced."
+          }
+          Copy-Item $manifest $package
           New-Item -ItemType Directory -Force (Join-Path $package "images") | Out-Null
           Copy-Item images\icon.png (Join-Path $package "images\icon.png")
           Compress-Archive -Path "$package\*" -DestinationPath latest.zip -Force
@@ -76,6 +80,12 @@ jobs:
             $names = $zip.Entries.FullName
             foreach ($required in @("AltMate.dll", "AltMate.json", "images/icon.png")) {
               if ($names -notcontains $required) { throw "latest.zip is missing $required" }
+            }
+            $manifestEntry = $zip.GetEntry("AltMate.json")
+            $reader = New-Object IO.StreamReader($manifestEntry.Open())
+            try { $manifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
+            if (-not $manifest.AssemblyVersion) {
+              throw "AltMate.json is missing AssemblyVersion."
             }
           } finally { $zip.Dispose() }
 
