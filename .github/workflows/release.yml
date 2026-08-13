@@ -30,8 +30,13 @@ jobs:
           "RELEASE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "RELEASE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           git fetch --tags --force
-          git rev-parse --verify --quiet "refs/tags/$tag" | Out-Null
-          $exists = $LASTEXITCODE -eq 0
+          # rev-parseはタグが存在しない正常ケースでも終了コード1となり、
+          # GitHub ActionsのPowerShellステップ自体を失敗扱いにするため使用しない。
+          $matchingTags = @(git tag --list -- "$tag")
+          if ($LASTEXITCODE -ne 0) {
+            throw "Failed to read Git tags."
+          }
+          $exists = $matchingTags.Count -gt 0
           "RELEASE_EXISTS=$($exists.ToString().ToLowerInvariant())" |
             Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           if ($exists) {
