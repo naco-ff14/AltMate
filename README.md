@@ -42,6 +42,7 @@ The ZIP contains `AltMate.dll`, `AltMate.json`, and `images/icon.png` at the pac
 - Added local link-key validation to ignore unrelated AltMate multicast packets
 - Documented locally stored identifiers, privacy behavior, and optional integrations
 - Updated public plugin metadata and distribution exclusions
+- Configured GitHub Actions to download the Dalamud development assemblies before building
 
 ## v1.17.0
 
