@@ -424,8 +424,17 @@ public sealed class MainWindow : Window
             foreach (var character in characters)
             {
                 DrawGilRow(character.CharacterName, character.WorldName, character.Gil, character.UpdatedAt, false);
-                foreach (var retainer in character.Retainers.Values.OrderBy(x => x.Name))
+                var retainersWithGil = character.Retainers.Values
+                    .Where(x => x.Gil > 0)
+                    .OrderBy(x => x.Name)
+                    .ToArray();
+                var omittedRetainers = character.Retainers.Count - retainersWithGil.Length;
+                foreach (var retainer in retainersWithGil)
                     DrawGilRow($"　└ {retainer.Name}", Loc.L("リテイナー", "Retainer"), retainer.Gil, retainer.UpdatedAt, true);
+                if (omittedRetainers > 0)
+                    DrawGilNoticeRow(Loc.L(
+                        $"　└ 0ギルのリテイナーを{omittedRetainers}件省略",
+                        $"　└ {omittedRetainers} zero-gil retainer(s) hidden"));
                 if (plugin.Configuration.Characters.TryGetValue(character.ContentId, out var lottery) &&
                     cycle.HasEntry(lottery) && !lottery.ResultChecked && lottery.BidGilDeposited > 0)
                     DrawGilRow(Loc.L("　└ ハウジング抽選預かり中", "　└ Housing lottery deposit"),
@@ -465,6 +474,19 @@ public sealed class MainWindow : Window
         ImGui.TextColored(amountColor ?? new Vector4(0.95f, 0.78f, 0.25f, 1f), $"{gil:N0} G");
         ImGui.TableNextColumn();
         ImGui.TextDisabled(updatedAt == default ? "—" : FormatDate(updatedAt));
+    }
+
+    private static void DrawGilNoticeRow(string message)
+    {
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn();
+        ImGui.TextDisabled(message);
+        ImGui.TableNextColumn();
+        ImGui.TextDisabled("—");
+        ImGui.TableNextColumn();
+        ImGui.TextDisabled("—");
+        ImGui.TableNextColumn();
+        ImGui.TextDisabled("—");
     }
 
     private void DrawSettings()
@@ -656,7 +678,7 @@ public sealed class MainWindow : Window
                 plugin.CharacterLink.MoveToLeader();
             ImGui.PopStyleColor();
             ImGui.SameLine();
-            ImGui.TextDisabled(plugin.CharacterLink.WorldLinkStatus);
+            ImGui.TextDisabled(Loc.Status(plugin.CharacterLink.WorldLinkStatus));
             ImGui.TextDisabled(Loc.T("DifferentWorldHelp"));
             ImGui.Spacing();
             if (ImGui.Button(Loc.IsEnglish ? "Test follow" : "追従テスト"))
@@ -748,8 +770,8 @@ public sealed class MainWindow : Window
                 plugin.CharacterLink.SettingsChanged();
             }
             ImGui.TextDisabled(plugin.CharacterLink.IsLifestreamLoaded
-                ? "Lifestream：接続済み"
-                : "Lifestream：未接続（両クライアントで有効にしてください）");
+                ? Loc.L("Lifestream：接続済み", "Lifestream: Connected")
+                : Loc.L("Lifestream：未接続（両クライアントで有効にしてください）", "Lifestream: Not connected (enable it on both clients)"));
             ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.OccultTravelStatus)}");
 
             ImGui.Spacing();
@@ -803,8 +825,8 @@ public sealed class MainWindow : Window
             plugin.CharacterLink.SettingsChanged();
         }
         ImGui.TextDisabled(plugin.CharacterLink.IsLifestreamLoaded
-            ? $"移動同期：{plugin.CharacterLink.GeneralTravelStatus}"
-            : "移動同期：Lifestream未接続（両クライアントで有効にしてください）");
+            ? $"{Loc.L("移動同期", "Travel sync")}：{Loc.Status(plugin.CharacterLink.GeneralTravelStatus)}"
+            : Loc.L("移動同期：Lifestream未接続（両クライアントで有効にしてください）", "Travel sync: Lifestream not connected (enable it on both clients)"));
         ImGui.TextDisabled($"{(Loc.IsEnglish ? "FC estate" : "FCハウス")}：{Loc.Status(plugin.CharacterLink.HousingTravelStatus)}");
         ImGui.Spacing();
         var syncDuty = plugin.Configuration.SyncDutyCommenceEnabled;

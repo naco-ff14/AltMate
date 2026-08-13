@@ -108,6 +108,42 @@ internal static class Loc
             "追従キャンセルを検出・再開待ち" => "Follow cancelled; waiting to retry",
             "無効" => "Disabled",
             "停止済み" => "Stopped",
+            "リーダーの移動待ち" => "Waiting for leader travel",
+            "リーダーのFCハウステレポ待ち" => "Waiting for leader's FC estate teleport",
+            "リーダーのエーテライト移動待ち" => "Waiting for leader's aetheryte travel",
+            "近くの宝箱を監視中" => "Watching for nearby treasure",
+            "同じワールドで待機" => "Idle in the same World",
+            "同じワールド・連携可能" => "Same World; linking available",
+            "Lifestreamが読み込まれていません" => "Lifestream is not loaded",
+            "Lifestream IPCへ接続できません" => "Unable to connect to Lifestream IPC",
+            "Lifestreamの受付待ち（自動再試行）" => "Waiting for Lifestream; retrying automatically",
+            "移動処理の受付待ち（自動再試行）" => "Waiting for travel request; retrying automatically",
+            "通常テレポの再試行期限切れ" => "Regular teleport retry timed out",
+            "FCハウス移動の再試行期限切れ" => "FC estate travel retry timed out",
+            "住宅住所をLifestream形式へ変換できません" => "Unable to convert the estate address for Lifestream",
+            "LifestreamでFC住宅の住所へ移動開始" => "Travelling to the FC estate address with Lifestream",
+            "FCハウスの区画前へ移動完了" => "Arrived at the FC estate plot",
+            "住宅移動の監視を終了（時間切れ）" => "Estate travel monitoring timed out",
+            "リーダーの戦闘開始待ち" => "Waiting for leader to enter combat",
+            "デミデジョンのためマウント解除" => "Dismounting for Demi-Return",
+            "リーダーに合わせてデミデジョンを開始" => "Starting Demi-Return with the leader",
+            "デジョンの実行に失敗" => "Failed to execute Return",
+            "リーダーのデミデジョン確認待ち" => "Waiting for leader's Demi-Return confirmation",
+            "リーダーが確認・フォロワーへデミデジョン指示を送信" => "Leader confirmed; sent Demi-Return to follower",
+            "デジョン確認を承認" => "Accepted Return confirmation",
+            "コンテンツ突入を承認" => "Accepted duty commencement",
+            "テレポ勧誘を承認" => "Accepted teleport invitation",
+            "リーダーの移動を検出・フォロワーの接近待ち" => "Leader travel detected; waiting for follower to approach",
+            "移動受付を終了（フォロワーがエーテライト付近にいません）" => "Travel cancelled: follower is not near the aetheryte",
+            "現在は移動を開始できません" => "Travel cannot start right now",
+            "すでにリーダーと同じワールド・エリアです" => "Already in the leader's World and area",
+            "リーダーのエリアに直接移動できるエーテライトがありません" => "No aetheryte travels directly to the leader's area",
+            "Lifestreamの住宅移動完了待ち" => "Waiting for Lifestream estate travel",
+            "リーダーのエリアへ手動合流中" => "Manually joining the leader's area",
+            "リーダーのワールドへ手動合流中" => "Manually joining the leader's World",
+            "ローカル通信を開始できませんでした" => "Unable to start local communication",
+            "追従テスト実行" => "Follow test requested",
+            "相乗りテスト実行" => "Pillion test requested",
             _ => string.Empty,
         };
         if (exact.Length > 0)
@@ -118,6 +154,17 @@ internal static class Loc
         if (value.StartsWith("相乗りを再試行待ち")) return value.Replace("相乗りを再試行待ち", "Waiting to retry pillion");
         if (value.StartsWith("リーダーの近くで待機中")) return value.Replace("リーダーの近くで待機中", "Idle near leader");
         if (value.StartsWith("戦闘終了待機中（あと")) return value.Replace("戦闘終了待機中（あと", "Stopping in ").Replace("秒）", "s");
+        if (value.StartsWith("通常テレポを共有：")) return value.Replace("通常テレポを共有：", "Shared regular teleport: ");
+        if (value.StartsWith("通常テレポを受信：")) return value.Replace("通常テレポを受信：", "Received regular teleport: ");
+        if (value.StartsWith("フォロワーもテレポ開始：")) return value.Replace("フォロワーもテレポ開始：", "Follower teleport started: ");
+        if (value.StartsWith("FCハウス移動を共有：")) return value.Replace("FCハウス移動を共有：", "Shared FC estate travel: ");
+        if (value.StartsWith("FCハウス移動を受信：")) return value.Replace("FCハウス移動を受信：", "Received FC estate travel: ");
+        if (value.StartsWith("リーダーの移動を検出：")) return value.Replace("リーダーの移動を検出：", "Leader travel detected: ");
+        if (value.StartsWith("フォロワーも移動開始：")) return value.Replace("フォロワーも移動開始：", "Follower travel started: ");
+        if (value.StartsWith("到着済み：")) return value.Replace("到着済み：", "Arrived: ");
+        if (value.StartsWith("別ワールドのため連携停止：")) return value.Replace("別ワールドのため連携停止：", "Paused in another World: ");
+        if (value.StartsWith("宝箱を開けました（")) return value.Replace("宝箱を開けました（", "Opened treasure (").Replace("）", ")");
+        if (value.StartsWith("相乗りを実行しました（")) return value.Replace("相乗りを実行しました（", "Pillion requested (").Replace("）", ")");
         return value;
     }
 
