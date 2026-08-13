@@ -463,10 +463,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
                         return;
                     }
                 }
+                // /follow は確認済みの現在ターゲットに対して引数なしで実行する。
+                // キャラクター名を引数へ付けると、名前に空白がある場合にゲーム側で
+                // 「1番目のターゲット名の指定が正しくありません」が発生する。
                 var command = pendingGameCommand;
-                if (command.Equals("/follow", StringComparison.OrdinalIgnoreCase) &&
-                    pendingTargetName is not null)
-                    command = $"/follow \"{pendingTargetName.Replace("\"", string.Empty)}\"";
                 pendingGameCommand = null;
                 pendingTargetName = null;
                 pendingTargetApplied = false;
@@ -1851,8 +1851,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         Plugin.TargetManager.Target = target;
         var targetName = target.Name.TextValue.Replace("\"", string.Empty);
-        // ProcessChatBoxEntryでは<t>が展開されず、引数なし/followも対象未指定になる。
-        // 実行直前に確認済みの名前を引用符付き引数として付加する。
+        // ProcessChatBoxEntryでは<t>が展開されないため、先に対象を現在ターゲットへ
+        // 設定してから、/follow は引数なしで実行する。
         pendingGameCommand = command.StartsWith("/follow ", StringComparison.OrdinalIgnoreCase)
             ? "/follow"
             : command.Replace("<t>", $"\"{targetName}\"", StringComparison.Ordinal);
