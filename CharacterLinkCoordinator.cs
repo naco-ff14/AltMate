@@ -42,6 +42,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool runtimeStopped;
     private bool stopFollowRequested;
     private bool followCommandActive;
+    private bool localCharacterUnavailable;
     private DateTime followCommandStartedUtc;
     private string? pendingGameCommand;
     private string? pendingTargetName;
@@ -488,8 +489,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
         // エリア移動やログイン直後に一時的にPlayerStateが未取得になっても、
         // 取得が戻ったフレームで古い「ログアウト中」表示を残さない。
-        if (LastAction == "ログアウト中")
+        if (localCharacterUnavailable)
+        {
             LastAction = IsLeader ? "リーダーとして待機中" : "待機中";
+            localCharacterUnavailable = false;
+        }
 
         var now = DateTime.UtcNow;
         plugin.CheckSharedConfiguration();
@@ -910,24 +914,25 @@ public sealed class CharacterLinkCoordinator : IDisposable
         AreaSyncStatus = "テレポ勧誘を承認";
     }
 
-    private static bool ContainsReturnPrompt(string prompt) =>
-        prompt.Contains("デジョン", StringComparison.OrdinalIgnoreCase) ||
-        prompt.Contains("return", StringComparison.OrdinalIgnoreCase) ||
-        prompt.Contains("帰還", StringComparison.OrdinalIgnoreCase) ||
-        (prompt.Contains("開始地点", StringComparison.OrdinalIgnoreCase) &&
-         prompt.Contains("戻ります", StringComparison.OrdinalIgnoreCase));
+    private static bool ContainsReturnPrompt(string prompt)
+    {
+        // SelectYesnoは共通画面なので、誤承認を防ぐため表示言語ごとの語句を確認する。
+        // 内部状態や処理分岐には翻訳済みのUI表示文字列を使用しない。
+        var normalized = prompt.Trim();
+        return ContainsAny(normalized, "デジョン", "デミデジョン", "帰還") ||
+               (ContainsAny(normalized, "開始地点") && ContainsAny(normalized, "戻ります", "戻る")) ||
+               ContainsAny(normalized, "Return", "Demi-Return", "starting point");
+    }
 
     private static bool ContainsTeleportInvitation(string prompt)
     {
-        var hasTeleport = prompt.Contains("テレポ", StringComparison.OrdinalIgnoreCase) ||
-                          prompt.Contains("teleport", StringComparison.OrdinalIgnoreCase);
-        var looksLikeInvitation = prompt.Contains("一緒", StringComparison.OrdinalIgnoreCase) ||
-                                  prompt.Contains("勧誘", StringComparison.OrdinalIgnoreCase) ||
-                                  prompt.Contains("invitation", StringComparison.OrdinalIgnoreCase) ||
-                                  prompt.Contains("party member", StringComparison.OrdinalIgnoreCase) ||
-                                  prompt.Contains("join", StringComparison.OrdinalIgnoreCase);
+        var hasTeleport = ContainsAny(prompt, "テレポ", "teleport");
+        var looksLikeInvitation = ContainsAny(prompt, "一緒", "勧誘", "invitation", "party member", "join");
         return hasTeleport && looksLikeInvitation;
     }
+
+    private static bool ContainsAny(string value, params string[] candidates) =>
+        candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
 
     private void UpdateGeneralTravelSync(LinkedCharacterState leader, DateTime now)
     {
@@ -1795,6 +1800,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         queuedLeaderCityAetheryteId = 0;
         queuedLeaderResidentialAetheryteId = 0;
         LastAction = "ログアウト中";
+        localCharacterUnavailable = true;
     }
 
     private void ClearCrossWorldAutomation()

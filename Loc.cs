@@ -122,4 +122,5 @@ internal static class Loc
     }
 
     internal static bool IsEnglish => Language == "en";
+    internal static string L(string ja, string en) => IsEnglish ? en : ja;
 }

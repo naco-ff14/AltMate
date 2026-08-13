@@ -30,6 +30,7 @@ public sealed class MainWindow : Window
     }
 
     private static readonly CultureInfo JapaneseCulture = CultureInfo.GetCultureInfo("ja-JP");
+    private static readonly CultureInfo EnglishCulture = CultureInfo.GetCultureInfo("en-US");
     private readonly Plugin plugin;
     private string scanMessage = string.Empty;
     private int sizeFilterIndex;
@@ -49,7 +50,7 @@ public sealed class MainWindow : Window
     private static readonly string[] SizeFilters = { "ALL", "S", "S-M", "M", "M-L", "L" };
 
     public MainWindow(Plugin plugin) : base(
-        $"AltMate v{Plugin.PluginInterface.Manifest.AssemblyVersion.ToString(3)} - 複数キャラクター支援###AltMate")
+        $"AltMate v{Plugin.PluginInterface.Manifest.AssemblyVersion.ToString(3)} - {Loc.L("複数キャラクター支援", "Multi-Character Support")}###AltMate")
     {
         this.plugin = plugin;
         Size = new Vector2(940, 520);
@@ -268,7 +269,7 @@ public sealed class MainWindow : Window
         var firstName = peers[0].CharacterName;
         return peers.Length == 1
             ? $"[{firstName}]"
-            : $"[{firstName} ほか{peers.Length - 1}人]";
+            : Loc.L($"[{firstName} ほか{peers.Length - 1}人]", $"[{firstName} +{peers.Length - 1}]");
     }
 
     private void DrawHome()
@@ -286,7 +287,7 @@ public sealed class MainWindow : Window
             MainSection.Housing);
 
         var peers = plugin.CharacterLink.Peers;
-        var linkTitle = plugin.CharacterLink.RuntimeStopped ? "緊急停止中" : plugin.CharacterLink.LastAction;
+        var linkTitle = plugin.CharacterLink.RuntimeStopped ? Loc.T("EmergencyStopped") : Loc.Status(plugin.CharacterLink.LastAction);
         var leaderName = plugin.Configuration.Characters.TryGetValue(plugin.Configuration.LinkLeaderContentId, out var leader)
             ? leader.CharacterName : "—";
         DrawHomeCard(Loc.T("LinkStatus"), linkTitle,
@@ -328,13 +329,13 @@ public sealed class MainWindow : Window
     private void DrawHousing()
     {
         DrawPageTitle(Loc.T("Housing"), Loc.T("HousingDescription"));
-        if (DrawSubMenuButton("抽選状態", selectedHousingSection == HousingSection.Lottery))
+        if (DrawSubMenuButton(Loc.L("抽選状態", "Lottery Status"), selectedHousingSection == HousingSection.Lottery))
             selectedHousingSection = HousingSection.Lottery;
         ImGui.SameLine();
-        if (DrawSubMenuButton($"空き土地 ({plugin.Configuration.OpenPlots.Count})", selectedHousingSection == HousingSection.OpenPlots))
+        if (DrawSubMenuButton($"{Loc.L("空き土地", "Open Plots")} ({plugin.Configuration.OpenPlots.Count})", selectedHousingSection == HousingSection.OpenPlots))
             selectedHousingSection = HousingSection.OpenPlots;
         ImGui.SameLine();
-        if (DrawSubMenuButton("表示キャラクター", selectedHousingSection == HousingSection.Characters))
+        if (DrawSubMenuButton(Loc.L("表示キャラクター", "Displayed Characters"), selectedHousingSection == HousingSection.Characters))
             selectedHousingSection = HousingSection.Characters;
         ImGui.Separator();
         ImGui.Spacing();
@@ -399,52 +400,52 @@ public sealed class MainWindow : Window
         var depositedTotal = depositedRecords
             .Aggregate(0UL, (total, record) => total + record.BidGilDeposited);
         ImGui.TextColored(new Vector4(0.95f, 0.78f, 0.25f, 1f),
-            $"総資産　{characterTotal + fcTotal + depositedTotal:N0} G");
+            $"{Loc.T("TotalAssets")}　{characterTotal + fcTotal + depositedTotal:N0} G");
         ImGui.SameLine();
-        ImGui.TextDisabled($"（使用可能 {characterTotal + fcTotal:N0} G / 抽選預かり中 {depositedTotal:N0} G）");
+        ImGui.TextDisabled($"（{Loc.T("Available")} {characterTotal + fcTotal:N0} G / {Loc.T("LotteryDeposit")} {depositedTotal:N0} G）");
         var unknownDeposits = depositedRecords.Count(x => x.BidGilDeposited == 0);
         if (unknownDeposits > 0)
         {
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(1f, 0.6f, 0.2f, 1f), $"金額未取得 {unknownDeposits}件");
+            ImGui.TextColored(new Vector4(1f, 0.6f, 0.2f, 1f), Loc.L($"金額未取得 {unknownDeposits}件", $"Amount unavailable: {unknownDeposits}"));
         }
         ImGui.Separator();
 
-        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), "キャラクター・リテイナー");
+        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("キャラクター・リテイナー", "Characters & Retainers"));
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
                     ImGuiTableFlags.SizingStretchProp;
         if (ImGui.BeginTable("gil-characters", 4, flags))
         {
-            ImGui.TableSetupColumn("キャラクター／リテイナー", ImGuiTableColumnFlags.WidthStretch, 1.7f);
-            ImGui.TableSetupColumn("ワールド", ImGuiTableColumnFlags.WidthStretch, 1f);
-            ImGui.TableSetupColumn("所持ギル", ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("最終確認", ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("キャラクター／リテイナー", "Character / Retainer"), ImGuiTableColumnFlags.WidthStretch, 1.7f);
+            ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthStretch, 1f);
+            ImGui.TableSetupColumn(Loc.L("所持ギル", "Gil"), ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("最終確認", "Last Updated"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
             foreach (var character in characters)
             {
                 DrawGilRow(character.CharacterName, character.WorldName, character.Gil, character.UpdatedAt, false);
                 foreach (var retainer in character.Retainers.Values.OrderBy(x => x.Name))
-                    DrawGilRow($"　└ {retainer.Name}", "リテイナー", retainer.Gil, retainer.UpdatedAt, true);
+                    DrawGilRow($"　└ {retainer.Name}", Loc.L("リテイナー", "Retainer"), retainer.Gil, retainer.UpdatedAt, true);
                 if (plugin.Configuration.Characters.TryGetValue(character.ContentId, out var lottery) &&
                     cycle.HasEntry(lottery) && !lottery.ResultChecked && lottery.BidGilDeposited > 0)
-                    DrawGilRow("　└ ハウジング抽選預かり中",
-                        lottery.PlotAddress ?? "応募した土地", lottery.BidGilDeposited,
+                    DrawGilRow(Loc.L("　└ ハウジング抽選預かり中", "　└ Housing lottery deposit"),
+                        lottery.PlotAddress ?? Loc.L("応募した土地", "Entered plot"), lottery.BidGilDeposited,
                         lottery.LastCheckedAt, true, new Vector4(0.35f, 0.8f, 1f, 1f));
             }
             ImGui.EndTable();
         }
 
         ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), "FCチェスト");
+        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("FCチェスト", "Free Company Chests"));
         ImGui.TextDisabled(Loc.IsEnglish
             ? "Each Free Company is displayed and counted once, even when multiple characters belong to it."
             : "同じFCに複数キャラクターが所属していても、FCごとに1件だけ表示・集計します。");
         if (ImGui.BeginTable("gil-free-companies", 4, flags))
         {
             ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.5f);
-            ImGui.TableSetupColumn("ワールド／確認キャラ", ImGuiTableColumnFlags.WidthStretch, 1.3f);
-            ImGui.TableSetupColumn("チェスト内ギル", ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn("最終確認", ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("ワールド／確認キャラ", "World / Checked By"), ImGuiTableColumnFlags.WidthStretch, 1.3f);
+            ImGui.TableSetupColumn(Loc.L("チェスト内ギル", "Chest Gil"), ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("最終確認", "Last Updated"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
             foreach (var fc in plugin.Configuration.FreeCompanyGil.Values.OrderBy(x => x.Name))
                 DrawGilRow(fc.Name, $"{fc.WorldName} / {fc.LastCheckedByName}", fc.Gil, fc.UpdatedAt, false);
@@ -463,7 +464,7 @@ public sealed class MainWindow : Window
         ImGui.TableNextColumn();
         ImGui.TextColored(amountColor ?? new Vector4(0.95f, 0.78f, 0.25f, 1f), $"{gil:N0} G");
         ImGui.TableNextColumn();
-        ImGui.TextDisabled(updatedAt == default ? "—" : updatedAt.ToString("MM/dd（ddd） HH:mm", JapaneseCulture));
+        ImGui.TextDisabled(updatedAt == default ? "—" : FormatDate(updatedAt));
     }
 
     private void DrawSettings()
@@ -579,10 +580,10 @@ public sealed class MainWindow : Window
     {
         var localId = Plugin.PlayerState.ContentId;
         var localName = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.CharacterName : "このキャラクター";
-        var localRole = localId == plugin.Configuration.LinkLeaderContentId ? "リーダー" : "サポーター";
+        var localRole = localId == plugin.Configuration.LinkLeaderContentId ? Loc.T("Leader") : Loc.T("Follower");
         return new[] { (ContentId: localId, Label: $"{localName}（この画面・{localRole}）") }
             .Concat(plugin.CharacterLink.Peers.Select(x =>
-                (ContentId: x.ContentId, Label: $"{x.CharacterName}（{(x.ContentId == plugin.Configuration.LinkLeaderContentId ? "リーダー" : "サポーター")}）")))
+                (ContentId: x.ContentId, Label: $"{x.CharacterName}（{(x.ContentId == plugin.Configuration.LinkLeaderContentId ? Loc.T("Leader") : Loc.T("Follower"))}）")))
             .GroupBy(x => x.ContentId).Select(x => x.First()).ToArray();
     }
 
@@ -877,24 +878,26 @@ public sealed class MainWindow : Window
     private void DrawLotteryStatusTab()
     {
         var cycle = plugin.GetCurrentCycle();
-        var phaseText = cycle.Phase == LotteryPhase.Entry ? "応募期間" : "結果発表期間";
+        var phaseText = cycle.Phase == LotteryPhase.Entry
+            ? Loc.L("応募期間", "Entry Period")
+            : Loc.L("結果発表期間", "Results Period");
         var phaseColor = cycle.Phase == LotteryPhase.Entry
             ? new Vector4(0.35f, 0.8f, 1f, 1f)
             : new Vector4(1f, 0.72f, 0.2f, 1f);
 
-        ImGui.TextColored(phaseColor, $"現在：{phaseText}");
+        ImGui.TextColored(phaseColor, $"{Loc.L("現在", "Current")}：{phaseText}");
         ImGui.SameLine();
         ImGui.TextDisabled($"（{GetPhaseDeadline(cycle)}）");
         ImGui.SameLine();
-        if (ImGui.Button("現在のキャラを再確認"))
+        if (ImGui.Button(Loc.L("現在のキャラを再確認", "Refresh Current Character")))
             plugin.CheckCurrentCharacter(true);
-        ImGui.TextDisabled("「表示キャラクター」で選択したキャラクターだけ表示しています。");
+        ImGui.TextDisabled(Loc.L("「表示キャラクター」で選択したキャラクターだけ表示しています。", "Only characters selected under Displayed Characters are shown."));
 
         ImGui.Separator();
         var displayedCharacters = OrderedCharacters().Where(x => x.EnabledForDisplay).ToList();
         if (displayedCharacters.Count == 0)
         {
-            ImGui.TextDisabled("表示するキャラクターが選択されていません。「表示キャラクター」で選択してください。");
+            ImGui.TextDisabled(Loc.L("表示するキャラクターが選択されていません。「表示キャラクター」で選択してください。", "No characters are selected. Select them under Displayed Characters."));
             return;
         }
 
@@ -904,10 +907,10 @@ public sealed class MainWindow : Window
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("キャラクター", ImGuiTableColumnFlags.WidthStretch, 1.35f);
-        ImGui.TableSetupColumn("状態", ImGuiTableColumnFlags.WidthFixed, 125 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("応募先", ImGuiTableColumnFlags.WidthStretch, 1.6f);
-        ImGui.TableSetupColumn("最終確認", ImGuiTableColumnFlags.WidthFixed, 125 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.T("Character"), ImGuiTableColumnFlags.WidthStretch, 1.35f);
+        ImGui.TableSetupColumn(Loc.T("Status"), ImGuiTableColumnFlags.WidthFixed, 125 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("応募先", "Entered Plot"), ImGuiTableColumnFlags.WidthStretch, 1.6f);
+        ImGui.TableSetupColumn(Loc.L("最終確認", "Last Updated"), ImGuiTableColumnFlags.WidthFixed, 125 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
         foreach (var record in displayedCharacters)
@@ -920,11 +923,11 @@ public sealed class MainWindow : Window
             var (statusText, statusColor) = GetStatus(cycle, record, hasEntry);
             ImGui.TextColored(statusColor, statusText);
             ImGui.TableNextColumn();
-            ImGui.TextWrapped(hasEntry ? record.PlotAddress ?? "応募した土地" : "—");
+            ImGui.TextWrapped(hasEntry ? record.PlotAddress ?? Loc.L("応募した土地", "Entered plot") : "—");
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(record.LastCheckedAt == default
                 ? "—"
-                : record.LastCheckedAt.ToString("MM/dd（ddd） HH:mm", JapaneseCulture));
+                : FormatDate(record.LastCheckedAt));
         }
 
         ImGui.EndTable();
@@ -933,9 +936,9 @@ public sealed class MainWindow : Window
     private void DrawDisplaySettingsTab(bool showPageTitle = true)
     {
         if (showPageTitle)
-            DrawPageTitle("表示キャラクター", "一覧表示とログイン時の通知に使用するキャラクターを選択します。");
-        ImGui.TextUnformatted("表示するキャラクター");
-        ImGui.TextDisabled("チェックしたキャラクターだけ、一覧表示とログイン時の自動表示の対象になります。");
+            DrawPageTitle(Loc.L("表示キャラクター", "Displayed Characters"), Loc.L("一覧表示とログイン時の通知に使用するキャラクターを選択します。", "Choose characters used in lists and login notifications."));
+        ImGui.TextUnformatted(Loc.L("表示するキャラクター", "Characters to display"));
+        ImGui.TextDisabled(Loc.L("チェックしたキャラクターだけ、一覧表示とログイン時の自動表示の対象になります。", "Only checked characters appear in lists and login notifications."));
         ImGui.Spacing();
 
         foreach (var record in OrderedCharacters())
@@ -950,12 +953,14 @@ public sealed class MainWindow : Window
         }
 
         ImGui.Separator();
-        ImGui.TextUnformatted("キャラクター一覧の取得元");
+        ImGui.TextUnformatted(Loc.L("キャラクター一覧の取得元", "Character Data Source"));
         ImGui.TextWrapped(plugin.GetCharacterDataDirectory());
-        if (ImGui.Button("キャラクターフォルダを再読み込み"))
+        if (ImGui.Button(Loc.L("キャラクターフォルダを再読み込み", "Rescan Character Folders")))
         {
             var added = plugin.ScanCharacterFolders();
-            scanMessage = added > 0 ? $"{added}キャラクター追加しました。" : "追加対象はありませんでした。";
+            scanMessage = added > 0
+                ? Loc.L($"{added}キャラクター追加しました。", $"Added {added} character(s).")
+                : Loc.L("追加対象はありませんでした。", "No new characters were found.");
         }
         if (!string.IsNullOrEmpty(scanMessage))
         {
@@ -966,11 +971,11 @@ public sealed class MainWindow : Window
 
     private void DrawOpenPlotsTab()
     {
-        ImGui.TextUnformatted("エーテライトの区画一覧で手動確認した空き土地を保存しています。");
-        ImGui.TextDisabled("同じ区を再確認すると、その区の保存内容を最新状態で置き換えます。");
+        ImGui.TextUnformatted(Loc.L("エーテライトの区画一覧で手動確認した空き土地を保存しています。", "Stores open plots inspected from the residential aetheryte ward list."));
+        ImGui.TextDisabled(Loc.L("同じ区を再確認すると、その区の保存内容を最新状態で置き換えます。", "Inspecting the same ward again replaces its saved results."));
 
         ImGui.SetNextItemWidth(110 * ImGuiHelpers.GlobalScale);
-        ImGui.Combo("サイズ", ref sizeFilterIndex, SizeFilters, SizeFilters.Length);
+        ImGui.Combo(Loc.L("サイズ", "Size"), ref sizeFilterIndex, SizeFilters, SizeFilters.Length);
         ImGui.SameLine();
 
         var worlds = plugin.Configuration.OpenPlots.Select(x => x.WorldName)
@@ -978,7 +983,7 @@ public sealed class MainWindow : Window
         if (!worlds.Contains(worldFilter))
             worldFilter = "ALL";
         ImGui.SetNextItemWidth(180 * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginCombo("ワールド", worldFilter))
+        if (ImGui.BeginCombo(Loc.L("ワールド", "World"), worldFilter))
         {
             foreach (var world in worlds)
             {
@@ -1009,7 +1014,7 @@ public sealed class MainWindow : Window
 
         if (filteredPlots.Count == 0)
         {
-            ImGui.TextDisabled("条件に一致する空き土地はありません。");
+            ImGui.TextDisabled(Loc.L("条件に一致する空き土地はありません。", "No open plots match the selected filters."));
             return;
         }
 
@@ -1019,13 +1024,13 @@ public sealed class MainWindow : Window
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("ワールド", ImGuiTableColumnFlags.WidthStretch, 1f);
-        ImGui.TableSetupColumn("住宅街", ImGuiTableColumnFlags.WidthStretch, 1.2f);
-        ImGui.TableSetupColumn("区・番地", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("サイズ", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("価格", ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("応募", ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("確認日時", ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthStretch, 1f);
+        ImGui.TableSetupColumn(Loc.L("住宅街", "District"), ImGuiTableColumnFlags.WidthStretch, 1.2f);
+        ImGui.TableSetupColumn(Loc.L("区・番地", "Ward / Plot"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("サイズ", "Size"), ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("価格", "Price"), ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("応募", "Entry"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("確認日時", "Checked At"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
 
         foreach (var plot in filteredPlots)
@@ -1043,38 +1048,38 @@ public sealed class MainWindow : Window
                     $"##plot-menu-{plot.WorldId}-{plot.TerritoryTypeId}-{plot.WardNumber}-{plot.PlotNumber}",
                     ImGuiPopupFlags.MouseButtonRight))
             {
-                ImGui.TextUnformatted($"{plot.DistrictName} {plot.WardNumber}区 {plot.PlotNumber}番地");
+                ImGui.TextUnformatted(FormatPlotAddress(plot));
                 ImGui.Separator();
-                if (ImGui.MenuItem("地図で位置を表示"))
+                if (ImGui.MenuItem(Loc.L("地図で位置を表示", "Show on Map")))
                     OpenPlotMap(plot);
                 var lifestreamAvailable = Plugin.IsLifestreamAvailable();
                 if (!lifestreamAvailable)
                     ImGui.BeginDisabled();
-                if (ImGui.MenuItem("Lifestreamで自動移動"))
+                if (ImGui.MenuItem(Loc.L("Lifestreamで自動移動", "Travel with Lifestream")))
                     TravelToPlot(plot);
                 if (!lifestreamAvailable)
                 {
                     ImGui.EndDisabled();
                     if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
-                        ImGui.SetTooltip("Lifestreamが読み込まれていません。");
+                        ImGui.SetTooltip(Loc.L("Lifestreamが読み込まれていません。", "Lifestream is not loaded."));
                 }
                 ImGui.EndPopup();
             }
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(plot.DistrictName);
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted($"{plot.WardNumber}区 {plot.PlotNumber}番地");
+            ImGui.TextUnformatted(Loc.L($"{plot.WardNumber}区 {plot.PlotNumber}番地", $"W{plot.WardNumber} P{plot.PlotNumber}"));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(plot.Size);
             ImGui.TableNextColumn();
             ImGui.TextUnformatted($"{plot.Price:N0} G");
             ImGui.TableNextColumn();
             if (bidCount > 0)
-                ImGui.TextColored(new Vector4(0.35f, 1f, 0.55f, 1f), $"応募中 ×{bidCount}");
+                ImGui.TextColored(new Vector4(0.35f, 1f, 0.55f, 1f), Loc.L($"応募中 ×{bidCount}", $"Entered ×{bidCount}"));
             else
                 ImGui.TextDisabled("—");
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(plot.CheckedAt.ToString("MM/dd（ddd） HH:mm", JapaneseCulture));
+            ImGui.TextUnformatted(FormatDate(plot.CheckedAt));
         }
 
         ImGui.EndTable();
@@ -1093,15 +1098,15 @@ public sealed class MainWindow : Window
     private void OpenPlotMap(OpenPlotRecord plot)
     {
         mapPreviewMessage = Plugin.PreviewOpenPlot(plot)
-            ? $"{plot.DistrictName} {plot.WardNumber}区 {plot.PlotNumber}番地を表示"
-            : "地図を開けませんでした。";
+            ? Loc.L($"{FormatPlotAddress(plot)}を表示", $"Showing {FormatPlotAddress(plot)}")
+            : Loc.L("地図を開けませんでした。", "Unable to open the map.");
     }
 
     private void TravelToPlot(OpenPlotRecord plot)
     {
         mapPreviewMessage = Plugin.TravelToOpenPlot(plot)
-            ? $"{plot.WorldName} {plot.DistrictName} {plot.WardNumber}区 {plot.PlotNumber}番地へ移動開始"
-            : "Lifestreamで移動を開始できませんでした。";
+            ? Loc.L($"{plot.WorldName} {FormatPlotAddress(plot)}へ移動開始", $"Travelling to {plot.WorldName} {FormatPlotAddress(plot)}")
+            : Loc.L("Lifestreamで移動を開始できませんでした。", "Lifestream could not start travel.");
     }
 
     private IOrderedEnumerable<CharacterLotteryRecord> OrderedCharacters() =>
@@ -1114,21 +1119,26 @@ public sealed class MainWindow : Window
     {
         if (cycle.Phase == LotteryPhase.Entry)
             return hasEntry
-                ? ("参加", new Vector4(0.25f, 0.9f, 0.45f, 1f))
-                : ("未参加", new Vector4(1f, 0.35f, 0.35f, 1f));
+                ? (Loc.L("参加", "Entered"), new Vector4(0.25f, 0.9f, 0.45f, 1f))
+                : (Loc.L("未参加", "Not Entered"), new Vector4(1f, 0.35f, 0.35f, 1f));
 
         if (!hasEntry)
-            return ("—（未参加）", new Vector4(0.6f, 0.6f, 0.6f, 1f));
+            return (Loc.L("—（未参加）", "— (Not Entered)"), new Vector4(0.6f, 0.6f, 0.6f, 1f));
 
         return record.ResultChecked
-            ? ("確認済", new Vector4(0.25f, 0.9f, 0.45f, 1f))
-            : ("未確認", new Vector4(1f, 0.35f, 0.35f, 1f));
+            ? (Loc.L("確認済", "Checked"), new Vector4(0.25f, 0.9f, 0.45f, 1f))
+            : (Loc.L("未確認", "Unchecked"), new Vector4(1f, 0.35f, 0.35f, 1f));
     }
 
     private static string GetPhaseDeadline(LotteryCycle cycle) => cycle.Phase == LotteryPhase.Entry
-        ? $"応募締切 {FormatDate(cycle.EntryEndsAt)}"
-        : $"発表終了 {FormatDate(cycle.ResultsEndAt)}";
+        ? $"{Loc.L("応募締切", "Entry Deadline")} {FormatDate(cycle.EntryEndsAt)}"
+        : $"{Loc.L("発表終了", "Results End")} {FormatDate(cycle.ResultsEndAt)}";
 
     private static string FormatDate(DateTime value) =>
-        value.ToString("MM/dd（ddd） HH:mm", JapaneseCulture);
+        value.ToString(Loc.IsEnglish ? "MM/dd (ddd) HH:mm" : "MM/dd（ddd） HH:mm",
+            Loc.IsEnglish ? EnglishCulture : JapaneseCulture);
+
+    private static string FormatPlotAddress(OpenPlotRecord plot) => Loc.L(
+        $"{plot.DistrictName} {plot.WardNumber}区 {plot.PlotNumber}番地",
+        $"{plot.DistrictName} Ward {plot.WardNumber}, Plot {plot.PlotNumber}");
 }

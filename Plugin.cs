@@ -374,9 +374,9 @@ public sealed class Plugin : IDalamudPlugin
                 _ => (uint)(territoryTypeId - 339),
             };
             var size = DataManager.GetExcelSheet<HousingLandSet>().GetRow(landSetId).LandSet[plotIndex].PlotSize;
-            return size switch { 0 => "S", 1 => "M", 2 => "L", _ => "不明" };
+            return size switch { 0 => "S", 1 => "M", 2 => "L", _ => "?" };
         }
-        catch { return "不明"; }
+        catch { return "?"; }
     }
 
     internal static bool PreviewOpenPlot(OpenPlotRecord plot)
