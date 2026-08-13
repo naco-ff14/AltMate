@@ -60,7 +60,7 @@ public sealed class MainWindow : Window
             Icon = FontAwesomeIcon.WindowMinimize,
             IconOffset = new Vector2(0, -2),
             Priority = 1,
-            ShowTooltip = () => ImGui.SetTooltip("最小化"),
+            ShowTooltip = () => ImGui.SetTooltip(Loc.T("Minimize")),
             Click = _ => EnterCompactMode(),
         });
     }
@@ -208,22 +208,22 @@ public sealed class MainWindow : Window
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 3 * ImGuiHelpers.GlobalScale);
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.72f, 0.08f, 0.08f, 0.95f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.12f, 0.12f, 1f));
-        if (ImGui.SmallButton("緊急停止##compact-stop"))
+        if (ImGui.SmallButton($"{Loc.T("EmergencyStop")}##compact-stop"))
             plugin.CharacterLink.EmergencyStop();
         ImGui.PopStyleColor(2);
         ImGui.SameLine();
         if (ImGui.SmallButton("⛶##compact-expand"))
             ExitCompactMode();
         if (ImGui.IsItemHovered())
-            ImGui.SetTooltip("最大化");
+            ImGui.SetTooltip(Loc.T("Maximize"));
 
         ImGui.SetCursorPosY(42 * ImGuiHelpers.GlobalScale);
-        ImGui.TextDisabled("状態：");
+        ImGui.TextDisabled($"{Loc.T("Status")}：");
         ImGui.SameLine(0, 2 * ImGuiHelpers.GlobalScale);
         var statusColor = plugin.CharacterLink.RuntimeStopped
             ? new Vector4(1f, 0.32f, 0.28f, 1f)
             : new Vector4(0.42f, 0.82f, 1f, 1f);
-        ImGui.TextColored(statusColor, plugin.CharacterLink.LastAction);
+        ImGui.TextColored(statusColor, Loc.Status(plugin.CharacterLink.LastAction));
     }
 
     private void DrawMenuButton(string label, MainSection section, int badge = 0, string? detail = null)
@@ -381,7 +381,9 @@ public sealed class MainWindow : Window
     private void DrawGil()
     {
         DrawPageTitle(Loc.T("Gil"), Loc.T("GilDescription"));
-        ImGui.TextDisabled("本人はログイン中に更新。リテイナーとFCはゲーム側へ情報が読み込まれた時点の最新値です。");
+        ImGui.TextDisabled(Loc.IsEnglish
+            ? "Character gil updates while logged in. Retainer and FC values show the latest data loaded by the game."
+            : "本人のギルはログイン中に更新します。リテイナーとFCチェストは、ゲーム内で確認した時点の最新額です。");
 
         var characters = plugin.Configuration.CharacterGil.Values
             .OrderBy(x => x.CharacterName).ThenBy(x => x.WorldName).ToArray();
@@ -434,7 +436,9 @@ public sealed class MainWindow : Window
 
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), "FCチェスト");
-        ImGui.TextDisabled("同じFC所属のキャラクターが複数いても、FC ID単位で1件だけ表示・集計します。");
+        ImGui.TextDisabled(Loc.IsEnglish
+            ? "Each Free Company is displayed and counted once, even when multiple characters belong to it."
+            : "同じFCに複数キャラクターが所属していても、FCごとに1件だけ表示・集計します。");
         if (ImGui.BeginTable("gil-free-companies", 4, flags))
         {
             ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.5f);
@@ -490,12 +494,13 @@ public sealed class MainWindow : Window
     private void DrawAnimations()
     {
         DrawPageTitle(Loc.T("Animation"), Loc.T("AnimationDescription"));
-        ImGui.TextDisabled("この画面のキャラクターで現在有効なMod・オプションと、競合時に実際に適用される優先度を反映します。");
-        ImGui.TextDisabled("サポーター側のPenumbra設定が異なる場合は、サポーター側のAltMate画面から一覧を確認してください。");
+        ImGui.TextDisabled(Plugin.CurrentConfiguration?.Language == "en"
+            ? "The list reflects the active Penumbra collection, options, and winning mod priority on this client."
+            : "このクライアントで実際に有効なPenumbraコレクション・オプション・Mod優先度を表示します。");
 
         if (!plugin.Animations.IsPenumbraLoaded)
         {
-            ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), "Penumbraが読み込まれていません。");
+            ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), Loc.T("PenumbraMissing"));
             return;
         }
 
@@ -505,7 +510,7 @@ public sealed class MainWindow : Window
             animationListLoaded = true;
         }
 
-        if (ImGui.Button("一覧を更新"))
+        if (ImGui.Button(Loc.T("RefreshList")))
         {
             animationEmotes = plugin.Animations.LoadActiveEmotes().ToArray();
         }
@@ -516,9 +521,9 @@ public sealed class MainWindow : Window
         var targets = GetAnimationTargets();
         if (animationTargetContentId == 0 || targets.All(x => x.ContentId != animationTargetContentId))
             animationTargetContentId = Plugin.PlayerState.ContentId;
-        var targetPreview = targets.FirstOrDefault(x => x.ContentId == animationTargetContentId).Label ?? "このキャラクター";
+        var targetPreview = targets.FirstOrDefault(x => x.ContentId == animationTargetContentId).Label ?? Loc.T("Character");
         ImGui.SetNextItemWidth(330 * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginCombo("再生するキャラクター", targetPreview))
+        if (ImGui.BeginCombo(Loc.T("PlayCharacter"), targetPreview))
         {
             foreach (var target in targets)
             {
@@ -532,12 +537,12 @@ public sealed class MainWindow : Window
         }
 
         ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
-        ImGui.InputTextWithHint("##animation-filter", "エモート名で絞り込み", ref animationFilter, 100);
+        ImGui.InputTextWithHint("##animation-filter", Loc.T("FilterEmote"), ref animationFilter, 100);
         ImGui.Separator();
 
         if (animationEmotes.Length == 0)
         {
-            ImGui.TextDisabled("「一覧を更新」を押すと、Penumbraで現在有効なエモートを表示します。");
+            ImGui.TextDisabled(Loc.T("AnimationEmpty"));
             return;
         }
 
@@ -549,8 +554,8 @@ public sealed class MainWindow : Window
         if (!ImGui.BeginTable("active-animation-emotes", 4, flags, new Vector2(0, -1)))
             return;
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn("エモート", ImGuiTableColumnFlags.WidthStretch, 1.25f);
-        ImGui.TableSetupColumn("適用元Mod", ImGuiTableColumnFlags.WidthStretch, 2f);
+        ImGui.TableSetupColumn(Loc.T("Emote"), ImGuiTableColumnFlags.WidthStretch, 1.25f);
+        ImGui.TableSetupColumn(Loc.T("SourceMod"), ImGuiTableColumnFlags.WidthStretch, 2f);
         ImGui.TableSetupColumn("ID", ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 68 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
@@ -564,7 +569,7 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             ImGui.TextDisabled(emote.Id.ToString());
             ImGui.TableNextColumn();
-            if (ImGui.SmallButton($"再生##play-emote-{emote.Id}"))
+            if (ImGui.SmallButton($"{Loc.T("Play")}##play-emote-{emote.Id}"))
                 plugin.CharacterLink.PlayEmote(emote.Id, animationTargetContentId);
         }
         ImGui.EndTable();
@@ -584,30 +589,30 @@ public sealed class MainWindow : Window
     private void DrawCharacterLink()
     {
         DrawPageTitle(Loc.T("Link"), Loc.T("LinkDescription"));
-        ImGui.TextDisabled($"読込バージョン：{Plugin.PluginInterface.Manifest.AssemblyVersion}");
+        ImGui.TextDisabled($"{Loc.T("LoadedVersion")}：{Plugin.PluginInterface.Manifest.AssemblyVersion}");
 
         if (plugin.CharacterLink.RuntimeStopped)
         {
             ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.12f, 0.52f, 0.28f, 0.95f));
-            if (ImGui.Button("連携操作を再開", new Vector2(180 * ImGuiHelpers.GlobalScale, 38 * ImGuiHelpers.GlobalScale)))
+            if (ImGui.Button(Loc.T("ResumeLink"), new Vector2(180 * ImGuiHelpers.GlobalScale, 38 * ImGuiHelpers.GlobalScale)))
                 plugin.CharacterLink.Resume();
             ImGui.PopStyleColor();
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), "緊急停止中");
+            ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f), Loc.T("EmergencyStopped"));
         }
         else
         {
             ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.72f, 0.14f, 0.12f, 0.95f));
-            if (ImGui.Button("すべて緊急停止", new Vector2(180 * ImGuiHelpers.GlobalScale, 38 * ImGuiHelpers.GlobalScale)))
+            if (ImGui.Button(Loc.T("StopAll"), new Vector2(180 * ImGuiHelpers.GlobalScale, 38 * ImGuiHelpers.GlobalScale)))
                 plugin.CharacterLink.EmergencyStop();
             ImGui.PopStyleColor();
             ImGui.SameLine();
-            ImGui.TextDisabled(plugin.CharacterLink.LastAction);
+            ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.Status(plugin.CharacterLink.LastAction));
         }
 
         ImGui.Spacing();
         var linkEnabled = plugin.Configuration.LinkEnabled;
-        if (ImGui.Checkbox("連携操作を有効にする", ref linkEnabled))
+        if (ImGui.Checkbox(Loc.T("EnableLink"), ref linkEnabled))
         {
             plugin.Configuration.LinkEnabled = linkEnabled;
             plugin.Configuration.Save();
@@ -621,9 +626,9 @@ public sealed class MainWindow : Window
             : plugin.Configuration.Characters.TryGetValue(
                 plugin.Configuration.LinkLeaderContentId, out var leaderRecord)
                 ? $"{leaderRecord.CharacterName} @ {leaderRecord.WorldName}"
-                : "選択してください";
+                : Loc.T("SelectCharacter");
         ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginCombo("リーダー", currentLeader))
+        if (ImGui.BeginCombo(Loc.T("Leader"), currentLeader))
         {
             foreach (var record in OrderedCharacters())
             {
@@ -640,46 +645,46 @@ public sealed class MainWindow : Window
             ImGui.EndCombo();
         }
         ImGui.TextDisabled(plugin.CharacterLink.IsLeader
-            ? "このキャラクターはリーダーです。"
-            : "このキャラクターはフォロワーとして動作します。");
+            ? Loc.T("ThisIsLeader")
+            : Loc.T("ThisIsFollower"));
 
         if (!plugin.CharacterLink.IsLeader)
         {
             ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.12f, 0.42f, 0.62f, 0.92f));
-            if (ImGui.Button("リーダーの元へ移動", new Vector2(180 * ImGuiHelpers.GlobalScale, 32 * ImGuiHelpers.GlobalScale)))
+            if (ImGui.Button(Loc.T("MoveToLeader"), new Vector2(180 * ImGuiHelpers.GlobalScale, 32 * ImGuiHelpers.GlobalScale)))
                 plugin.CharacterLink.MoveToLeader();
             ImGui.PopStyleColor();
             ImGui.SameLine();
             ImGui.TextDisabled(plugin.CharacterLink.WorldLinkStatus);
-            ImGui.TextDisabled("別ワールド中の自動連携は停止します。このボタンを押したときだけLifestreamで合流します。");
+            ImGui.TextDisabled(Loc.T("DifferentWorldHelp"));
             ImGui.Spacing();
-            if (ImGui.Button("追従テスト"))
+            if (ImGui.Button(Loc.IsEnglish ? "Test follow" : "追従テスト"))
                 plugin.CharacterLink.TestFollow();
             ImGui.SameLine();
-            if (ImGui.Button("相乗りテスト"))
+            if (ImGui.Button(Loc.IsEnglish ? "Test pillion" : "相乗りテスト"))
                 plugin.CharacterLink.TestRidePillion();
             ImGui.SameLine();
-            ImGui.TextDisabled("フォロワー側で押すとゲームコマンドを1回実行します。");
-            ImGui.TextDisabled($"診断：{plugin.CharacterLink.DiagnosticMessage}");
+            ImGui.TextDisabled(Loc.IsEnglish ? "Runs one test on this follower." : "フォロワー側で1回だけ動作を試します。");
+            ImGui.TextDisabled($"{(Loc.IsEnglish ? "Diagnostic" : "診断")}：{plugin.CharacterLink.DiagnosticMessage}");
         }
 
         ImGui.Separator();
         var autoFollow = plugin.Configuration.AutoFollowEnabled;
-        if (ImGui.Checkbox("フォロワーがリーダーを自動追従", ref autoFollow))
+        if (ImGui.Checkbox(Loc.T("AutoFollow"), ref autoFollow))
         {
             plugin.Configuration.AutoFollowEnabled = autoFollow;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var autoRide = plugin.Configuration.AutoRidePillionEnabled;
-        if (ImGui.Checkbox("リーダーのマウントへ自動で相乗り", ref autoRide))
+        if (ImGui.Checkbox(Loc.T("AutoRide"), ref autoRide))
         {
             plugin.Configuration.AutoRidePillionEnabled = autoRide;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var pauseCombat = plugin.Configuration.PauseLinkInCombat;
-        if (ImGui.Checkbox("どちらかが戦闘中なら自動操作を一時停止", ref pauseCombat))
+        if (ImGui.Checkbox(Loc.T("PauseCombat"), ref pauseCombat))
         {
             plugin.Configuration.PauseLinkInCombat = pauseCombat;
             plugin.Configuration.Save();
@@ -687,7 +692,7 @@ public sealed class MainWindow : Window
         }
         var followDistance = plugin.Configuration.FollowStartDistance;
         ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat("追従を再開する距離", ref followDistance, 3f, 15f, "%.1f m"))
+        if (ImGui.SliderFloat(Loc.T("FollowDistance"), ref followDistance, 3f, 15f, "%.1f m"))
         {
             plugin.Configuration.FollowStartDistance = followDistance;
             plugin.Configuration.Save();
@@ -695,24 +700,24 @@ public sealed class MainWindow : Window
         }
 
         ImGui.Separator();
-        ImGui.TextColored(new Vector4(1f, 0.55f, 0.3f, 1f), "戦闘連携");
-        ImGui.TextDisabled("リーダーが戦闘を開始すると、フォロワー側の戦闘支援を自動的に開始します。");
+        ImGui.TextColored(new Vector4(1f, 0.55f, 0.3f, 1f), Loc.T("CombatLink"));
+        ImGui.TextDisabled(Loc.T("CombatLinkHelp"));
         var combatLink = plugin.Configuration.CombatLinkEnabled;
-        if (ImGui.Checkbox("リーダーの戦闘開始にフォロワーを連動", ref combatLink))
+        if (ImGui.Checkbox(Loc.T("LinkCombatStart"), ref combatLink))
         {
             plugin.Configuration.CombatLinkEnabled = combatLink;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var useBmr = plugin.Configuration.UseBossModReborn;
-        if (ImGui.Checkbox("BossMod Reborn（移動・ターゲット）", ref useBmr))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "BossMod Reborn (movement and targeting)" : "BossMod Reborn（移動・ターゲット）", ref useBmr))
         {
             plugin.Configuration.UseBossModReborn = useBmr;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var useRsr = plugin.Configuration.UseRotationSolverReborn;
-        if (ImGui.Checkbox("Rotation Solver Reborn（攻撃ローテーション）", ref useRsr))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "Rotation Solver Reborn (combat rotation)" : "Rotation Solver Reborn（攻撃ローテーション）", ref useRsr))
         {
             plugin.Configuration.UseRotationSolverReborn = useRsr;
             plugin.Configuration.Save();
@@ -720,21 +725,22 @@ public sealed class MainWindow : Window
         }
         var stopDelay = plugin.Configuration.CombatStopDelaySeconds;
         ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat("リーダーの戦闘終了後に停止", ref stopDelay, 0f, 15f, "%.1f 秒"))
+        if (ImGui.SliderFloat(Loc.T("StopAfterCombat"), ref stopDelay, 0f, 15f,
+                Plugin.CurrentConfiguration?.Language == "en" ? "%.1f sec" : "%.1f 秒"))
         {
             plugin.Configuration.CombatStopDelaySeconds = stopDelay;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
-        ImGui.TextDisabled($"状態：{plugin.CharacterLink.CombatStatus}");
+        ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.CombatStatus)}");
 
         ImGui.Spacing();
-        if (ImGui.CollapsingHeader("クレセントアイル連携##occult-link"))
+        if (ImGui.CollapsingHeader($"{Loc.T("OccultLink")}##occult-link"))
         {
             ImGui.Indent(12 * ImGuiHelpers.GlobalScale);
-            ImGui.TextDisabled("リーダーのエリア内移動やデミデジョンをフォロワーへ同期します。");
+            ImGui.TextDisabled(Loc.T("OccultHelp"));
             var occultSync = plugin.Configuration.OccultAethernetSyncEnabled;
-            if (ImGui.Checkbox("リーダーのエーテライト移動にフォロワーを連動", ref occultSync))
+            if (ImGui.Checkbox(Loc.IsEnglish ? "Sync leader's aetheryte travel" : "リーダーのエーテライト移動にフォロワーを連動", ref occultSync))
             {
                 plugin.Configuration.OccultAethernetSyncEnabled = occultSync;
                 plugin.Configuration.Save();
@@ -743,53 +749,53 @@ public sealed class MainWindow : Window
             ImGui.TextDisabled(plugin.CharacterLink.IsLifestreamLoaded
                 ? "Lifestream：接続済み"
                 : "Lifestream：未接続（両クライアントで有効にしてください）");
-            ImGui.TextDisabled($"状態：{plugin.CharacterLink.OccultTravelStatus}");
+            ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.OccultTravelStatus)}");
 
             ImGui.Spacing();
             var syncReturn = plugin.Configuration.SyncReturnEnabled;
-            if (ImGui.Checkbox("リーダーのデミデジョンにフォロワーを連動", ref syncReturn))
+            if (ImGui.Checkbox(Loc.IsEnglish ? "Sync leader's Demi-Return" : "リーダーのデミデジョンにフォロワーを連動", ref syncReturn))
             {
                 plugin.Configuration.SyncReturnEnabled = syncReturn;
                 plugin.Configuration.Save();
                 plugin.CharacterLink.SettingsChanged();
             }
             var autoTreasure = plugin.Configuration.AutoOpenNearbyTreasureEnabled;
-            if (ImGui.Checkbox("近くの宝箱を自動で開ける（2m以内）", ref autoTreasure))
+            if (ImGui.Checkbox(Loc.IsEnglish ? "Open nearby treasure automatically (within 2m)" : "近くの宝箱を自動で開ける（2m以内）", ref autoTreasure))
             {
                 plugin.Configuration.AutoOpenNearbyTreasureEnabled = autoTreasure;
                 plugin.Configuration.Save();
                 plugin.CharacterLink.SettingsChanged();
             }
-            ImGui.TextDisabled($"宝箱：{plugin.CharacterLink.TreasureStatus}");
+            ImGui.TextDisabled($"{(Loc.IsEnglish ? "Treasure" : "宝箱")}：{Loc.Status(plugin.CharacterLink.TreasureStatus)}");
             ImGui.Unindent(12 * ImGuiHelpers.GlobalScale);
         }
 
         ImGui.Spacing();
-        ImGui.TextUnformatted("エリア移動・コンテンツ同期");
-        ImGui.TextDisabled("通常テレポ、都市内、住宅街の移動をLifestream経由でフォロワーへ同期します。");
+        ImGui.TextUnformatted(Loc.T("AreaContentSync"));
+        ImGui.TextDisabled(Loc.T("AreaContentHelp"));
         var syncRegularTeleport = plugin.Configuration.SyncRegularTeleportEnabled;
-        if (ImGui.Checkbox("リーダーの通常テレポにフォロワーを連動", ref syncRegularTeleport))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "Sync regular teleport" : "リーダーの通常テレポにフォロワーを連動", ref syncRegularTeleport))
         {
             plugin.Configuration.SyncRegularTeleportEnabled = syncRegularTeleport;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var syncCityAethernet = plugin.Configuration.SyncCityAethernetEnabled;
-        if (ImGui.Checkbox("都市内エーテライト移動を同期", ref syncCityAethernet))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "Sync city aethernet travel" : "都市内エーテライト移動を同期", ref syncCityAethernet))
         {
             plugin.Configuration.SyncCityAethernetEnabled = syncCityAethernet;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var syncResidentialAethernet = plugin.Configuration.SyncResidentialAethernetEnabled;
-        if (ImGui.Checkbox("住宅街のエーテライト移動を同期", ref syncResidentialAethernet))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "Sync residential aethernet travel" : "住宅街のエーテライト移動を同期", ref syncResidentialAethernet))
         {
             plugin.Configuration.SyncResidentialAethernetEnabled = syncResidentialAethernet;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var syncFcEstate = plugin.Configuration.SyncFreeCompanyEstateEnabled;
-        if (ImGui.Checkbox("FCハウステレポを同期（Lifestream住所移動）", ref syncFcEstate))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "Sync FC estate teleport (Lifestream address travel)" : "FCハウステレポを同期（Lifestream住所移動）", ref syncFcEstate))
         {
             plugin.Configuration.SyncFreeCompanyEstateEnabled = syncFcEstate;
             plugin.Configuration.Save();
@@ -798,41 +804,41 @@ public sealed class MainWindow : Window
         ImGui.TextDisabled(plugin.CharacterLink.IsLifestreamLoaded
             ? $"移動同期：{plugin.CharacterLink.GeneralTravelStatus}"
             : "移動同期：Lifestream未接続（両クライアントで有効にしてください）");
-        ImGui.TextDisabled($"FCハウス：{plugin.CharacterLink.HousingTravelStatus}");
+        ImGui.TextDisabled($"{(Loc.IsEnglish ? "FC estate" : "FCハウス")}：{Loc.Status(plugin.CharacterLink.HousingTravelStatus)}");
         ImGui.Spacing();
         var syncDuty = plugin.Configuration.SyncDutyCommenceEnabled;
-        if (ImGui.Checkbox("フォロワーもコンテンツ突入を承認", ref syncDuty))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "Follower accepts duty commencement" : "フォロワーもコンテンツ突入を承認", ref syncDuty))
         {
             plugin.Configuration.SyncDutyCommenceEnabled = syncDuty;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
         var syncTeleport = plugin.Configuration.SyncTeleportInvitationEnabled;
-        if (ImGui.Checkbox("フォロワーに届いたテレポ勧誘を自動承認", ref syncTeleport))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "Automatically accept teleport invitations on follower" : "フォロワーに届いたテレポ勧誘を自動承認", ref syncTeleport))
         {
             plugin.Configuration.SyncTeleportInvitationEnabled = syncTeleport;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
-        ImGui.TextDisabled("CF突入・テレポ勧誘は、リーダーへ接続中のフォロワーだけが承認します。");
-        ImGui.TextDisabled($"状態：{plugin.CharacterLink.AreaSyncStatus}");
+        ImGui.TextDisabled(Loc.IsEnglish ? "Only followers currently connected to the leader accept these prompts." : "リーダーへ接続中のフォロワーだけが、コンテンツ突入とテレポ勧誘を承認します。");
+        ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.AreaSyncStatus)}");
 
         ImGui.Separator();
-        ImGui.TextUnformatted($"接続中の別クライアント　{plugin.CharacterLink.Peers.Length}台");
+        ImGui.TextUnformatted($"{Loc.T("ConnectedClients")}：{plugin.CharacterLink.Peers.Length}");
         var peers = plugin.CharacterLink.Peers;
         if (peers.Length == 0)
         {
-            ImGui.TextDisabled("別のFF14クライアントでAltMateが起動するのを待っています。");
+            ImGui.TextDisabled(Loc.T("WaitingOtherClient"));
             return;
         }
 
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp;
         if (!ImGui.BeginTable("linked-characters", 5, flags))
             return;
-        ImGui.TableSetupColumn("キャラクター", ImGuiTableColumnFlags.WidthStretch, 1.5f);
-        ImGui.TableSetupColumn("役割", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("ジョブ", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn("状態", ImGuiTableColumnFlags.WidthStretch, 1f);
+        ImGui.TableSetupColumn(Loc.T("Character"), ImGuiTableColumnFlags.WidthStretch, 1.5f);
+        ImGui.TableSetupColumn(Loc.T("Role"), ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.T("Job"), ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.T("Status"), ImGuiTableColumnFlags.WidthStretch, 1f);
         ImGui.TableSetupColumn("HP", ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
         foreach (var peer in peers)
@@ -844,11 +850,13 @@ public sealed class MainWindow : Window
             ImGui.TextColored(peer.ContentId == plugin.Configuration.LinkLeaderContentId
                     ? new Vector4(0.35f, 0.82f, 1f, 1f)
                     : new Vector4(0.65f, 0.75f, 0.85f, 1f),
-                peer.ContentId == plugin.Configuration.LinkLeaderContentId ? "リーダー" : "フォロワー");
+                peer.ContentId == plugin.Configuration.LinkLeaderContentId ? Loc.T("Leader") : Loc.T("Follower"));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(peer.JobName);
             ImGui.TableNextColumn();
-            var state = peer.InCombat ? "戦闘中" : peer.RidingPillion ? "相乗り中" : peer.Mounted ? "マウント中" : "待機中";
+            var state = Plugin.CurrentConfiguration?.Language == "en"
+                ? peer.InCombat ? "In combat" : peer.RidingPillion ? "Riding pillion" : peer.Mounted ? "Mounted" : "Idle"
+                : peer.InCombat ? "戦闘中" : peer.RidingPillion ? "相乗り中" : peer.Mounted ? "マウント中" : "待機中";
             ImGui.TextUnformatted(state);
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(peer.MaxHp > 0 ? $"{peer.CurrentHp:N0}/{peer.MaxHp:N0}" : "—");

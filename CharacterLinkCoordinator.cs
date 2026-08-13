@@ -486,6 +486,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
         }
 
+        // エリア移動やログイン直後に一時的にPlayerStateが未取得になっても、
+        // 取得が戻ったフレームで古い「ログアウト中」表示を残さない。
+        if (LastAction == "ログアウト中")
+            LastAction = IsLeader ? "リーダーとして待機中" : "待機中";
+
         var now = DateTime.UtcNow;
         plugin.CheckSharedConfiguration();
         UpdateFollowState(now);
