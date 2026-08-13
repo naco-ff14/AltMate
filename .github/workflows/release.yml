@@ -1,0 +1,79 @@
+name: Release AltMate
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+
+      - name: Restore
+        run: dotnet restore AltMate.csproj
+
+      - name: Build
+        run: dotnet build AltMate.csproj -c Release --no-restore
+
+      - name: Verify manifest version
+        shell: pwsh
+        run: |
+          $project = [xml](Get-Content AltMate.csproj)
+          $projectVersion = [string]$project.Project.PropertyGroup.Version
+          $repo = Get-Content repo.json -Raw | ConvertFrom-Json
+          if ($repo[0].AssemblyVersion -ne $projectVersion) {
+            throw "repo.json AssemblyVersion '$($repo[0].AssemblyVersion)' does not match project version '$projectVersion'."
+          }
+
+      - name: Package Dalamud plugin
+        shell: pwsh
+        run: |
+          $output = Join-Path $PWD "bin\x64\Release"
+          $dll = Get-ChildItem $output -Recurse -Filter AltMate.dll | Select-Object -First 1
+          if (-not $dll) { throw "AltMate.dll was not produced." }
+          $package = Join-Path $PWD "package"
+          New-Item -ItemType Directory -Force $package | Out-Null
+          Copy-Item $dll.FullName $package
+          $deps = [IO.Path]::ChangeExtension($dll.FullName, ".deps.json")
+          if (Test-Path $deps) { Copy-Item $deps $package }
+          Copy-Item AltMate.json $package
+          New-Item -ItemType Directory -Force (Join-Path $package "images") | Out-Null
+          Copy-Item images\icon.png (Join-Path $package "images\icon.png")
+          Compress-Archive -Path "$package\*" -DestinationPath latest.zip -Force
+
+      - name: Validate package
+        shell: pwsh
+        run: |
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $PWD "latest.zip"))
+          try {
+            $names = $zip.Entries.FullName
+            foreach ($required in @("AltMate.dll", "AltMate.json", "images/icon.png")) {
+              if ($names -notcontains $required) { throw "latest.zip is missing $required" }
+            }
+          } finally { $zip.Dispose() }
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" latest.zip --generate-notes --title "AltMate ${{ github.ref_name }}"
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AltMate-latest
+          path: latest.zip

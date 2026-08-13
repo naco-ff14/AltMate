@@ -1,0 +1,9 @@
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.log
+*.zip
+shared-config.json
+shared-config.json.*
