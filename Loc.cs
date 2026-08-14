@@ -59,7 +59,7 @@ internal static class Loc
         ["AutoFollow"] = ("フォロワーがリーダーを自動追従", "Follower automatically follows leader"),
         ["AutoRide"] = ("リーダーのマウントへ自動で相乗り", "Automatically ride leader's multi-seat mount"),
         ["PauseCombat"] = ("どちらかが戦闘中なら移動操作を一時停止", "Pause movement controls while either character is in combat"),
-        ["FollowDistance"] = ("追従を開始する距離", "Distance to start following"),
+        ["FollowDistance"] = ("A–B追従間隔", "Leader–follower spacing"),
         ["CombatLink"] = ("戦闘連携", "Combat Link"),
         ["CombatLinkHelp"] = ("リーダーの戦闘開始に合わせて、フォロワー側の戦闘支援を開始します。", "Starts combat assistance on the follower when the leader enters combat."),
         ["LinkCombatStart"] = ("リーダーの戦闘開始にフォロワーを連動", "Link follower to leader's combat start"),

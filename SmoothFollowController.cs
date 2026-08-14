@@ -12,6 +12,7 @@ namespace AltMate;
 internal sealed unsafe class SmoothFollowController : IDisposable
 {
     private Vector3? desiredDirection;
+    private float desiredStrength = 1f;
     private readonly Hook<ReadWalkInputDelegate>? walkHook;
 
     private delegate void ReadWalkInputDelegate(nint self, float* sumLeft, float* sumForward,
@@ -31,9 +32,10 @@ internal sealed unsafe class SmoothFollowController : IDisposable
         }
     }
 
-    internal void Follow(Vector3 worldDirection)
+    internal void Follow(Vector3 worldDirection, float strength = 1f)
     {
         desiredDirection = worldDirection.LengthSquared() > 0.001f ? worldDirection : null;
+        desiredStrength = Math.Clamp(strength, 0f, 1f);
     }
 
     internal void Stop() => desiredDirection = null;
@@ -56,8 +58,8 @@ internal sealed unsafe class SmoothFollowController : IDisposable
         var worldAngle = MathF.Atan2(horizontal.X, horizontal.Y);
         var forwardAngle = GetForwardAngle();
         var relativeAngle = worldAngle - forwardAngle;
-        *sumLeft = MathF.Sin(relativeAngle);
-        *sumForward = MathF.Cos(relativeAngle);
+        *sumLeft = MathF.Sin(relativeAngle) * desiredStrength;
+        *sumForward = MathF.Cos(relativeAngle) * desiredStrength;
     }
 
     private static float GetForwardAngle()

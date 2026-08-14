@@ -47,6 +47,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool runtimeStopped;
     private bool stopFollowRequested;
     private bool followCommandActive;
+    private bool smoothDistanceFollowing;
     private bool localCharacterUnavailable;
     private DateTime localCharacterReadySinceUtc;
     private DateTime followCommandStartedUtc;
@@ -58,7 +59,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool combatAutomationActive;
     private DateTime? leaderCombatEndedUtc;
     private uint lastLeaderOccultAetheryteId;
+    private uint pendingOccultSourceId;
     private uint pendingOccultDestinationId;
+    private bool occultSourceApproachActive;
     private DateTime pendingOccultExpiresUtc;
     private DateTime lastOccultAttemptUtc;
     private bool leaderWasCastingReturn;
@@ -422,6 +425,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
 
         var now = DateTime.UtcNow;
+        occultSourceApproachActive = false;
         if (now < smoothFollowTestUntilUtc && TryGetLeaderObject(out _, out var testLeader) &&
             Plugin.ObjectTable.LocalPlayer is { } testLocal)
             smoothFollow.Follow(testLeader.Position - testLocal.Position);
@@ -1383,9 +1387,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
             }
             else if (lastLeaderOccultAetheryteId != leaderNode.Value.PlaceNameId)
             {
+                pendingOccultSourceId = lastLeaderOccultAetheryteId;
                 lastLeaderOccultAetheryteId = leaderNode.Value.PlaceNameId;
                 pendingOccultDestinationId = leaderNode.Value.PlaceNameId;
-                pendingOccultExpiresUtc = now.AddSeconds(20);
+                pendingOccultExpiresUtc = now.AddSeconds(45);
                 OccultTravelStatus = $"リーダーの移動を検出：{GetPlaceName(pendingOccultDestinationId)}";
             }
         }
@@ -1395,6 +1400,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (now > pendingOccultExpiresUtc)
         {
             pendingOccultDestinationId = 0;
+            pendingOccultSourceId = 0;
             OccultTravelStatus = "移動受付を終了（フォロワーがエーテライト付近にいません）";
             return;
         }
@@ -1407,12 +1413,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
         var localNode = FindOccultAetheryte(Plugin.ClientState.TerritoryType, local.Position.X, local.Position.Z);
         if (localNode is null)
         {
-            OccultTravelStatus = "リーダーの移動を検出・フォロワーの接近待ち";
+            ApproachPendingOccultSource(local);
             return;
         }
         if (localNode.Value.PlaceNameId == pendingOccultDestinationId)
         {
             pendingOccultDestinationId = 0;
+            pendingOccultSourceId = 0;
             OccultTravelStatus = $"到着済み：{GetPlaceName(localNode.Value.PlaceNameId)}";
             return;
         }
@@ -1424,7 +1431,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (GetLifestreamId("Lifestream.GetActiveAetheryte") == 0 &&
             GetLifestreamId("Lifestream.GetActiveCustomAetheryte") == 0)
         {
-            OccultTravelStatus = "リーダーの移動を検出・フォロワーのエーテライト接近待ち";
+            ApproachPendingOccultSource(local);
             return;
         }
 
@@ -1438,6 +1445,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 OccultTravelStatus = $"フォロワーも移動開始：{GetPlaceName(pendingOccultDestinationId)}";
                 pendingOccultDestinationId = 0;
+                pendingOccultSourceId = 0;
                 stopFollowRequested = true;
                 smoothFollow.Stop();
             }
@@ -1453,10 +1461,28 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
     }
 
+    private void ApproachPendingOccultSource(Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter local)
+    {
+        var source = OccultAetherytes.FirstOrDefault(x =>
+            x.TerritoryType == Plugin.ClientState.TerritoryType && x.PlaceNameId == pendingOccultSourceId);
+        if (source.PlaceNameId == 0)
+        {
+            OccultTravelStatus = "リーダーの移動を検出・移動元エーテライトを確認中";
+            return;
+        }
+
+        var direction = new Vector3(source.X - local.Position.X, 0, source.Z - local.Position.Z);
+        smoothFollow.Follow(direction);
+        occultSourceApproachActive = true;
+        OccultTravelStatus = $"移動元エーテライトへ接近中：{GetPlaceName(source.PlaceNameId)}";
+    }
+
     private void ResetOccultTravel(string status)
     {
         lastLeaderOccultAetheryteId = 0;
+        pendingOccultSourceId = 0;
         pendingOccultDestinationId = 0;
+        occultSourceApproachActive = false;
         OccultTravelStatus = status;
     }
 
@@ -1771,7 +1797,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.MountRouletteFallbackEnabled = state.MountRouletteFallbackEnabled;
         plugin.Configuration.AutoAcceptPartyInviteEnabled = state.AutoAcceptPartyInviteEnabled;
         plugin.Configuration.PauseLinkInCombat = state.PauseInCombat;
-        plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 3f, 15f);
+        plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 1f, 15f);
         plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
         plugin.Configuration.UseBossModReborn = state.UseBossModReborn;
         plugin.Configuration.UseRotationSolverReborn = state.UseRotationSolverReborn;
@@ -1789,6 +1815,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void RunFollowerAutomation(LinkedCharacterState leader, DateTime now)
     {
+        if (occultSourceApproachActive)
+        {
+            LastAction = "移動元エーテライトへ接近中";
+            return;
+        }
         if (!IsLocalCharacterReady())
         {
             ResetForLogout();
@@ -1894,12 +1925,21 @@ public sealed class CharacterLinkCoordinator : IDisposable
             }
         }
 
-        if (plugin.Configuration.AutoFollowEnabled && distance >= plugin.Configuration.FollowStartDistance)
+        var spacing = plugin.Configuration.FollowStartDistance;
+        if (!plugin.Configuration.AutoFollowEnabled)
+            smoothDistanceFollowing = false;
+        else if (!smoothDistanceFollowing && distance >= spacing + 0.5f)
+            smoothDistanceFollowing = true;
+        else if (smoothDistanceFollowing && distance <= spacing)
+            smoothDistanceFollowing = false;
+
+        if (smoothDistanceFollowing)
         {
-            smoothFollow.Follow(leaderObject.Position - local.Position);
+            var strength = Math.Clamp((distance - spacing) / 3f, 0.25f, 1f);
+            smoothFollow.Follow(leaderObject.Position - local.Position, strength);
             LastAction = $"リーダーを追従中（{distance:0.0}m）";
         }
-        else if (distance < plugin.Configuration.FollowStartDistance)
+        else if (distance <= spacing + 0.5f)
         {
             LastAction = leader.Mounted
                 ? $"相乗りを再試行待ち（{distance:0.0}m）"
@@ -1931,6 +1971,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingCommandTicks = 0;
         stopFollowRequested = false;
         followCommandActive = false;
+        smoothDistanceFollowing = false;
         ResetPillionAttempts();
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
@@ -1945,6 +1986,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingHousingPlot = 0;
         pendingHousingTravelExpiresUtc = default;
         pendingOccultDestinationId = 0;
+        pendingOccultSourceId = 0;
+        occultSourceApproachActive = false;
         pendingOccultExpiresUtc = default;
         housingMovementActive = false;
         housingMovementObservedBusy = false;
@@ -1964,6 +2007,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingGameCommand = null;
         pendingTargetName = null;
         followCommandActive = false;
+        smoothDistanceFollowing = false;
         ResetPillionAttempts();
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
@@ -1972,6 +2016,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingGeneralAetheryteId = 0;
         pendingHousingWorldId = 0;
         pendingOccultDestinationId = 0;
+        pendingOccultSourceId = 0;
+        occultSourceApproachActive = false;
         queuedLeaderCityAetheryteId = 0;
         queuedLeaderResidentialAetheryteId = 0;
         leaderTravelBaselineReady = false;

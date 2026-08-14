@@ -772,7 +772,7 @@ public sealed class MainWindow : Window
         }
         var followDistance = plugin.Configuration.FollowStartDistance;
         ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderFloat(Loc.T("FollowDistance"), ref followDistance, 3f, 15f, "%.1f m"))
+        if (ImGui.SliderFloat(Loc.T("FollowDistance"), ref followDistance, 1f, 15f, "%.1f m"))
         {
             plugin.Configuration.FollowStartDistance = followDistance;
             plugin.Configuration.Save();
