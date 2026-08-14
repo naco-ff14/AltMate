@@ -33,12 +33,14 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private readonly ConcurrentQueue<LinkedCharacterState> receivedStates = new();
     private readonly CancellationTokenSource cancellation = new();
     private readonly object senderLock = new();
+    private readonly SmoothFollowController smoothFollow;
     private UdpClient? receiver;
     private UdpClient? sender;
     private Task? receiveTask;
     private DateTime lastBroadcastUtc;
     private DateTime lastFollowUtc;
     private DateTime lastRideUtc;
+    private DateTime smoothFollowTestUntilUtc;
     private DateTime pillionAttemptsStartedUtc;
     private int pillionAttemptCount;
     private bool mountedByRouletteFallback;
@@ -131,6 +133,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     internal CharacterLinkCoordinator(Plugin plugin)
     {
         this.plugin = plugin;
+        smoothFollow = new SmoothFollowController();
         TryHookActions();
         TryHookTeleport();
         TryStartNetwork();
@@ -157,6 +160,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     public void EmergencyStop()
     {
         runtimeStopped = true;
+        smoothFollow.Stop();
         stopFollowRequested = true;
         LastAction = "緊急停止中";
         StopCombatAutomation();
@@ -209,9 +213,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         if (!TryGetLeaderObject(out var leader, out var leaderObject))
             return;
-        QueueTargetCommand(leaderObject, "/follow <t>");
+        smoothFollow.Follow(leaderObject.Position - Plugin.ObjectTable.LocalPlayer!.Position);
+        smoothFollowTestUntilUtc = DateTime.UtcNow.AddSeconds(3);
         LastAction = "追従テスト実行";
-        DiagnosticMessage = $"対象：{leader.CharacterName} → 送信待ち：/follow <t>";
+        DiagnosticMessage = $"対象：{leader.CharacterName} → 滑らか追従入力を開始";
     }
 
     public void TestRidePillion()
@@ -406,6 +411,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void OnFrameworkUpdate(IFramework framework)
     {
+        // 後段で追従条件が成立したフレームだけ再設定し、早期return時に入力を残さない。
+        smoothFollow.Stop();
         // ログアウト・キャラクター選択・エリア切替中は、ゲームオブジェクトや
         // ネイティブUIへ触れる処理を最優先で止める。予約済み操作も持ち越さない。
         if (!IsLocalCharacterReady())
@@ -415,6 +422,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
 
         var now = DateTime.UtcNow;
+        if (now < smoothFollowTestUntilUtc && TryGetLeaderObject(out _, out var testLeader) &&
+            Plugin.ObjectTable.LocalPlayer is { } testLocal)
+            smoothFollow.Follow(testLeader.Position - testLocal.Position);
         if (localCharacterUnavailable)
         {
             localCharacterUnavailable = false;
@@ -1840,18 +1850,22 @@ public sealed class CharacterLinkCoordinator : IDisposable
             if (distance > 4f && !followCommandActive &&
                 now - lastFollowUtc > TimeSpan.FromSeconds(2))
             {
-                QueueTargetCommand(leaderObject, "/follow <t>");
+                smoothFollow.Follow(leaderObject.Position - local.Position);
                 lastFollowUtc = now;
+                LastAction = $"相乗りのため接近中（{distance:0.0}m）";
+                return;
+            }
+            if (distance > 4f)
+            {
+                smoothFollow.Follow(leaderObject.Position - local.Position);
                 LastAction = $"相乗りのため接近中（{distance:0.0}m）";
                 return;
             }
         }
 
-        if (plugin.Configuration.AutoFollowEnabled && distance >= plugin.Configuration.FollowStartDistance &&
-            !followCommandActive && now - lastFollowUtc > TimeSpan.FromSeconds(2))
+        if (plugin.Configuration.AutoFollowEnabled && distance >= plugin.Configuration.FollowStartDistance)
         {
-            QueueTargetCommand(leaderObject, "/follow <t>");
-            lastFollowUtc = now;
+            smoothFollow.Follow(leaderObject.Position - local.Position);
             LastAction = $"リーダーを追従中（{distance:0.0}m）";
         }
         else if (distance < plugin.Configuration.FollowStartDistance)
@@ -2030,6 +2044,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         if (combatAutomationActive)
             StopCombatAutomation();
+        smoothFollow.Dispose();
         useActionHook?.Disable();
         useActionHook?.Dispose();
         teleportHook?.Disable();
