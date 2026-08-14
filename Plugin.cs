@@ -91,6 +91,13 @@ public sealed class Plugin : IDalamudPlugin
         }
         sharedConfiguration = new SharedConfigurationStore();
         sharedConfiguration.LoadInto(Configuration);
+        if (Configuration.Version < 5)
+        {
+            // FPS制限は追従の滑らかさに影響するため、更新時も安全側の無効から開始する。
+            Configuration.RoleBasedFpsEnabled = false;
+            Configuration.Version = 5;
+            sharedConfiguration.SaveMerged(Configuration, includeSharedSettings: true);
+        }
         if (string.IsNullOrWhiteSpace(Configuration.LocalLinkKey))
         {
             Configuration.LocalLinkKey = Convert.ToHexString(

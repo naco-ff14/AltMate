@@ -37,10 +37,11 @@ public sealed class RoleBasedFpsController : IDisposable
             return;
         nextCheckUtc = DateTime.UtcNow.AddSeconds(2);
 
-        if (!plugin.Configuration.RoleBasedFpsEnabled)
+        var isLeader = Plugin.PlayerState.ContentId == plugin.Configuration.LinkLeaderContentId;
+        if (!plugin.Configuration.RoleBasedFpsEnabled || isLeader)
         {
             RestoreOriginal();
-            Status = "無効";
+            Status = isLeader ? "リーダーは制限対象外" : "無効";
             return;
         }
 
@@ -53,10 +54,7 @@ public sealed class RoleBasedFpsController : IDisposable
         try
         {
             CaptureOriginal();
-            var isLeader = Plugin.PlayerState.ContentId == plugin.Configuration.LinkLeaderContentId;
-            var limit = isLeader
-                ? plugin.Configuration.LeaderFpsLimit
-                : plugin.Configuration.FollowerFpsLimit;
+            var limit = plugin.Configuration.FollowerFpsLimit;
             limit = NormalizeLimit(limit);
 
             // Fps is an enum in FFXIV.cfg: 0=unlimited, 1=60fps, 2=30fps.
@@ -69,7 +67,7 @@ public sealed class RoleBasedFpsController : IDisposable
                 Plugin.GameConfig.Set(SystemConfigOption.FPSInActive, 0u);
 
             lastRequestedLimit = limit;
-            Status = $"{(isLeader ? "リーダー" : "フォロワー")}：{(limit == 0 ? "無制限" : $"{limit} FPS")}";
+            Status = $"フォロワー：{(limit == 0 ? "無制限" : $"{limit} FPS")}";
         }
         catch (Exception ex)
         {

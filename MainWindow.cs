@@ -690,37 +690,36 @@ public sealed class MainWindow : Window
             : Loc.T("ThisIsFollower"));
 
         ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("役割別FPS制限", "Role-based FPS limit"));
+        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("フォロワーFPS制限", "Follower FPS limit"));
         ImGui.TextDisabled(Loc.L(
-            "ウィンドウのフォーカスではなく、リーダー／フォロワーの役割で制限します。",
-            "Limits FPS by leader/follower role, not by window focus."));
+            "リーダー側から、接続中のフォロワークライアントだけを制限します。リーダー自身は変更しません。",
+            "The leader limits connected follower clients only. The leader itself is not changed."));
         var roleFps = plugin.Configuration.RoleBasedFpsEnabled;
-        if (ImGui.Checkbox(Loc.L("役割別FPS制限を有効にする", "Enable role-based FPS limit"), ref roleFps))
+        if (plugin.CharacterLink.IsLeader &&
+            ImGui.Checkbox(Loc.L("フォロワーFPS制限を有効にする", "Enable follower FPS limit"), ref roleFps))
         {
             plugin.Configuration.RoleBasedFpsEnabled = roleFps;
-            plugin.Configuration.Save();
+            plugin.SaveSharedSettings();
             plugin.RoleBasedFps.ApplyNow();
         }
-        if (roleFps)
+        else if (!plugin.CharacterLink.IsLeader)
         {
-            var leaderFpsIndex = FpsLimitToIndex(plugin.Configuration.LeaderFpsLimit);
-            ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
-            if (ImGui.Combo(Loc.L("リーダー", "Leader"), ref leaderFpsIndex, FpsLimitLabels(), 3))
-            {
-                plugin.Configuration.LeaderFpsLimit = FpsIndexToLimit(leaderFpsIndex);
-                plugin.Configuration.Save();
-                plugin.RoleBasedFps.ApplyNow();
-            }
+            ImGui.TextDisabled(roleFps
+                ? Loc.L("リーダー側で有効になっています。", "Enabled by the leader.")
+                : Loc.L("リーダー側で無効になっています。", "Disabled by the leader."));
+        }
+        if (roleFps && plugin.CharacterLink.IsLeader)
+        {
             var followerFpsIndex = FpsLimitToIndex(plugin.Configuration.FollowerFpsLimit);
             ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
-            if (ImGui.Combo(Loc.L("フォロワー", "Follower"), ref followerFpsIndex, FpsLimitLabels(), 3))
+            if (ImGui.Combo(Loc.L("フォロワー上限", "Follower limit"), ref followerFpsIndex, FpsLimitLabels(), 3))
             {
                 plugin.Configuration.FollowerFpsLimit = FpsIndexToLimit(followerFpsIndex);
-                plugin.Configuration.Save();
+                plugin.SaveSharedSettings();
                 plugin.RoleBasedFps.ApplyNow();
             }
-            ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.RoleBasedFps.Status)}");
         }
+        ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.RoleBasedFps.Status)}");
 
         if (!plugin.CharacterLink.IsLeader)
         {
