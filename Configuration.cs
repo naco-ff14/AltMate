@@ -34,6 +34,9 @@ public sealed class Configuration : IPluginConfiguration
     public bool SyncResidentialAethernetEnabled { get; set; } = true;
     public bool SyncFreeCompanyEstateEnabled { get; set; } = true;
     public bool AutoOpenNearbyTreasureEnabled { get; set; } = true;
+    public bool RoleBasedFpsEnabled { get; set; } = true;
+    public int LeaderFpsLimit { get; set; } = 60;
+    public int FollowerFpsLimit { get; set; } = 30;
     public string Language { get; set; } = "ja";
     public string LocalLinkKey { get; set; } = string.Empty;
 

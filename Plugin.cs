@@ -5,6 +5,7 @@ using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Command;
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Game.Chat;
+using Dalamud.Game.Config;
 using Dalamud.Game.Text;
 using Dalamud.Game.Text.SeStringHandling;
 using Dalamud.Interface.Windowing;
@@ -47,6 +48,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static IPartyList PartyList { get; private set; } = null!;
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
+    [PluginService] internal static IGameConfig GameConfig { get; private set; } = null!;
 
     private const string Command = "/altmate";
     private const string LegacyCommand = "/hlt";
@@ -62,6 +64,7 @@ public sealed class Plugin : IDalamudPlugin
     private readonly GilTracker gilTracker;
     internal CharacterLinkCoordinator CharacterLink { get; }
     internal AnimationService Animations { get; }
+    internal RoleBasedFpsController RoleBasedFps { get; }
     internal string IconPath { get; }
 
     internal Configuration Configuration { get; }
@@ -100,6 +103,7 @@ public sealed class Plugin : IDalamudPlugin
         ScanCharacterFolders();
         Animations = new AnimationService();
         CharacterLink = new CharacterLinkCoordinator(this);
+        RoleBasedFps = new RoleBasedFpsController(this);
         wardObserver = HousingWardObserver.TryCreate(this);
         gilTracker = new GilTracker(this);
         mainWindow = new MainWindow(this);
@@ -447,6 +451,8 @@ public sealed class Plugin : IDalamudPlugin
 
     private unsafe void OnPlacardUpdate(AddonEvent _, AddonArgs args)
     {
+        if (!ClientState.IsLoggedIn || !PlayerState.IsLoaded || args.Addon.Address == nint.Zero)
+            return;
         var addon = (AtkUnitBase*)args.Addon.Address;
         var addressNode = addon->GetTextNodeById(56);
         var detailsNode = addon->GetTextNodeById(64);
@@ -468,7 +474,8 @@ public sealed class Plugin : IDalamudPlugin
 
     private unsafe void OnBidConfirmOpen(AddonEvent _, AddonArgs args)
     {
-        if (!placardOpen || viewedEntryEnd is null)
+        if (!ClientState.IsLoggedIn || !PlayerState.IsLoaded || !placardOpen ||
+            viewedEntryEnd is null || args.Addon.Address == nint.Zero)
             return;
         var addon = (AtkUnitBase*)args.Addon.Address;
         var node = addon->GetComponentNodeById(5);
@@ -481,7 +488,8 @@ public sealed class Plugin : IDalamudPlugin
 
     private unsafe void OnResultOpen(AddonEvent _, AddonArgs args)
     {
-        if (!placardOpen)
+        if (!ClientState.IsLoggedIn || !PlayerState.IsLoaded || !placardOpen ||
+            args.Addon.Address == nint.Zero)
             return;
         var addon = (AddonSelectYesno*)args.Addon.Address;
         if (addon != null && addon->YesButton != null && addon->YesButton->OwnerNode != null)
@@ -667,6 +675,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        RoleBasedFps.Dispose();
         CharacterLink.Dispose();
         gilTracker.Dispose();
         wardObserver?.Dispose();

@@ -49,6 +49,24 @@ public sealed class MainWindow : Window
     private float? expandedBackgroundAlpha;
     private static readonly string[] SizeFilters = { "ALL", "S", "S-M", "M", "M-L", "L" };
 
+    private static string[] FpsLimitLabels() => Loc.IsEnglish
+        ? ["Unlimited", "60 FPS", "30 FPS"]
+        : ["無制限", "60 FPS", "30 FPS"];
+
+    private static int FpsLimitToIndex(int limit) => limit switch
+    {
+        <= 0 => 0,
+        <= 30 => 2,
+        _ => 1,
+    };
+
+    private static int FpsIndexToLimit(int index) => index switch
+    {
+        2 => 30,
+        1 => 60,
+        _ => 0,
+    };
+
     public MainWindow(Plugin plugin) : base(
         $"AltMate v{Plugin.PluginInterface.Manifest.AssemblyVersion.ToString(3)} - {Loc.L("複数キャラクター支援", "Multi-Character Support")}###AltMate")
     {
@@ -670,6 +688,39 @@ public sealed class MainWindow : Window
         ImGui.TextDisabled(plugin.CharacterLink.IsLeader
             ? Loc.T("ThisIsLeader")
             : Loc.T("ThisIsFollower"));
+
+        ImGui.Spacing();
+        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("役割別FPS制限", "Role-based FPS limit"));
+        ImGui.TextDisabled(Loc.L(
+            "ウィンドウのフォーカスではなく、リーダー／フォロワーの役割で制限します。",
+            "Limits FPS by leader/follower role, not by window focus."));
+        var roleFps = plugin.Configuration.RoleBasedFpsEnabled;
+        if (ImGui.Checkbox(Loc.L("役割別FPS制限を有効にする", "Enable role-based FPS limit"), ref roleFps))
+        {
+            plugin.Configuration.RoleBasedFpsEnabled = roleFps;
+            plugin.Configuration.Save();
+            plugin.RoleBasedFps.ApplyNow();
+        }
+        if (roleFps)
+        {
+            var leaderFpsIndex = FpsLimitToIndex(plugin.Configuration.LeaderFpsLimit);
+            ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
+            if (ImGui.Combo(Loc.L("リーダー", "Leader"), ref leaderFpsIndex, FpsLimitLabels(), 3))
+            {
+                plugin.Configuration.LeaderFpsLimit = FpsIndexToLimit(leaderFpsIndex);
+                plugin.Configuration.Save();
+                plugin.RoleBasedFps.ApplyNow();
+            }
+            var followerFpsIndex = FpsLimitToIndex(plugin.Configuration.FollowerFpsLimit);
+            ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
+            if (ImGui.Combo(Loc.L("フォロワー", "Follower"), ref followerFpsIndex, FpsLimitLabels(), 3))
+            {
+                plugin.Configuration.FollowerFpsLimit = FpsIndexToLimit(followerFpsIndex);
+                plugin.Configuration.Save();
+                plugin.RoleBasedFps.ApplyNow();
+            }
+            ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.RoleBasedFps.Status)}");
+        }
 
         if (!plugin.CharacterLink.IsLeader)
         {

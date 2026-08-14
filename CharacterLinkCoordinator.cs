@@ -43,6 +43,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool stopFollowRequested;
     private bool followCommandActive;
     private bool localCharacterUnavailable;
+    private DateTime localCharacterReadySinceUtc;
     private DateTime followCommandStartedUtc;
     private string? pendingGameCommand;
     private string? pendingTargetName;
@@ -401,6 +402,28 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void OnFrameworkUpdate(IFramework framework)
     {
+        // ログアウト・キャラクター選択・エリア切替中は、ゲームオブジェクトや
+        // ネイティブUIへ触れる処理を最優先で止める。予約済み操作も持ち越さない。
+        if (!IsLocalCharacterReady())
+        {
+            ResetForLogout();
+            return;
+        }
+
+        var now = DateTime.UtcNow;
+        if (localCharacterUnavailable)
+        {
+            localCharacterUnavailable = false;
+            localCharacterReadySinceUtc = now;
+            LastAction = IsLeader ? "リーダーとして待機中" : "待機中";
+        }
+
+        // PlayerState.IsLoaded直後もExcel参照やObjectTableが安定しない場合があるため、
+        // 1秒間は状態送信・ターゲット・ネイティブUI操作を再開しない。
+        if (localCharacterReadySinceUtc != default &&
+            now - localCharacterReadySinceUtc < TimeSpan.FromSeconds(1))
+            return;
+
         DrainReceivedStates();
         FlushOutboundTeleport();
         FlushOutboundHousingTravel();
@@ -481,21 +504,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
             }
             return;
         }
-        if (!IsLocalCharacterReady())
-        {
-            ResetForLogout();
-            return;
-        }
-
-        // エリア移動やログイン直後に一時的にPlayerStateが未取得になっても、
-        // 取得が戻ったフレームで古い「ログアウト中」表示を残さない。
-        if (localCharacterUnavailable)
-        {
-            LastAction = IsLeader ? "リーダーとして待機中" : "待機中";
-            localCharacterUnavailable = false;
-        }
-
-        var now = DateTime.UtcNow;
         plugin.CheckSharedConfiguration();
         UpdateFollowState(now);
         UpdateTravelInterlock(now);
@@ -1790,17 +1798,41 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void ResetForLogout()
     {
+        while (receivedStates.TryDequeue(out _))
+        {
+        }
+        peers.Clear();
         pendingGameCommand = null;
         pendingTargetName = null;
         pendingTargetApplied = false;
+        pendingTargetConfirmAttempts = 0;
+        pendingCommandTicks = 0;
+        stopFollowRequested = false;
         followCommandActive = false;
         combatAutomationActive = false;
         leaderCombatEndedUtc = null;
+        linkedReturnRequested = false;
+        returnConfirmationExpiresUtc = default;
+        pendingGeneralAetheryteId = 0;
+        pendingGeneralTravelExpiresUtc = default;
+        pendingHousingWorldId = 0;
+        pendingHousingTerritoryId = 0;
+        pendingHousingWard = 0;
+        pendingHousingPlot = 0;
+        pendingHousingTravelExpiresUtc = default;
+        pendingOccultDestinationId = 0;
+        pendingOccultExpiresUtc = default;
+        housingMovementActive = false;
+        housingMovementObservedBusy = false;
+        lifestreamBusyThisFrame = false;
+        Interlocked.Exchange(ref outboundTeleportReady, 0);
+        Interlocked.Exchange(ref outboundHousingReady, 0);
         leaderTravelBaselineReady = false;
         queuedLeaderCityAetheryteId = 0;
         queuedLeaderResidentialAetheryteId = 0;
         LastAction = "ログアウト中";
         localCharacterUnavailable = true;
+        localCharacterReadySinceUtc = default;
     }
 
     private void ClearCrossWorldAutomation()

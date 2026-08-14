@@ -217,6 +217,9 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.SyncResidentialAethernetEnabled = incoming.SyncResidentialAethernetEnabled;
         target.SyncFreeCompanyEstateEnabled = incoming.SyncFreeCompanyEstateEnabled;
         target.AutoOpenNearbyTreasureEnabled = incoming.AutoOpenNearbyTreasureEnabled;
+        target.RoleBasedFpsEnabled = incoming.RoleBasedFpsEnabled;
+        target.LeaderFpsLimit = incoming.LeaderFpsLimit;
+        target.FollowerFpsLimit = incoming.FollowerFpsLimit;
         target.Language = incoming.Language;
         if (!string.IsNullOrWhiteSpace(incoming.LocalLinkKey)) target.LocalLinkKey = incoming.LocalLinkKey;
     }
@@ -242,6 +245,9 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.SyncResidentialAethernetEnabled != baseline.SyncResidentialAethernetEnabled) target.SyncResidentialAethernetEnabled = current.SyncResidentialAethernetEnabled;
         if (current.SyncFreeCompanyEstateEnabled != baseline.SyncFreeCompanyEstateEnabled) target.SyncFreeCompanyEstateEnabled = current.SyncFreeCompanyEstateEnabled;
         if (current.AutoOpenNearbyTreasureEnabled != baseline.AutoOpenNearbyTreasureEnabled) target.AutoOpenNearbyTreasureEnabled = current.AutoOpenNearbyTreasureEnabled;
+        if (current.RoleBasedFpsEnabled != baseline.RoleBasedFpsEnabled) target.RoleBasedFpsEnabled = current.RoleBasedFpsEnabled;
+        if (current.LeaderFpsLimit != baseline.LeaderFpsLimit) target.LeaderFpsLimit = current.LeaderFpsLimit;
+        if (current.FollowerFpsLimit != baseline.FollowerFpsLimit) target.FollowerFpsLimit = current.FollowerFpsLimit;
         if (current.Language != baseline.Language) target.Language = current.Language;
         if (current.LocalLinkKey != baseline.LocalLinkKey) target.LocalLinkKey = current.LocalLinkKey;
     }
