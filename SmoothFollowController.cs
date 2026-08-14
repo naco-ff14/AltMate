@@ -1,4 +1,5 @@
 using Dalamud.Hooking;
+using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using System;
 using System.Numerics;
 
@@ -61,8 +62,17 @@ internal sealed unsafe class SmoothFollowController : IDisposable
 
     private static float GetForwardAngle()
     {
-        // Character-relative movement is sufficient for direct input injection and avoids
-        // depending on BMR's internal Camera wrapper.
+        var legacyMode = Plugin.GameConfig.UiControl.TryGetUInt("MoveMode", out var mode) && mode == 1;
+        if (legacyMode)
+        {
+            var activeCamera = CameraManager.Instance()->GetActiveCamera();
+            var renderCamera = activeCamera != null ? activeCamera->SceneCamera.RenderCamera : null;
+            if (renderCamera != null)
+            {
+                var view = renderCamera->ViewMatrix;
+                return MathF.Atan2(view.M13, view.M33) + MathF.PI;
+            }
+        }
         return Plugin.ObjectTable.LocalPlayer?.Rotation ?? 0f;
     }
 
