@@ -974,7 +974,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private static bool ContainsPartyInvitation(string prompt)
     {
         var hasParty = ContainsAny(prompt, "パーティ", "party");
-        var looksLikeInvitation = ContainsAny(prompt, "誘われ", "招待", "参加しますか", "invited", "invitation", "join");
+        var looksLikeInvitation = ContainsAny(prompt, "誘われ", "招待", "参加します", "よろしいですか", "invited", "invitation", "join");
         return hasParty && looksLikeInvitation && !ContainsAny(prompt, "テレポ", "teleport");
     }
 
@@ -1113,6 +1113,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         if (now - lastGeneralTravelAttemptUtc < TimeSpan.FromSeconds(2))
             return false;
+        if (!IsLifestreamSourceAetheryteActive(ipcName))
+        {
+            GeneralTravelStatus = $"{kind}移動：フォロワーのエーテライト接近待ち";
+            return false;
+        }
         lastGeneralTravelAttemptUtc = now;
         try
         {
@@ -1124,6 +1129,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             if (accepted)
             {
                 stopFollowRequested = true;
+                smoothFollow.Stop();
                 LastAction = $"{kind}エーテライト移動中";
             }
             return accepted;
@@ -1132,6 +1138,23 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             Plugin.Log.Warning(exception, "{Kind}エーテライト移動をLifestreamへ依頼できませんでした。", kind);
             GeneralTravelStatus = "Lifestream IPCへ接続できません";
+            return false;
+        }
+    }
+
+    private static bool IsLifestreamSourceAetheryteActive(string ipcName)
+    {
+        if (!IsPluginLoaded("Lifestream"))
+            return false;
+        try
+        {
+            if (ipcName.Equals("Lifestream.HousingAethernetTeleportById", StringComparison.Ordinal))
+                return GetLifestreamId("Lifestream.GetActiveResidentialAetheryte") != 0;
+            return GetLifestreamId("Lifestream.GetActiveAetheryte") != 0 ||
+                   GetLifestreamId("Lifestream.GetActiveCustomAetheryte") != 0;
+        }
+        catch
+        {
             return false;
         }
     }
@@ -1398,6 +1421,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
             OccultTravelStatus = "Lifestreamが読み込まれていません";
             return;
         }
+        if (GetLifestreamId("Lifestream.GetActiveAetheryte") == 0 &&
+            GetLifestreamId("Lifestream.GetActiveCustomAetheryte") == 0)
+        {
+            OccultTravelStatus = "リーダーの移動を検出・フォロワーのエーテライト接近待ち";
+            return;
+        }
 
         lastOccultAttemptUtc = now;
         try
@@ -1409,6 +1438,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 OccultTravelStatus = $"フォロワーも移動開始：{GetPlaceName(pendingOccultDestinationId)}";
                 pendingOccultDestinationId = 0;
+                stopFollowRequested = true;
+                smoothFollow.Stop();
             }
             else
             {
