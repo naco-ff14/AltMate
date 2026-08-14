@@ -1,6 +1,4 @@
-using Dalamud.Game.Config;
 using Dalamud.Hooking;
-using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using System;
 using System.Numerics;
 
@@ -63,9 +61,8 @@ internal sealed unsafe class SmoothFollowController : IDisposable
 
     private static float GetForwardAngle()
     {
-        var legacyMode = Plugin.GameConfig.UiControl.TryGetUInt("MoveMode", out var mode) && mode == 1;
-        if (legacyMode)
-            return (Camera.Instance?.CameraAzimuth ?? 0f) + MathF.PI;
+        // Character-relative movement is sufficient for direct input injection and avoids
+        // depending on BMR's internal Camera wrapper.
         return Plugin.ObjectTable.LocalPlayer?.Rotation ?? 0f;
     }
 
