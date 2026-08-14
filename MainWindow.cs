@@ -756,6 +756,13 @@ public sealed class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var mountFallback = plugin.Configuration.MountRouletteFallbackEnabled;
+        if (ImGui.Checkbox(Loc.L("相乗りできない場合はマウントルーレットを使用", "Use Mount Roulette when pillion is unavailable"), ref mountFallback))
+        {
+            plugin.Configuration.MountRouletteFallbackEnabled = mountFallback;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
         var pauseCombat = plugin.Configuration.PauseLinkInCombat;
         if (ImGui.Checkbox(Loc.T("PauseCombat"), ref pauseCombat))
         {
@@ -886,6 +893,13 @@ public sealed class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var acceptPartyInvite = plugin.Configuration.AutoAcceptPartyInviteEnabled;
+        if (ImGui.Checkbox(Loc.L("フォロワーがPT招待を自動承認", "Follower automatically accepts party invitations"), ref acceptPartyInvite))
+        {
+            plugin.Configuration.AutoAcceptPartyInviteEnabled = acceptPartyInvite;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
         var syncTeleport = plugin.Configuration.SyncTeleportInvitationEnabled;
         if (ImGui.Checkbox(Loc.IsEnglish ? "Automatically accept teleport invitations on follower" : "フォロワーに届いたテレポ勧誘を自動承認", ref syncTeleport))
         {
@@ -893,7 +907,7 @@ public sealed class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
-        ImGui.TextDisabled(Loc.IsEnglish ? "Only followers currently connected to the leader accept these prompts." : "リーダーへ接続中のフォロワーだけが、コンテンツ突入とテレポ勧誘を承認します。");
+        ImGui.TextDisabled(Loc.IsEnglish ? "Only followers currently connected to the leader accept these prompts." : "リーダーへ接続中のフォロワーだけが、PT招待・コンテンツ突入・テレポ勧誘を承認します。");
         ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.AreaSyncStatus)}");
 
         ImGui.Separator();

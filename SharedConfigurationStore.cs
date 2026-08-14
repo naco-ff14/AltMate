@@ -202,6 +202,8 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.LinkLeaderContentId = incoming.LinkLeaderContentId;
         target.AutoFollowEnabled = incoming.AutoFollowEnabled;
         target.AutoRidePillionEnabled = incoming.AutoRidePillionEnabled;
+        target.MountRouletteFallbackEnabled = incoming.MountRouletteFallbackEnabled;
+        target.AutoAcceptPartyInviteEnabled = incoming.AutoAcceptPartyInviteEnabled;
         target.PauseLinkInCombat = incoming.PauseLinkInCombat;
         target.FollowStartDistance = incoming.FollowStartDistance;
         target.CombatLinkEnabled = incoming.CombatLinkEnabled;
@@ -230,6 +232,8 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.LinkLeaderContentId != baseline.LinkLeaderContentId) target.LinkLeaderContentId = current.LinkLeaderContentId;
         if (current.AutoFollowEnabled != baseline.AutoFollowEnabled) target.AutoFollowEnabled = current.AutoFollowEnabled;
         if (current.AutoRidePillionEnabled != baseline.AutoRidePillionEnabled) target.AutoRidePillionEnabled = current.AutoRidePillionEnabled;
+        if (current.MountRouletteFallbackEnabled != baseline.MountRouletteFallbackEnabled) target.MountRouletteFallbackEnabled = current.MountRouletteFallbackEnabled;
+        if (current.AutoAcceptPartyInviteEnabled != baseline.AutoAcceptPartyInviteEnabled) target.AutoAcceptPartyInviteEnabled = current.AutoAcceptPartyInviteEnabled;
         if (current.PauseLinkInCombat != baseline.PauseLinkInCombat) target.PauseLinkInCombat = current.PauseLinkInCombat;
         if (Math.Abs(current.FollowStartDistance - baseline.FollowStartDistance) > 0.001f) target.FollowStartDistance = current.FollowStartDistance;
         if (current.CombatLinkEnabled != baseline.CombatLinkEnabled) target.CombatLinkEnabled = current.CombatLinkEnabled;

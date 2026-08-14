@@ -39,6 +39,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private DateTime lastBroadcastUtc;
     private DateTime lastFollowUtc;
     private DateTime lastRideUtc;
+    private DateTime pillionAttemptsStartedUtc;
+    private int pillionAttemptCount;
+    private bool mountedByRouletteFallback;
     private bool runtimeStopped;
     private bool stopFollowRequested;
     private bool followCommandActive;
@@ -63,6 +66,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private DateTime lastTravelPromptCheckUtc;
     private DateTime lastDutyCommenceUtc;
     private DateTime lastTeleportAcceptUtc;
+    private DateTime lastPartyInviteAcceptUtc;
     private DateTime lastReturnAttemptUtc;
     private DateTime lastTreasureInteractUtc;
     private DateTime lastGeneralTravelAttemptUtc;
@@ -697,6 +701,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (plugin.Configuration.SyncTeleportInvitationEnabled &&
             now - lastTeleportAcceptUtc >= TimeSpan.FromSeconds(2))
             TryAcceptTeleportInvitation(now);
+        if (plugin.Configuration.AutoAcceptPartyInviteEnabled &&
+            now - lastPartyInviteAcceptUtc >= TimeSpan.FromSeconds(2))
+            TryAcceptPartyInvitation(now);
     }
 
     public unsafe void OnSelectYesnoOpened(AddonArgs args)
@@ -922,6 +929,21 @@ public sealed class CharacterLinkCoordinator : IDisposable
         AreaSyncStatus = "テレポ勧誘を承認";
     }
 
+    private unsafe void TryAcceptPartyInvitation(DateTime now)
+    {
+        var addon = (AddonSelectYesno*)Plugin.GameGui.GetAddonByName("SelectYesno").Address;
+        if (addon == null || !addon->AtkUnitBase.IsVisible || addon->PromptText == null ||
+            addon->YesButton == null || !addon->YesButton->IsEnabled)
+            return;
+        var prompt = addon->PromptText->NodeText.ToString();
+        if (!ContainsPartyInvitation(prompt))
+            return;
+
+        addon->AtkUnitBase.FireCallbackInt(0);
+        lastPartyInviteAcceptUtc = now;
+        AreaSyncStatus = "PT招待を承認";
+    }
+
     private static bool ContainsReturnPrompt(string prompt)
     {
         // SelectYesnoは共通画面なので、誤承認を防ぐため表示言語ごとの語句を確認する。
@@ -937,6 +959,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
         var hasTeleport = ContainsAny(prompt, "テレポ", "teleport");
         var looksLikeInvitation = ContainsAny(prompt, "一緒", "勧誘", "invitation", "party member", "join");
         return hasTeleport && looksLikeInvitation;
+    }
+
+    private static bool ContainsPartyInvitation(string prompt)
+    {
+        var hasParty = ContainsAny(prompt, "パーティ", "party");
+        var looksLikeInvitation = ContainsAny(prompt, "誘われ", "招待", "参加しますか", "invited", "invitation", "join");
+        return hasParty && looksLikeInvitation && !ContainsAny(prompt, "テレポ", "teleport");
     }
 
     private static bool ContainsAny(string value, params string[] candidates) =>
@@ -1661,6 +1690,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 LeaderContentId = plugin.Configuration.LinkLeaderContentId,
                 AutoFollow = plugin.Configuration.AutoFollowEnabled,
                 AutoRidePillion = plugin.Configuration.AutoRidePillionEnabled,
+                MountRouletteFallbackEnabled = plugin.Configuration.MountRouletteFallbackEnabled,
+                AutoAcceptPartyInviteEnabled = plugin.Configuration.AutoAcceptPartyInviteEnabled,
                 PauseInCombat = plugin.Configuration.PauseLinkInCombat,
                 FollowDistance = plugin.Configuration.FollowStartDistance,
                 CombatLinkEnabled = plugin.Configuration.CombatLinkEnabled,
@@ -1696,6 +1727,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.LinkLeaderContentId = state.LeaderContentId;
         plugin.Configuration.AutoFollowEnabled = state.AutoFollow;
         plugin.Configuration.AutoRidePillionEnabled = state.AutoRidePillion;
+        plugin.Configuration.MountRouletteFallbackEnabled = state.MountRouletteFallbackEnabled;
+        plugin.Configuration.AutoAcceptPartyInviteEnabled = state.AutoAcceptPartyInviteEnabled;
         plugin.Configuration.PauseLinkInCombat = state.PauseInCombat;
         plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 3f, 15f);
         plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
@@ -1747,7 +1780,28 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
         }
 
+        if (mountedByRouletteFallback && !leader.Mounted)
+        {
+            if (Plugin.Condition[ConditionFlag.Mounted])
+            {
+                if (ExecuteGeneralAction(23))
+                {
+                    mountedByRouletteFallback = false;
+                    LastAction = "リーダーに合わせてマウント解除";
+                }
+                else
+                {
+                    LastAction = "リーダーに合わせたマウント解除を再試行待ち";
+                }
+                return;
+            }
+            mountedByRouletteFallback = false;
+        }
+
         var distance = Vector3.Distance(local.Position, leaderObject.Position);
+        if (!leader.Mounted || Plugin.Condition[ConditionFlag.Mounted] ||
+            Plugin.Condition[ConditionFlag.RidingPillion])
+            ResetPillionAttempts();
         if (plugin.Configuration.AutoRidePillionEnabled && leader.Mounted &&
             !Plugin.Condition[ConditionFlag.Mounted] && !Plugin.Condition[ConditionFlag.RidingPillion])
         {
@@ -1756,11 +1810,28 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 if (TryRidePillion(leaderObject))
                 {
                     lastRideUtc = now;
+                    if (pillionAttemptCount == 0)
+                        pillionAttemptsStartedUtc = now;
+                    pillionAttemptCount++;
                     LastAction = $"相乗りを実行しました（{distance:0.0}m）";
                 }
                 else
                 {
                     LastAction = $"相乗り可能条件を待機中（{distance:0.0}m）";
+                }
+                if (plugin.Configuration.MountRouletteFallbackEnabled &&
+                    pillionAttemptCount >= 3 && now - pillionAttemptsStartedUtc >= TimeSpan.FromSeconds(4))
+                {
+                    if (ExecuteGeneralAction(9))
+                    {
+                        mountedByRouletteFallback = true;
+                        ResetPillionAttempts();
+                        LastAction = $"相乗り不可のためマウントルーレットを実行（{distance:0.0}m）";
+                    }
+                    else
+                    {
+                        LastAction = "マウントルーレットを実行できませんでした";
+                    }
                 }
                 return;
             }
@@ -1791,6 +1862,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
     }
 
+    private void ResetPillionAttempts()
+    {
+        pillionAttemptCount = 0;
+        pillionAttemptsStartedUtc = default;
+    }
+
     private static bool IsLocalCharacterReady() =>
         Plugin.ClientState.IsLoggedIn && Plugin.PlayerState.IsLoaded &&
         Plugin.PlayerState.ContentId != 0 && Plugin.ObjectTable.LocalPlayer is not null &&
@@ -1809,6 +1886,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingCommandTicks = 0;
         stopFollowRequested = false;
         followCommandActive = false;
+        ResetPillionAttempts();
+        mountedByRouletteFallback = false;
         combatAutomationActive = false;
         leaderCombatEndedUtc = null;
         linkedReturnRequested = false;
@@ -1840,6 +1919,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingGameCommand = null;
         pendingTargetName = null;
         followCommandActive = false;
+        ResetPillionAttempts();
+        mountedByRouletteFallback = false;
         combatAutomationActive = false;
         leaderCombatEndedUtc = null;
         linkedReturnRequested = false;
@@ -2006,6 +2087,8 @@ public sealed class LinkedCharacterState
     public ulong LeaderContentId { get; set; }
     public bool AutoFollow { get; set; }
     public bool AutoRidePillion { get; set; }
+    public bool MountRouletteFallbackEnabled { get; set; }
+    public bool AutoAcceptPartyInviteEnabled { get; set; }
     public bool PauseInCombat { get; set; }
     public float FollowDistance { get; set; }
     public bool CombatLinkEnabled { get; set; }

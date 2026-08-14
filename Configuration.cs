@@ -19,6 +19,8 @@ public sealed class Configuration : IPluginConfiguration
     public ulong LinkLeaderContentId { get; set; }
     public bool AutoFollowEnabled { get; set; } = true;
     public bool AutoRidePillionEnabled { get; set; } = true;
+    public bool MountRouletteFallbackEnabled { get; set; } = true;
+    public bool AutoAcceptPartyInviteEnabled { get; set; } = true;
     public bool PauseLinkInCombat { get; set; } = true;
     public float FollowStartDistance { get; set; } = 5f;
     public bool CombatLinkEnabled { get; set; }
