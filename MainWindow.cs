@@ -874,6 +874,13 @@ public sealed class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var syncZoneBoundary = plugin.Configuration.SyncZoneBoundaryEnabled;
+        if (ImGui.Checkbox(Loc.L("エリア境界の徒歩移動を同期", "Follow through zone boundaries"), ref syncZoneBoundary))
+        {
+            plugin.Configuration.SyncZoneBoundaryEnabled = syncZoneBoundary;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
         var syncFcEstate = plugin.Configuration.SyncFreeCompanyEstateEnabled;
         if (ImGui.Checkbox(Loc.IsEnglish ? "Sync FC estate teleport (Lifestream address travel)" : "FCハウステレポを同期（Lifestream住所移動）", ref syncFcEstate))
         {

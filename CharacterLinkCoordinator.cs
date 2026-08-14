@@ -86,6 +86,14 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private DateTime leaderCityTransitionExpiresUtc;
     private float lastLeaderTravelX;
     private float lastLeaderTravelZ;
+    private float lastLeaderMoveDirectionX;
+    private float lastLeaderMoveDirectionZ;
+    private uint pendingZoneSourceTerritory;
+    private uint pendingZoneTargetTerritory;
+    private float pendingZoneBoundaryX;
+    private float pendingZoneBoundaryZ;
+    private DateTime pendingZoneTransitionExpiresUtc;
+    private bool zoneTransitionApproachActive;
     private bool leaderTravelBaselineReady;
     private uint queuedLeaderCityAetheryteId;
     private uint queuedLeaderResidentialAetheryteId;
@@ -426,6 +434,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
         var now = DateTime.UtcNow;
         occultSourceApproachActive = false;
+        zoneTransitionApproachActive = false;
         if (now < smoothFollowTestUntilUtc && TryGetLeaderObject(out _, out var testLeader) &&
             Plugin.ObjectTable.LocalPlayer is { } testLocal)
             smoothFollow.Follow(testLeader.Position - testLocal.Position);
@@ -989,7 +998,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         if (!plugin.Configuration.SyncRegularTeleportEnabled &&
             !plugin.Configuration.SyncCityAethernetEnabled &&
-            !plugin.Configuration.SyncResidentialAethernetEnabled)
+            !plugin.Configuration.SyncResidentialAethernetEnabled &&
+            !plugin.Configuration.SyncZoneBoundaryEnabled)
         {
             GeneralTravelStatus = "無効";
             leaderTravelBaselineReady = false;
@@ -1015,6 +1025,27 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     ? lastLeaderActiveCustomAetheryteId
                     : lastLeaderActiveAetheryteId;
                 leaderCityTransitionExpiresUtc = now.AddSeconds(15);
+                if (plugin.Configuration.SyncZoneBoundaryEnabled)
+                {
+                    if (lastLeaderMoveDirectionX * lastLeaderMoveDirectionX +
+                        lastLeaderMoveDirectionZ * lastLeaderMoveDirectionZ < 0.01f &&
+                        Plugin.ObjectTable.LocalPlayer is { } local)
+                    {
+                        var fallback = new Vector2(lastLeaderTravelX - local.Position.X,
+                            lastLeaderTravelZ - local.Position.Z);
+                        if (fallback.LengthSquared() > 0.01f)
+                        {
+                            fallback = Vector2.Normalize(fallback);
+                            lastLeaderMoveDirectionX = fallback.X;
+                            lastLeaderMoveDirectionZ = fallback.Y;
+                        }
+                    }
+                    pendingZoneSourceTerritory = lastLeaderTravelTerritoryType;
+                    pendingZoneTargetTerritory = leader.TerritoryType;
+                    pendingZoneBoundaryX = lastLeaderTravelX + lastLeaderMoveDirectionX * 10f;
+                    pendingZoneBoundaryZ = lastLeaderTravelZ + lastLeaderMoveDirectionZ * 10f;
+                    pendingZoneTransitionExpiresUtc = now.AddSeconds(45);
+                }
             }
 
             var leaderTravelDistance = Vector2.Distance(
@@ -1022,6 +1053,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 new Vector2(leader.X, leader.Z));
             var leaderResidentialPositionJumped = leaderTravelDistance >= 40f;
             var leaderCityPositionJumped = leaderTravelDistance >= 12f;
+            if (!leaderTerritoryChanged && leaderTravelDistance >= 0.5f)
+            {
+                lastLeaderMoveDirectionX = (leader.X - lastLeaderTravelX) / leaderTravelDistance;
+                lastLeaderMoveDirectionZ = (leader.Z - lastLeaderTravelZ) / leaderTravelDistance;
+            }
             if (leader.ActiveResidentialAetheryteId != 0 &&
                 leader.ActiveResidentialAetheryteId != lastLeaderResidentialAetheryteId)
             {
@@ -1080,6 +1116,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         lastLeaderTravelX = leader.X;
         lastLeaderTravelZ = leader.Z;
 
+        UpdateZoneBoundaryApproach(leader, now);
+
         if (!plugin.Configuration.SyncRegularTeleportEnabled || pendingGeneralAetheryteId == 0)
             return;
         if (now > pendingGeneralTravelExpiresUtc)
@@ -1111,6 +1149,45 @@ public sealed class CharacterLinkCoordinator : IDisposable
             Plugin.Log.Warning(exception, "通常テレポをLifestreamへ依頼できませんでした。");
             GeneralTravelStatus = "Lifestream IPCへ接続できません";
         }
+    }
+
+    private void UpdateZoneBoundaryApproach(LinkedCharacterState leader, DateTime now)
+    {
+        if (!plugin.Configuration.SyncZoneBoundaryEnabled || pendingZoneTargetTerritory == 0)
+            return;
+        var localTerritory = Plugin.ClientState.TerritoryType;
+        if (localTerritory == pendingZoneTargetTerritory)
+        {
+            ResetZoneBoundaryApproach();
+            GeneralTravelStatus = "エリア境界の移動を同期完了";
+            return;
+        }
+        if (localTerritory != pendingZoneSourceTerritory || leader.TerritoryType != pendingZoneTargetTerritory ||
+            now > pendingZoneTransitionExpiresUtc)
+        {
+            ResetZoneBoundaryApproach();
+            return;
+        }
+        if (pendingGeneralAetheryteId != 0 || queuedLeaderCityAetheryteId != 0 ||
+            queuedLeaderResidentialAetheryteId != 0 || housingMovementActive || IsBlocked())
+            return;
+
+        var local = Plugin.ObjectTable.LocalPlayer;
+        if (local is null)
+            return;
+        smoothFollow.Follow(new Vector3(
+            pendingZoneBoundaryX - local.Position.X, 0,
+            pendingZoneBoundaryZ - local.Position.Z));
+        zoneTransitionApproachActive = true;
+        GeneralTravelStatus = "リーダーが通ったエリア境界へ移動中";
+    }
+
+    private void ResetZoneBoundaryApproach()
+    {
+        pendingZoneSourceTerritory = 0;
+        pendingZoneTargetTerritory = 0;
+        pendingZoneTransitionExpiresUtc = default;
+        zoneTransitionApproachActive = false;
     }
 
     private bool TryRequestAethernet(string ipcName, uint destinationId, string kind, DateTime now)
@@ -1772,6 +1849,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 SyncRegularTeleportEnabled = plugin.Configuration.SyncRegularTeleportEnabled,
                 SyncCityAethernetEnabled = plugin.Configuration.SyncCityAethernetEnabled,
                 SyncResidentialAethernetEnabled = plugin.Configuration.SyncResidentialAethernetEnabled,
+                SyncZoneBoundaryEnabled = plugin.Configuration.SyncZoneBoundaryEnabled,
                 SyncFreeCompanyEstateEnabled = plugin.Configuration.SyncFreeCompanyEstateEnabled,
                 AutoOpenNearbyTreasureEnabled = plugin.Configuration.AutoOpenNearbyTreasureEnabled,
             };
@@ -1809,6 +1887,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.SyncRegularTeleportEnabled = state.SyncRegularTeleportEnabled;
         plugin.Configuration.SyncCityAethernetEnabled = state.SyncCityAethernetEnabled;
         plugin.Configuration.SyncResidentialAethernetEnabled = state.SyncResidentialAethernetEnabled;
+        plugin.Configuration.SyncZoneBoundaryEnabled = state.SyncZoneBoundaryEnabled;
         plugin.Configuration.SyncFreeCompanyEstateEnabled = state.SyncFreeCompanyEstateEnabled;
         plugin.Configuration.AutoOpenNearbyTreasureEnabled = state.AutoOpenNearbyTreasureEnabled;
     }
@@ -1818,6 +1897,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (occultSourceApproachActive)
         {
             LastAction = "移動元エーテライトへ接近中";
+            return;
+        }
+        if (zoneTransitionApproachActive)
+        {
+            LastAction = "エリア境界へ移動中";
             return;
         }
         if (!IsLocalCharacterReady())
@@ -1995,6 +2079,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         Interlocked.Exchange(ref outboundTeleportReady, 0);
         Interlocked.Exchange(ref outboundHousingReady, 0);
         leaderTravelBaselineReady = false;
+        ResetZoneBoundaryApproach();
         queuedLeaderCityAetheryteId = 0;
         queuedLeaderResidentialAetheryteId = 0;
         LastAction = "ログアウト中";
@@ -2021,6 +2106,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         queuedLeaderCityAetheryteId = 0;
         queuedLeaderResidentialAetheryteId = 0;
         leaderTravelBaselineReady = false;
+        ResetZoneBoundaryApproach();
     }
 
     private static unsafe bool IsGameAutoRunning() => InputManager.IsAutoRunning();
@@ -2194,6 +2280,7 @@ public sealed class LinkedCharacterState
     public bool SyncRegularTeleportEnabled { get; set; }
     public bool SyncCityAethernetEnabled { get; set; }
     public bool SyncResidentialAethernetEnabled { get; set; }
+    public bool SyncZoneBoundaryEnabled { get; set; }
     public bool SyncFreeCompanyEstateEnabled { get; set; }
     public bool AutoOpenNearbyTreasureEnabled { get; set; }
     public long SharedConfigurationRevision { get; set; }

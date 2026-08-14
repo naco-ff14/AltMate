@@ -34,6 +34,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool SyncRegularTeleportEnabled { get; set; } = true;
     public bool SyncCityAethernetEnabled { get; set; } = true;
     public bool SyncResidentialAethernetEnabled { get; set; } = true;
+    public bool SyncZoneBoundaryEnabled { get; set; } = true;
     public bool SyncFreeCompanyEstateEnabled { get; set; } = true;
     public bool AutoOpenNearbyTreasureEnabled { get; set; } = true;
     public bool RoleBasedFpsEnabled { get; set; }

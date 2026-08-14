@@ -217,6 +217,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.SyncRegularTeleportEnabled = incoming.SyncRegularTeleportEnabled;
         target.SyncCityAethernetEnabled = incoming.SyncCityAethernetEnabled;
         target.SyncResidentialAethernetEnabled = incoming.SyncResidentialAethernetEnabled;
+        target.SyncZoneBoundaryEnabled = incoming.SyncZoneBoundaryEnabled;
         target.SyncFreeCompanyEstateEnabled = incoming.SyncFreeCompanyEstateEnabled;
         target.AutoOpenNearbyTreasureEnabled = incoming.AutoOpenNearbyTreasureEnabled;
         target.RoleBasedFpsEnabled = incoming.RoleBasedFpsEnabled;
@@ -247,6 +248,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.SyncRegularTeleportEnabled != baseline.SyncRegularTeleportEnabled) target.SyncRegularTeleportEnabled = current.SyncRegularTeleportEnabled;
         if (current.SyncCityAethernetEnabled != baseline.SyncCityAethernetEnabled) target.SyncCityAethernetEnabled = current.SyncCityAethernetEnabled;
         if (current.SyncResidentialAethernetEnabled != baseline.SyncResidentialAethernetEnabled) target.SyncResidentialAethernetEnabled = current.SyncResidentialAethernetEnabled;
+        if (current.SyncZoneBoundaryEnabled != baseline.SyncZoneBoundaryEnabled) target.SyncZoneBoundaryEnabled = current.SyncZoneBoundaryEnabled;
         if (current.SyncFreeCompanyEstateEnabled != baseline.SyncFreeCompanyEstateEnabled) target.SyncFreeCompanyEstateEnabled = current.SyncFreeCompanyEstateEnabled;
         if (current.AutoOpenNearbyTreasureEnabled != baseline.AutoOpenNearbyTreasureEnabled) target.AutoOpenNearbyTreasureEnabled = current.AutoOpenNearbyTreasureEnabled;
         if (current.RoleBasedFpsEnabled != baseline.RoleBasedFpsEnabled) target.RoleBasedFpsEnabled = current.RoleBasedFpsEnabled;
