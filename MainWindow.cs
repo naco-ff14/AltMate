@@ -404,8 +404,7 @@ public sealed class MainWindow : Window
             ? "Character gil updates while logged in. Retainer and FC values show the latest data loaded by the game."
             : "本人のギルはログイン中に更新します。リテイナーとFCチェストは、ゲーム内で確認した時点の最新額です。");
 
-        var characters = plugin.Configuration.CharacterGil.Values
-            .OrderBy(x => x.CharacterName).ThenBy(x => x.WorldName).ToArray();
+        var characters = plugin.Configuration.CharacterGil.Values.ToArray();
         var characterTotal = characters.Aggregate(0UL, (total, character) =>
             total + character.Gil + character.Retainers.Values.Aggregate(0UL,
                 (retainerTotal, retainer) => retainerTotal + retainer.Gil));
@@ -431,28 +430,29 @@ public sealed class MainWindow : Window
 
         ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("キャラクター・リテイナー", "Characters & Retainers"));
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
-                    ImGuiTableFlags.SizingStretchProp;
+                    ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable;
         if (ImGui.BeginTable("gil-characters", 4, flags))
         {
-            ImGui.TableSetupColumn(Loc.L("キャラクター／リテイナー", "Character / Retainer"), ImGuiTableColumnFlags.WidthStretch, 1.7f);
-            ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthStretch, 1f);
-            ImGui.TableSetupColumn(Loc.L("所持ギル", "Gil"), ImGuiTableColumnFlags.WidthFixed, 130 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn(Loc.L("最終確認", "Last Updated"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("キャラクター／リテイナー", "Character / Retainer"),
+                ImGuiTableColumnFlags.WidthStretch | ImGuiTableColumnFlags.DefaultSort, 1.7f, 0);
+            ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthStretch, 1f, 1);
+            ImGui.TableSetupColumn(Loc.L("所持ギル", "Gil"),
+                ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.PreferSortDescending,
+                130 * ImGuiHelpers.GlobalScale, 2);
+            ImGui.TableSetupColumn(Loc.L("最終確認", "Last Updated"),
+                ImGuiTableColumnFlags.WidthFixed | ImGuiTableColumnFlags.NoSort,
+                145 * ImGuiHelpers.GlobalScale, 3);
             ImGui.TableHeadersRow();
-            foreach (var character in characters)
+            var sortedCharacters = SortGilCharacters(characters);
+            foreach (var character in sortedCharacters)
             {
                 DrawGilRow(character.CharacterName, character.WorldName, character.Gil, character.UpdatedAt, false);
                 var retainersWithGil = character.Retainers.Values
                     .Where(x => x.Gil > 0)
                     .OrderBy(x => x.Name)
                     .ToArray();
-                var omittedRetainers = character.Retainers.Count - retainersWithGil.Length;
                 foreach (var retainer in retainersWithGil)
                     DrawGilRow($"　└ {retainer.Name}", Loc.L("リテイナー", "Retainer"), retainer.Gil, retainer.UpdatedAt, true);
-                if (omittedRetainers > 0)
-                    DrawGilNoticeRow(Loc.L(
-                        $"　└ 0ギルのリテイナーを{omittedRetainers}件省略",
-                        $"　└ {omittedRetainers} zero-gil retainer(s) hidden"));
                 if (plugin.Configuration.Characters.TryGetValue(character.ContentId, out var lottery) &&
                     cycle.HasEntry(lottery) && !lottery.ResultChecked && lottery.BidGilDeposited > 0)
                     DrawGilRow(Loc.L("　└ ハウジング抽選預かり中", "　└ Housing lottery deposit"),
@@ -489,22 +489,35 @@ public sealed class MainWindow : Window
         ImGui.TableNextColumn();
         ImGui.TextDisabled(world);
         ImGui.TableNextColumn();
-        ImGui.TextColored(amountColor ?? new Vector4(0.95f, 0.78f, 0.25f, 1f), $"{gil:N0} G");
+        var amountText = $"{gil:N0} G";
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() +
+            Math.Max(0, ImGui.GetContentRegionAvail().X - ImGui.CalcTextSize(amountText).X));
+        ImGui.TextColored(amountColor ?? new Vector4(0.95f, 0.78f, 0.25f, 1f), amountText);
         ImGui.TableNextColumn();
         ImGui.TextDisabled(updatedAt == default ? "—" : FormatDate(updatedAt));
     }
 
-    private static void DrawGilNoticeRow(string message)
+    private static System.Collections.Generic.IEnumerable<CharacterGilRecord> SortGilCharacters(
+        CharacterGilRecord[] characters)
     {
-        ImGui.TableNextRow();
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled(message);
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled("—");
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled("—");
-        ImGui.TableNextColumn();
-        ImGui.TextDisabled("—");
+        var specs = ImGui.TableGetSortSpecs();
+        if (specs.IsNull || specs.SpecsCount == 0)
+            return characters.OrderBy(x => x.CharacterName).ThenBy(x => x.WorldName);
+
+        var spec = specs.Specs[0];
+        var descending = spec.SortDirection == ImGuiSortDirection.Descending;
+        return spec.ColumnUserID switch
+        {
+            1 => descending
+                ? characters.OrderByDescending(x => x.WorldName).ThenBy(x => x.CharacterName)
+                : characters.OrderBy(x => x.WorldName).ThenBy(x => x.CharacterName),
+            2 => descending
+                ? characters.OrderByDescending(x => x.Gil).ThenBy(x => x.CharacterName)
+                : characters.OrderBy(x => x.Gil).ThenBy(x => x.CharacterName),
+            _ => descending
+                ? characters.OrderByDescending(x => x.CharacterName).ThenBy(x => x.WorldName)
+                : characters.OrderBy(x => x.CharacterName).ThenBy(x => x.WorldName),
+        };
     }
 
     private void DrawSettings()
@@ -1011,7 +1024,26 @@ public sealed class MainWindow : Window
             var hasEntry = cycle.HasEntry(record);
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted($"{record.CharacterName}\n{record.WorldName}");
+            ImGui.Selectable($"{record.CharacterName}\n{record.WorldName}##lottery-{record.ContentId}",
+                false, ImGuiSelectableFlags.SpanAllColumns);
+            if (ImGui.BeginPopupContextItem($"##lottery-menu-{record.ContentId}",
+                    ImGuiPopupFlags.MouseButtonRight))
+            {
+                ImGui.TextUnformatted(record.PlotAddress ?? Loc.L("応募した土地", "Entered plot"));
+                ImGui.Separator();
+                var canTravel = hasEntry && Plugin.IsLifestreamAvailable();
+                if (!canTravel)
+                    ImGui.BeginDisabled();
+                if (ImGui.MenuItem(Loc.L("応募先へLifestreamで移動", "Travel to entered plot with Lifestream")))
+                {
+                    mapPreviewMessage = Plugin.TravelToLotteryPlot(record)
+                        ? Loc.L("応募先への移動を開始しました。", "Started travelling to the entered plot.")
+                        : Loc.L("応募先の住所を取得できませんでした。", "Could not read the entered plot address.");
+                }
+                if (!canTravel)
+                    ImGui.EndDisabled();
+                ImGui.EndPopup();
+            }
             ImGui.TableNextColumn();
             var (statusText, statusColor) = GetStatus(cycle, record, hasEntry);
             ImGui.TextColored(statusColor, statusText);

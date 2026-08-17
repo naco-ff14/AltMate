@@ -6,5 +6,6 @@
   "Description": "AltMate supports multiple FFXIV clients running on the same PC. It provides automatic follow and multi-seat mount assistance, combat and travel synchronization, housing lottery/open-plot tracking, Penumbra emote playback, and shared gil summaries. Data and control messages stay on the local PC. The interface supports Japanese and English.",
   "ApplicableVersion": "any",
   "DalamudApiLevel": 15,
+  "IconUrl": "https://raw.githubusercontent.com/naco-ff14/AltMate/main/images/icon.png",
   "Tags": [ "multi-character", "follow", "housing", "utility", "penumbra", "日本語", "English" ]
 }

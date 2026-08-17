@@ -440,6 +440,45 @@ public sealed class Plugin : IDalamudPlugin
         return true;
     }
 
+    internal static bool TravelToLotteryPlot(CharacterLotteryRecord record)
+    {
+        if (!IsLifestreamAvailable())
+            return false;
+
+        var territoryTypeId = record.BidTerritoryTypeId;
+        var ward = record.BidWardNumber;
+        var plot = record.BidPlotNumber;
+        if ((territoryTypeId == 0 || ward <= 0 || plot <= 0) &&
+            !string.IsNullOrWhiteSpace(record.PlotAddress))
+        {
+            territoryTypeId = ResolveDistrictId(record.PlotAddress) ?? 0;
+            var japanese = Regex.Match(record.PlotAddress, @"第\s*(?<ward>\d+)\s*区.*?(?<plot>\d+)\s*番地");
+            var english = Regex.Match(record.PlotAddress,
+                @"Plot\s+(?<plot>\d+).*?(?<ward>\d+)(?:st|nd|rd|th)?\s+Ward",
+                RegexOptions.IgnoreCase);
+            var match = japanese.Success ? japanese : english;
+            if (match.Success)
+            {
+                int.TryParse(match.Groups["ward"].Value, out ward);
+                int.TryParse(match.Groups["plot"].Value, out plot);
+            }
+        }
+
+        if (territoryTypeId == 0 || ward <= 0 || plot <= 0)
+            return false;
+
+        var worldId = record.BidWorldId;
+        var worldName = worldId != 0 ? GetWorldName(worldId) : record.WorldName;
+        return TravelToOpenPlot(new OpenPlotRecord
+        {
+            WorldId = worldId,
+            WorldName = worldName,
+            TerritoryTypeId = territoryTypeId,
+            WardNumber = ward,
+            PlotNumber = plot,
+        });
+    }
+
     private void ShowWindowIfAttentionNeeded()
     {
         if (!Configuration.Characters.TryGetValue(PlayerState.ContentId, out var record) ||
