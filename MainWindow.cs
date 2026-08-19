@@ -791,6 +791,17 @@ public sealed class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var vnavRecovery = plugin.Configuration.VnavmeshStuckRecoveryEnabled;
+        if (ImGui.Checkbox(Loc.L("追従が詰まった時にvnavmeshで復帰", "Use vnavmesh when follow gets stuck"), ref vnavRecovery))
+        {
+            plugin.Configuration.VnavmeshStuckRecoveryEnabled = vnavRecovery;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled(plugin.CharacterLink.IsVnavmeshLoaded
+            ? Loc.L("vnavmesh：接続済み", "vnavmesh: Connected")
+            : Loc.L("vnavmesh：未接続（通常追従のみ）", "vnavmesh: Not connected (direct follow only)"));
 
         ImGui.Separator();
         ImGui.TextColored(new Vector4(1f, 0.55f, 0.3f, 1f), Loc.T("CombatLink"));

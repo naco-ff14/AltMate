@@ -23,6 +23,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool AutoAcceptPartyInviteEnabled { get; set; } = true;
     public bool PauseLinkInCombat { get; set; } = true;
     public float FollowStartDistance { get; set; } = 5f;
+    public bool VnavmeshStuckRecoveryEnabled { get; set; } = true;
     public bool CombatLinkEnabled { get; set; }
     public bool UseBossModReborn { get; set; } = true;
     public bool UseRotationSolverReborn { get; set; } = true;

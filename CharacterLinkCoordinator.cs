@@ -48,6 +48,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool stopFollowRequested;
     private bool followCommandActive;
     private bool smoothDistanceFollowing;
+    private bool vnavRecoveryActive;
+    private Vector3 followProgressSamplePosition;
+    private Vector3 lastVnavDestination;
+    private DateTime followProgressSampleUtc;
+    private DateTime followStalledSinceUtc;
+    private DateTime lastVnavRepathUtc;
     private bool localCharacterUnavailable;
     private DateTime localCharacterReadySinceUtc;
     private DateTime followCommandStartedUtc;
@@ -164,6 +170,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     public string TreasureStatus { get; private set; } = "近くの宝箱を監視中";
     public string WorldLinkStatus { get; private set; } = "同じワールドで待機";
     public bool IsLifestreamLoaded => IsPluginLoaded("Lifestream");
+    public bool IsVnavmeshLoaded => IsPluginLoaded("vnavmesh");
     public LinkedCharacterState[] Peers => peers.Values
         .Where(x => DateTime.UtcNow - x.ReceivedAtUtc < TimeSpan.FromSeconds(5))
         .OrderBy(x => x.CharacterName).ToArray();
@@ -172,6 +179,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         runtimeStopped = true;
         smoothFollow.Stop();
+        StopVnavRecovery();
         stopFollowRequested = true;
         LastAction = "緊急停止中";
         StopCombatAutomation();
@@ -1838,6 +1846,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 AutoAcceptPartyInviteEnabled = plugin.Configuration.AutoAcceptPartyInviteEnabled,
                 PauseInCombat = plugin.Configuration.PauseLinkInCombat,
                 FollowDistance = plugin.Configuration.FollowStartDistance,
+                VnavmeshStuckRecoveryEnabled = plugin.Configuration.VnavmeshStuckRecoveryEnabled,
                 CombatLinkEnabled = plugin.Configuration.CombatLinkEnabled,
                 UseBossModReborn = plugin.Configuration.UseBossModReborn,
                 UseRotationSolverReborn = plugin.Configuration.UseRotationSolverReborn,
@@ -1876,6 +1885,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.AutoAcceptPartyInviteEnabled = state.AutoAcceptPartyInviteEnabled;
         plugin.Configuration.PauseLinkInCombat = state.PauseInCombat;
         plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 1f, 15f);
+        plugin.Configuration.VnavmeshStuckRecoveryEnabled = state.VnavmeshStuckRecoveryEnabled;
         plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
         plugin.Configuration.UseBossModReborn = state.UseBossModReborn;
         plugin.Configuration.UseRotationSolverReborn = state.UseRotationSolverReborn;
@@ -1896,33 +1906,39 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         if (occultSourceApproachActive)
         {
+            StopVnavRecovery();
             LastAction = "移動元エーテライトへ接近中";
             return;
         }
         if (zoneTransitionApproachActive)
         {
+            StopVnavRecovery();
             LastAction = "エリア境界へ移動中";
             return;
         }
         if (!IsLocalCharacterReady())
         {
+            StopVnavRecovery();
             ResetForLogout();
             return;
         }
         if (housingMovementActive || lifestreamBusyThisFrame)
         {
+            StopVnavRecovery();
             LastAction = "Lifestream移動中のため追従を停止";
             return;
         }
         if (leader.WorldName != Plugin.PlayerState.CurrentWorld.Value.Name.ToString() ||
             leader.TerritoryType != Plugin.ClientState.TerritoryType)
         {
+            StopVnavRecovery();
             LastAction = "リーダーと別エリアです";
             return;
         }
         if (IsBlocked() || (plugin.Configuration.PauseLinkInCombat &&
                             (leader.InCombat || Plugin.Condition[ConditionFlag.InCombat])))
         {
+            StopVnavRecovery();
             LastAction = "安全条件により一時停止";
             return;
         }
@@ -1932,6 +1948,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             x.Name.TextValue.Equals(leader.CharacterName, StringComparison.OrdinalIgnoreCase));
         if (local is null || leaderObject is null)
         {
+            StopVnavRecovery();
             LastAction = "リーダーが表示範囲外です";
             return;
         }
@@ -1961,6 +1978,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (plugin.Configuration.AutoRidePillionEnabled && leader.Mounted &&
             !Plugin.Condition[ConditionFlag.Mounted] && !Plugin.Condition[ConditionFlag.RidingPillion])
         {
+            StopVnavRecovery();
             if (distance <= 5f && now - lastRideUtc > TimeSpan.FromSeconds(2))
             {
                 if (TryRidePillion(leaderObject))
@@ -2011,7 +2029,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
         var spacing = plugin.Configuration.FollowStartDistance;
         if (!plugin.Configuration.AutoFollowEnabled)
+        {
             smoothDistanceFollowing = false;
+            StopVnavRecovery();
+        }
         else if (!smoothDistanceFollowing && distance >= spacing + 0.5f)
             smoothDistanceFollowing = true;
         else if (smoothDistanceFollowing && distance <= spacing)
@@ -2019,16 +2040,150 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
         if (smoothDistanceFollowing)
         {
-            var strength = Math.Clamp((distance - spacing) / 3f, 0.25f, 1f);
-            smoothFollow.Follow(leaderObject.Position - local.Position, strength);
-            LastAction = $"リーダーを追従中（{distance:0.0}m）";
+            if (UpdateVnavRecovery(local.Position, leaderObject.Position, distance, spacing, now))
+            {
+                smoothFollow.Stop();
+                LastAction = $"vnavmeshで追従復帰中（{distance:0.0}m）";
+            }
+            else
+            {
+                var strength = Math.Clamp((distance - spacing) / 3f, 0.25f, 1f);
+                smoothFollow.Follow(leaderObject.Position - local.Position, strength);
+                LastAction = $"リーダーを追従中（{distance:0.0}m）";
+            }
         }
         else if (distance <= spacing + 0.5f)
         {
+            StopVnavRecovery();
             LastAction = leader.Mounted
                 ? $"相乗りを再試行待ち（{distance:0.0}m）"
                 : $"リーダーの近くで待機中（{distance:0.0}m）";
         }
+    }
+
+    private bool UpdateVnavRecovery(Vector3 localPosition, Vector3 leaderPosition,
+        float distance, float spacing, DateTime now)
+    {
+        if (!plugin.Configuration.VnavmeshStuckRecoveryEnabled || !IsVnavmeshLoaded)
+        {
+            StopVnavRecovery();
+            ResetFollowProgress(localPosition, now);
+            return false;
+        }
+
+        if (vnavRecoveryActive)
+        {
+            if (distance <= spacing + 0.5f)
+            {
+                StopVnavRecovery();
+                ResetFollowProgress(localPosition, now);
+                return false;
+            }
+
+            if (now - lastVnavRepathUtc >= TimeSpan.FromSeconds(1) && !IsVnavMovementRunning())
+            {
+                vnavRecoveryActive = false;
+                ResetFollowProgress(localPosition, now);
+                return false;
+            }
+
+            if (now - lastVnavRepathUtc >= TimeSpan.FromSeconds(2) &&
+                Vector3.DistanceSquared(lastVnavDestination, leaderPosition) >= 9f)
+                RequestVnavRecovery(leaderPosition, spacing, now);
+            return true;
+        }
+
+        if (followProgressSampleUtc == default)
+        {
+            ResetFollowProgress(localPosition, now);
+            return false;
+        }
+        if (now - followProgressSampleUtc < TimeSpan.FromMilliseconds(500))
+            return false;
+
+        var moved = Vector3.Distance(followProgressSamplePosition, localPosition);
+        followProgressSamplePosition = localPosition;
+        followProgressSampleUtc = now;
+        if (moved >= 0.15f || distance <= spacing + 2f)
+        {
+            followStalledSinceUtc = default;
+            return false;
+        }
+
+        if (followStalledSinceUtc == default)
+        {
+            followStalledSinceUtc = now;
+            return false;
+        }
+        if (now - followStalledSinceUtc < TimeSpan.FromSeconds(2))
+            return false;
+
+        followStalledSinceUtc = default;
+        return RequestVnavRecovery(leaderPosition, spacing, now);
+    }
+
+    private bool RequestVnavRecovery(Vector3 destination, float spacing, DateTime now)
+    {
+        try
+        {
+            var ready = Plugin.PluginInterface.GetIpcSubscriber<bool>("vnavmesh.Nav.IsReady").InvokeFunc();
+            if (!ready)
+                return false;
+            var accepted = Plugin.PluginInterface
+                .GetIpcSubscriber<Vector3, bool, float, bool>("vnavmesh.SimpleMove.PathfindAndMoveCloseTo")
+                .InvokeFunc(destination, false, Math.Max(1f, spacing));
+            if (!accepted)
+                return false;
+            vnavRecoveryActive = true;
+            lastVnavDestination = destination;
+            lastVnavRepathUtc = now;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Verbose(exception, "vnavmeshへ追従復帰を依頼できませんでした。");
+            return false;
+        }
+    }
+
+    private void StopVnavRecovery()
+    {
+        if (vnavRecoveryActive)
+        {
+            try
+            {
+                Plugin.PluginInterface.GetIpcSubscriber<object>("vnavmesh.Path.Stop").InvokeAction();
+            }
+            catch (Exception exception)
+            {
+                Plugin.Log.Verbose(exception, "vnavmeshの追従復帰を停止できませんでした。");
+            }
+        }
+        vnavRecoveryActive = false;
+        followStalledSinceUtc = default;
+        lastVnavRepathUtc = default;
+    }
+
+    private static bool IsVnavMovementRunning()
+    {
+        try
+        {
+            return Plugin.PluginInterface
+                       .GetIpcSubscriber<bool>("vnavmesh.SimpleMove.PathfindInProgress").InvokeFunc() ||
+                   Plugin.PluginInterface
+                       .GetIpcSubscriber<bool>("vnavmesh.Path.IsRunning").InvokeFunc();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private void ResetFollowProgress(Vector3 position, DateTime now)
+    {
+        followProgressSamplePosition = position;
+        followProgressSampleUtc = now;
+        followStalledSinceUtc = default;
     }
 
     private void ResetPillionAttempts()
@@ -2056,6 +2211,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         stopFollowRequested = false;
         followCommandActive = false;
         smoothDistanceFollowing = false;
+        StopVnavRecovery();
+        followProgressSampleUtc = default;
         ResetPillionAttempts();
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
@@ -2093,6 +2250,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingTargetName = null;
         followCommandActive = false;
         smoothDistanceFollowing = false;
+        StopVnavRecovery();
+        followProgressSampleUtc = default;
         ResetPillionAttempts();
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
@@ -2207,6 +2366,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         if (combatAutomationActive)
             StopCombatAutomation();
+        StopVnavRecovery();
         smoothFollow.Dispose();
         useActionHook?.Disable();
         useActionHook?.Dispose();
@@ -2269,6 +2429,7 @@ public sealed class LinkedCharacterState
     public bool AutoAcceptPartyInviteEnabled { get; set; }
     public bool PauseInCombat { get; set; }
     public float FollowDistance { get; set; }
+    public bool VnavmeshStuckRecoveryEnabled { get; set; }
     public bool CombatLinkEnabled { get; set; }
     public bool UseBossModReborn { get; set; }
     public bool UseRotationSolverReborn { get; set; }
