@@ -2102,7 +2102,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
         var target = Plugin.TargetManager.Target;
         if (target is not null && target.IsValid() && target.BaseId != 0 &&
-            target is not Dalamud.Game.ClientState.Objects.Types.IPlayerCharacter)
+            target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Pc)
         {
             observedInteractionTargetDataId = target.BaseId;
             observedInteractionTargetName = target.Name.TextValue;
