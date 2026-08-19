@@ -14,6 +14,7 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
@@ -26,11 +27,13 @@ namespace AltMate;
 
 public sealed class CharacterLinkCoordinator : IDisposable
 {
+    private const int CurrentProtocol = 2;
     private const int Port = 47777;
     private static readonly IPAddress Group = IPAddress.Parse("239.255.77.77");
     private readonly Plugin plugin;
     private readonly ConcurrentDictionary<ulong, LinkedCharacterState> peers = new();
     private readonly ConcurrentQueue<LinkedCharacterState> receivedStates = new();
+    private readonly Dictionary<(ulong ContentId, string Channel), uint> lastReceivedSequences = new();
     private readonly CancellationTokenSource cancellation = new();
     private readonly object senderLock = new();
     private readonly SmoothFollowController smoothFollow;
@@ -39,6 +42,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private UdpClient? sender;
     private Task? receiveTask;
     private DateTime lastBroadcastUtc;
+    private DateTime lastFastStateBroadcastUtc;
+    private int outboundSequence;
     private DateTime lastFollowUtc;
     private DateTime lastRideUtc;
     private DateTime smoothFollowTestUntilUtc;
@@ -223,7 +228,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             var message = new LinkedCharacterState
             {
-                Protocol = 1,
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
                 LinkKey = plugin.Configuration.LocalLinkKey,
                 Kind = "configrevision",
                 ContentId = Plugin.PlayerState.ContentId,
@@ -410,7 +416,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 var result = await receiver.ReceiveAsync(token);
                 var state = JsonSerializer.Deserialize<LinkedCharacterState>(result.Buffer);
-                if (state is null || state.Protocol != 1 ||
+                if (state is null || (state.Protocol != 1 && state.Protocol != CurrentProtocol) ||
                     !IsValidLinkKey(state.LinkKey))
                     continue;
                 // Dalamudのゲーム状態と設定には受信スレッドから触れない。
@@ -558,6 +564,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.CheckSharedConfiguration();
         UpdateFollowState(now);
         UpdateTravelInterlock(now);
+        if (now - lastFastStateBroadcastUtc >= TimeSpan.FromMilliseconds(100))
+        {
+            BroadcastFastState();
+            lastFastStateBroadcastUtc = now;
+        }
         if (now - lastBroadcastUtc >= TimeSpan.FromSeconds(1))
         {
             BroadcastState();
@@ -600,6 +611,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
         // 異常なパケット集中でも1フレームを占有しないよう上限を設ける。
         for (var count = 0; count < 128 && receivedStates.TryDequeue(out var state); count++)
         {
+            if (state.Protocol >= CurrentProtocol && state.Sequence != 0 &&
+                state.ContentId != 0 && !AcceptSequence(state.ContentId, state.Kind, state.Sequence))
+                continue;
+
             switch (state.Kind)
             {
                 case "stop":
@@ -666,8 +681,47 @@ public sealed class CharacterLinkCoordinator : IDisposable
             if (state.ContentId == 0 || state.ContentId == Plugin.PlayerState.ContentId)
                 continue;
             state.ReceivedAtUtc = DateTime.UtcNow;
-            peers[state.ContentId] = state;
+            if (state.Kind == "faststate" && peers.TryGetValue(state.ContentId, out var existing))
+                MergeFastState(existing, state);
+            else
+                peers[state.ContentId] = state;
         }
+    }
+
+    private bool AcceptSequence(ulong contentId, string kind, uint sequence)
+    {
+        var channel = kind is "state" or "faststate" ? "movement" : kind;
+        var key = (contentId, channel);
+        if (!lastReceivedSequences.TryGetValue(key, out var previous))
+        {
+            lastReceivedSequences[key] = sequence;
+            return true;
+        }
+
+        // Signed subtraction keeps wrap-around ordering correct for a 32-bit counter.
+        if (unchecked((int)(sequence - previous)) <= 0)
+            return false;
+        lastReceivedSequences[key] = sequence;
+        return true;
+    }
+
+    private static void MergeFastState(LinkedCharacterState target, LinkedCharacterState fast)
+    {
+        target.Protocol = fast.Protocol;
+        target.Sequence = fast.Sequence;
+        target.CharacterName = fast.CharacterName;
+        target.WorldName = fast.WorldName;
+        target.TerritoryType = fast.TerritoryType;
+        target.X = fast.X;
+        target.Y = fast.Y;
+        target.Z = fast.Z;
+        target.Rotation = fast.Rotation;
+        target.InCombat = fast.InCombat;
+        target.Mounted = fast.Mounted;
+        target.RidingPillion = fast.RidingPillion;
+        target.CastActionType = fast.CastActionType;
+        target.CastActionId = fast.CastActionId;
+        target.ReceivedAtUtc = fast.ReceivedAtUtc;
     }
 
     private unsafe void UpdateNearbyTreasure(DateTime now)
@@ -1726,7 +1780,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 return;
             var state = new LinkedCharacterState
             {
-                Protocol = 1,
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
                 LinkKey = plugin.Configuration.LocalLinkKey,
                 Kind = "state",
                 ContentId = Plugin.PlayerState.ContentId,
@@ -1736,6 +1791,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 X = local.Position.X,
                 Y = local.Position.Y,
                 Z = local.Position.Z,
+                Rotation = local.Rotation,
                 JobName = Plugin.PlayerState.ClassJob.Value.Abbreviation.ToString(),
                 CurrentHp = local.CurrentHp,
                 MaxHp = local.MaxHp,
@@ -1758,6 +1814,51 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
     }
 
+    private void BroadcastFastState()
+    {
+        if (sender is null || !IsLocalCharacterReady() ||
+            Plugin.ObjectTable.LocalPlayer is not { } local)
+            return;
+        try
+        {
+            var state = new LinkedCharacterState
+            {
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
+                LinkKey = plugin.Configuration.LocalLinkKey,
+                Kind = "faststate",
+                ContentId = Plugin.PlayerState.ContentId,
+                CharacterName = Plugin.PlayerState.CharacterName,
+                WorldName = Plugin.PlayerState.CurrentWorld.Value.Name.ToString(),
+                TerritoryType = Plugin.ClientState.TerritoryType,
+                X = local.Position.X,
+                Y = local.Position.Y,
+                Z = local.Position.Z,
+                Rotation = local.Rotation,
+                InCombat = Plugin.Condition[ConditionFlag.InCombat],
+                Mounted = Plugin.Condition[ConditionFlag.Mounted],
+                RidingPillion = Plugin.Condition[ConditionFlag.RidingPillion],
+                CastActionType = local.CastActionType,
+                CastActionId = local.CastActionId,
+            };
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(state);
+            lock (senderLock)
+                sender?.Send(bytes, bytes.Length, new IPEndPoint(Group, Port));
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Verbose(exception, "AltMateの高速状態を送信できませんでした。");
+        }
+    }
+
+    private uint NextSequence()
+    {
+        var sequence = unchecked((uint)Interlocked.Increment(ref outboundSequence));
+        if (sequence != 0)
+            return sequence;
+        return unchecked((uint)Interlocked.Increment(ref outboundSequence));
+    }
+
     private void BroadcastControl(string kind, ulong contentId = 0)
     {
         if (sender is null)
@@ -1766,7 +1867,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             var message = new LinkedCharacterState
             {
-                Protocol = 1, LinkKey = plugin.Configuration.LocalLinkKey, Kind = kind, ContentId = contentId,
+                Protocol = CurrentProtocol, Sequence = NextSequence(),
+                LinkKey = plugin.Configuration.LocalLinkKey, Kind = kind,
+                ContentId = contentId != 0 ? contentId : Plugin.PlayerState.ContentId,
             };
             var bytes = JsonSerializer.SerializeToUtf8Bytes(message);
             lock (senderLock)
@@ -1789,7 +1892,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             var message = new LinkedCharacterState
             {
-                Protocol = 1,
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
                 LinkKey = plugin.Configuration.LocalLinkKey,
                 Kind = kind,
                 ContentId = Plugin.PlayerState.ContentId,
@@ -1817,7 +1921,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             var message = new LinkedCharacterState
             {
-                Protocol = 1,
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
                 LinkKey = plugin.Configuration.LocalLinkKey,
                 Kind = "emote",
                 ContentId = Plugin.PlayerState.ContentId,
@@ -1846,7 +1951,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             var message = new LinkedCharacterState
             {
-                Protocol = 1,
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
                 LinkKey = plugin.Configuration.LocalLinkKey,
                 Kind = "housing",
                 ContentId = Plugin.PlayerState.ContentId,
@@ -1877,9 +1983,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             var message = new LinkedCharacterState
             {
-                Protocol = 1,
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
                 LinkKey = plugin.Configuration.LocalLinkKey,
                 Kind = "settings",
+                ContentId = Plugin.PlayerState.ContentId,
                 LinkEnabled = plugin.Configuration.LinkEnabled,
                 LeaderContentId = plugin.Configuration.LinkLeaderContentId,
                 AutoFollow = plugin.Configuration.AutoFollowEnabled,
@@ -2080,8 +2188,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
         else
         {
+            var leaderRotation = leader.Protocol >= CurrentProtocol
+                ? leader.Rotation
+                : leaderObject.Rotation;
             var follow = followController.Update(local.Position, leaderObject.Position,
-                leaderObject.Rotation, spacing);
+                leaderRotation, spacing);
             if (follow.ShouldMove &&
                 UpdateVnavRecovery(local.Position, follow.Target, follow.DistanceToTarget, 0.5f, now))
             {
@@ -2145,7 +2256,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 interactionSequence = 1;
             var message = new LinkedCharacterState
             {
-                Protocol = 1,
+                Protocol = CurrentProtocol,
+                Sequence = NextSequence(),
                 LinkKey = plugin.Configuration.LocalLinkKey,
                 Kind = "interact",
                 ContentId = Plugin.PlayerState.ContentId,
@@ -2368,6 +2480,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
         }
         peers.Clear();
+        lastReceivedSequences.Clear();
         pendingGameCommand = null;
         pendingTargetName = null;
         pendingTargetApplied = false;
@@ -2564,6 +2677,7 @@ internal readonly record struct OccultAetheryte(uint TerritoryType, uint PlaceNa
 public sealed class LinkedCharacterState
 {
     public int Protocol { get; set; }
+    public uint Sequence { get; set; }
     public string LinkKey { get; set; } = string.Empty;
     public string Kind { get; set; } = "state";
     public ulong ContentId { get; set; }
@@ -2573,6 +2687,7 @@ public sealed class LinkedCharacterState
     public float X { get; set; }
     public float Y { get; set; }
     public float Z { get; set; }
+    public float Rotation { get; set; }
     public string JobName { get; set; } = "—";
     public uint CurrentHp { get; set; }
     public uint MaxHp { get; set; }
