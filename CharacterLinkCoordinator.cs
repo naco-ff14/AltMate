@@ -599,9 +599,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
         UpdateCombatAutomation(leader, now);
         UpdateAreaTransitionSync(leader, now);
+        // クレセントのAethernetはPlaceNameId専用IPCを使うため、都市用の
+        // AetheryteId検出より先にジョブ化する。
+        UpdateOccultAethernetSync(leader, now);
         UpdateGeneralTravelSync(leader, now);
         UpdateHousingTravelSync(now);
-        UpdateOccultAethernetSync(leader, now);
         if (UpdateFollowerInteraction(now))
             return;
         RunFollowerAutomation(leader, now);
@@ -1125,6 +1127,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
         else
         {
+            var allowCityAethernet = !IsOccultTerritory(leader.TerritoryType);
+            if (!allowCityAethernet)
+            {
+                queuedLeaderCityAetheryteId = 0;
+                queuedLeaderResidentialAetheryteId = 0;
+                travelCoordinator.Cancel(TravelJobKind.CityAethernet);
+            }
             var leaderTerritoryChanged = leader.TerritoryType != lastLeaderTravelTerritoryType;
             if (leaderTerritoryChanged)
             {
@@ -1170,7 +1179,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 lastLeaderMoveDirectionX = (leader.X - lastLeaderTravelX) / leaderTravelDistance;
                 lastLeaderMoveDirectionZ = (leader.Z - lastLeaderTravelZ) / leaderTravelDistance;
             }
-            if (leader.ActiveResidentialAetheryteId != 0 &&
+            if (allowCityAethernet && leader.ActiveResidentialAetheryteId != 0 &&
                 leader.ActiveResidentialAetheryteId != lastLeaderResidentialAetheryteId)
             {
                 queuedLeaderResidentialAetheryteId = leader.ActiveResidentialAetheryteId;
@@ -1179,7 +1188,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
                     DestinationId: queuedLeaderResidentialAetheryteId));
             }
-            if (leader.ActiveCustomAetheryteId != 0 &&
+            if (allowCityAethernet && leader.ActiveCustomAetheryteId != 0 &&
                 leader.ActiveCustomAetheryteId != lastLeaderActiveCustomAetheryteId)
             {
                 queuedLeaderCityAetheryteId = leader.ActiveCustomAetheryteId;
@@ -1188,7 +1197,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
                     DestinationId: queuedLeaderCityAetheryteId));
             }
-            else if (leader.ActiveAetheryteId != 0 &&
+            else if (allowCityAethernet && leader.ActiveAetheryteId != 0 &&
                      leader.ActiveAetheryteId != lastLeaderActiveAetheryteId)
             {
                 queuedLeaderCityAetheryteId = leader.ActiveAetheryteId;
