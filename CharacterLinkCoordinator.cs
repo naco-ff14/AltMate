@@ -774,8 +774,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
 
         if (!IsLeader && plugin.Configuration.SyncLeaderInteractionEnabled &&
-            DateTime.UtcNow <= linkedInteractionConfirmationExpiresUtc &&
-            ContainsLinkedInteractionPrompt(addon->PromptText->NodeText.ToString()))
+            DateTime.UtcNow <= linkedInteractionConfirmationExpiresUtc)
         {
             addon->AtkUnitBase.FireCallbackInt(0);
             linkedInteractionConfirmationExpiresUtc = DateTime.MinValue;
@@ -1039,10 +1038,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         var looksLikeInvitation = ContainsAny(prompt, "誘われ", "招待", "参加します", "よろしいですか", "invited", "invitation", "join");
         return hasParty && looksLikeInvitation && !ContainsAny(prompt, "テレポ", "teleport");
     }
-
-    private static bool ContainsLinkedInteractionPrompt(string prompt) =>
-        ContainsAny(prompt, "へ入りますか", "に入りますか", "入場しますか", "移動しますか",
-            "enter ", "enter?", "enter the", "proceed to", "travel to");
 
     private static bool ContainsAny(string value, params string[] candidates) =>
         candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
