@@ -1635,7 +1635,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
         if (!travelCoordinator.CanRun(TravelJobKind.OccultAethernet, now))
             return;
-        if (IsBlocked() || now - lastOccultAttemptUtc < TimeSpan.FromSeconds(1.5))
+        // Aethernetメニュー自体がOccupied状態を立てる。メニューを開くところまで
+        // 成功した後もLifestreamへ目的地選択を再依頼できるよう、この画面だけ許可する。
+        if ((IsBlocked() && !IsAethernetMenuOpen()) ||
+            now - lastOccultAttemptUtc < TimeSpan.FromSeconds(1.5))
             return;
 
         var local = Plugin.ObjectTable.LocalPlayer;
@@ -1676,10 +1679,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 .InvokeFunc(pendingOccultDestinationId);
             if (accepted)
             {
-                OccultTravelStatus = $"フォロワーも移動開始：{GetPlaceName(pendingOccultDestinationId)}";
-                pendingOccultDestinationId = 0;
-                pendingOccultSourceId = 0;
-                travelCoordinator.Complete(TravelJobKind.OccultAethernet);
+                // IPCのtrueは依頼受付であり、到着完了ではない。転送網を開いただけの
+                // 場合があるため、座標から到着を確認するまでジョブを保持する。
+                OccultTravelStatus = IsAethernetMenuOpen()
+                    ? $"転送網で目的地を選択中：{GetPlaceName(pendingOccultDestinationId)}"
+                    : $"フォロワーも移動処理中：{GetPlaceName(pendingOccultDestinationId)}";
                 stopFollowRequested = true;
                 smoothFollow.Stop();
             }
@@ -1692,6 +1696,19 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             Plugin.Log.Warning(exception, "クレセントアイルの連動移動をLifestreamへ依頼できませんでした。");
             OccultTravelStatus = "Lifestream IPCへ接続できません";
+        }
+    }
+
+    private static unsafe bool IsAethernetMenuOpen()
+    {
+        try
+        {
+            var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("TelepotTown").Address;
+            return addon != null && addon->IsVisible;
+        }
+        catch
+        {
+            return false;
         }
     }
 
