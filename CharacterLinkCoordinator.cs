@@ -38,6 +38,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private readonly object senderLock = new();
     private readonly SmoothFollowController smoothFollow;
     private readonly FollowController followController;
+    private readonly TravelCoordinator travelCoordinator = new();
     private UdpClient? receiver;
     private UdpClient? sender;
     private Task? receiveTask;
@@ -1107,6 +1108,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             GeneralTravelStatus = "無効";
             leaderTravelBaselineReady = false;
+            travelCoordinator.Cancel(TravelJobKind.CityAethernet);
+            ResetZoneBoundaryApproach();
             return;
         }
 
@@ -1149,6 +1152,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     pendingZoneBoundaryX = lastLeaderTravelX + lastLeaderMoveDirectionX * 10f;
                     pendingZoneBoundaryZ = lastLeaderTravelZ + lastLeaderMoveDirectionZ * 10f;
                     pendingZoneTransitionExpiresUtc = now.AddSeconds(45);
+                    travelCoordinator.Schedule(new TravelJob(
+                        TravelJobKind.ZoneBoundary, now, pendingZoneTransitionExpiresUtc,
+                        SourceTerritory: pendingZoneSourceTerritory,
+                        TargetTerritory: pendingZoneTargetTerritory,
+                        TargetPosition: new Vector3(pendingZoneBoundaryX, 0f, pendingZoneBoundaryZ)));
                 }
             }
 
@@ -1167,18 +1175,27 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 queuedLeaderResidentialAetheryteId = leader.ActiveResidentialAetheryteId;
                 queuedLeaderAethernetExpiresUtc = now.AddSeconds(12);
+                travelCoordinator.Schedule(new TravelJob(
+                    TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
+                    DestinationId: queuedLeaderResidentialAetheryteId));
             }
             if (leader.ActiveCustomAetheryteId != 0 &&
                 leader.ActiveCustomAetheryteId != lastLeaderActiveCustomAetheryteId)
             {
                 queuedLeaderCityAetheryteId = leader.ActiveCustomAetheryteId;
                 queuedLeaderAethernetExpiresUtc = now.AddSeconds(12);
+                travelCoordinator.Schedule(new TravelJob(
+                    TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
+                    DestinationId: queuedLeaderCityAetheryteId));
             }
             else if (leader.ActiveAetheryteId != 0 &&
                      leader.ActiveAetheryteId != lastLeaderActiveAetheryteId)
             {
                 queuedLeaderCityAetheryteId = leader.ActiveAetheryteId;
                 queuedLeaderAethernetExpiresUtc = now.AddSeconds(12);
+                travelCoordinator.Schedule(new TravelJob(
+                    TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
+                    DestinationId: queuedLeaderCityAetheryteId));
             }
             var cityTransitionDetected = now <= leaderCityTransitionExpiresUtc &&
                 queuedLeaderCityAetheryteId != 0 && leaderCityTransitionSourceId != 0 &&
@@ -1188,28 +1205,37 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 leader.TerritoryType == Plugin.ClientState.TerritoryType &&
                 leaderResidentialPositionJumped &&
                 queuedLeaderResidentialAetheryteId != 0 &&
-                now <= queuedLeaderAethernetExpiresUtc)
+                now <= queuedLeaderAethernetExpiresUtc &&
+                travelCoordinator.CanRun(TravelJobKind.CityAethernet, now))
             {
+                travelCoordinator.RecordAttempt(TravelJobKind.CityAethernet);
                 if (TryRequestAethernet("Lifestream.HousingAethernetTeleportById",
                         queuedLeaderResidentialAetheryteId, "住宅街", now))
+                {
                     queuedLeaderResidentialAetheryteId = 0;
+                    travelCoordinator.Complete(TravelJobKind.CityAethernet);
+                }
             }
             else if (!IsBlocked() && plugin.Configuration.SyncCityAethernetEnabled &&
                      (leaderCityPositionJumped || cityTransitionDetected) &&
                      queuedLeaderCityAetheryteId != 0 &&
-                     now <= queuedLeaderAethernetExpiresUtc)
+                     now <= queuedLeaderAethernetExpiresUtc &&
+                     travelCoordinator.CanRun(TravelJobKind.CityAethernet, now))
             {
+                travelCoordinator.RecordAttempt(TravelJobKind.CityAethernet);
                 if (TryRequestAethernet("Lifestream.AethernetTeleportById",
                         queuedLeaderCityAetheryteId, "都市内", now))
                 {
                     queuedLeaderCityAetheryteId = 0;
                     leaderCityTransitionExpiresUtc = DateTime.MinValue;
+                    travelCoordinator.Complete(TravelJobKind.CityAethernet);
                 }
             }
             if (now > queuedLeaderAethernetExpiresUtc)
             {
                 queuedLeaderCityAetheryteId = 0;
                 queuedLeaderResidentialAetheryteId = 0;
+                travelCoordinator.Cancel(TravelJobKind.CityAethernet);
             }
         }
 
@@ -1257,11 +1283,17 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void UpdateZoneBoundaryApproach(LinkedCharacterState leader, DateTime now)
     {
-        if (!plugin.Configuration.SyncZoneBoundaryEnabled || pendingZoneTargetTerritory == 0)
+        if (!plugin.Configuration.SyncZoneBoundaryEnabled)
+        {
+            ResetZoneBoundaryApproach();
+            return;
+        }
+        if (pendingZoneTargetTerritory == 0)
             return;
         var localTerritory = Plugin.ClientState.TerritoryType;
         if (localTerritory == pendingZoneTargetTerritory)
         {
+            travelCoordinator.Complete(TravelJobKind.ZoneBoundary);
             ResetZoneBoundaryApproach();
             GeneralTravelStatus = "エリア境界の移動を同期完了";
             return;
@@ -1274,6 +1306,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
         if (pendingGeneralAetheryteId != 0 || queuedLeaderCityAetheryteId != 0 ||
             queuedLeaderResidentialAetheryteId != 0 || housingMovementActive || IsBlocked())
+            return;
+        if (!travelCoordinator.CanRun(TravelJobKind.ZoneBoundary, now))
             return;
 
         var local = Plugin.ObjectTable.LocalPlayer;
@@ -1292,6 +1326,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingZoneTargetTerritory = 0;
         pendingZoneTransitionExpiresUtc = default;
         zoneTransitionApproachActive = false;
+        travelCoordinator.Cancel(TravelJobKind.ZoneBoundary);
     }
 
     private bool TryRequestAethernet(string ipcName, uint destinationId, string kind, DateTime now)
@@ -1572,6 +1607,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 lastLeaderOccultAetheryteId = leaderNode.Value.PlaceNameId;
                 pendingOccultDestinationId = leaderNode.Value.PlaceNameId;
                 pendingOccultExpiresUtc = now.AddSeconds(45);
+                travelCoordinator.Schedule(new TravelJob(
+                    TravelJobKind.OccultAethernet, now, pendingOccultExpiresUtc,
+                    DestinationId: pendingOccultDestinationId));
                 OccultTravelStatus = $"リーダーの移動を検出：{GetPlaceName(pendingOccultDestinationId)}";
             }
         }
@@ -1582,9 +1620,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             pendingOccultDestinationId = 0;
             pendingOccultSourceId = 0;
+            travelCoordinator.Cancel(TravelJobKind.OccultAethernet);
             OccultTravelStatus = "移動受付を終了（フォロワーがエーテライト付近にいません）";
             return;
         }
+        if (!travelCoordinator.CanRun(TravelJobKind.OccultAethernet, now))
+            return;
         if (IsBlocked() || now - lastOccultAttemptUtc < TimeSpan.FromSeconds(1.5))
             return;
 
@@ -1601,6 +1642,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             pendingOccultDestinationId = 0;
             pendingOccultSourceId = 0;
+            travelCoordinator.Complete(TravelJobKind.OccultAethernet);
             OccultTravelStatus = $"到着済み：{GetPlaceName(localNode.Value.PlaceNameId)}";
             return;
         }
@@ -1617,6 +1659,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
 
         lastOccultAttemptUtc = now;
+        travelCoordinator.RecordAttempt(TravelJobKind.OccultAethernet);
         try
         {
             var accepted = Plugin.PluginInterface
@@ -1627,6 +1670,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 OccultTravelStatus = $"フォロワーも移動開始：{GetPlaceName(pendingOccultDestinationId)}";
                 pendingOccultDestinationId = 0;
                 pendingOccultSourceId = 0;
+                travelCoordinator.Complete(TravelJobKind.OccultAethernet);
                 stopFollowRequested = true;
                 smoothFollow.Stop();
             }
@@ -1663,6 +1707,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         lastLeaderOccultAetheryteId = 0;
         pendingOccultSourceId = 0;
         pendingOccultDestinationId = 0;
+        travelCoordinator.Cancel(TravelJobKind.OccultAethernet);
         occultSourceApproachActive = false;
         OccultTravelStatus = status;
     }
@@ -2481,6 +2526,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
         peers.Clear();
         lastReceivedSequences.Clear();
+        travelCoordinator.Reset();
         pendingGameCommand = null;
         pendingTargetName = null;
         pendingTargetApplied = false;
@@ -2509,6 +2555,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingHousingTravelExpiresUtc = default;
         pendingOccultDestinationId = 0;
         pendingOccultSourceId = 0;
+        travelCoordinator.Cancel(TravelJobKind.OccultAethernet);
         occultSourceApproachActive = false;
         pendingOccultExpiresUtc = default;
         housingMovementActive = false;
@@ -2527,6 +2574,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void ClearCrossWorldAutomation()
     {
+        travelCoordinator.Reset();
         pendingGameCommand = null;
         pendingTargetName = null;
         followCommandActive = false;
