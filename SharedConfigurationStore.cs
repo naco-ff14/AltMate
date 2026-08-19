@@ -207,6 +207,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.PauseLinkInCombat = incoming.PauseLinkInCombat;
         target.FollowStartDistance = incoming.FollowStartDistance;
         target.VnavmeshStuckRecoveryEnabled = incoming.VnavmeshStuckRecoveryEnabled;
+        target.SyncLeaderInteractionEnabled = incoming.SyncLeaderInteractionEnabled;
         target.CombatLinkEnabled = incoming.CombatLinkEnabled;
         target.UseBossModReborn = incoming.UseBossModReborn;
         target.UseRotationSolverReborn = incoming.UseRotationSolverReborn;
@@ -239,6 +240,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.PauseLinkInCombat != baseline.PauseLinkInCombat) target.PauseLinkInCombat = current.PauseLinkInCombat;
         if (Math.Abs(current.FollowStartDistance - baseline.FollowStartDistance) > 0.001f) target.FollowStartDistance = current.FollowStartDistance;
         if (current.VnavmeshStuckRecoveryEnabled != baseline.VnavmeshStuckRecoveryEnabled) target.VnavmeshStuckRecoveryEnabled = current.VnavmeshStuckRecoveryEnabled;
+        if (current.SyncLeaderInteractionEnabled != baseline.SyncLeaderInteractionEnabled) target.SyncLeaderInteractionEnabled = current.SyncLeaderInteractionEnabled;
         if (current.CombatLinkEnabled != baseline.CombatLinkEnabled) target.CombatLinkEnabled = current.CombatLinkEnabled;
         if (current.UseBossModReborn != baseline.UseBossModReborn) target.UseBossModReborn = current.UseBossModReborn;
         if (current.UseRotationSolverReborn != baseline.UseRotationSolverReborn) target.UseRotationSolverReborn = current.UseRotationSolverReborn;

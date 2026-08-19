@@ -802,6 +802,16 @@ public sealed class MainWindow : Window
         ImGui.TextDisabled(plugin.CharacterLink.IsVnavmeshLoaded
             ? Loc.L("vnavmesh：接続済み", "vnavmesh: Connected")
             : Loc.L("vnavmesh：未接続（通常追従のみ）", "vnavmesh: Not connected (direct follow only)"));
+        var syncInteraction = plugin.Configuration.SyncLeaderInteractionEnabled;
+        if (ImGui.Checkbox(Loc.L("リーダーが操作したNPC・オブジェクトをフォロワーも操作",
+                "Followers interact with the NPC/object used by the leader"), ref syncInteraction))
+        {
+            plugin.Configuration.SyncLeaderInteractionEnabled = syncInteraction;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.TextDisabled(Loc.L("TextAdvanceを両方で有効にすると、受注・会話送り・報告も続けて処理できます。",
+            "With TextAdvance enabled on both clients, quest acceptance, dialogue and completion can continue automatically."));
 
         ImGui.Separator();
         ImGui.TextColored(new Vector4(1f, 0.55f, 0.3f, 1f), Loc.T("CombatLink"));

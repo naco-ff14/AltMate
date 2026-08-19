@@ -24,6 +24,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool PauseLinkInCombat { get; set; } = true;
     public float FollowStartDistance { get; set; } = 5f;
     public bool VnavmeshStuckRecoveryEnabled { get; set; } = true;
+    public bool SyncLeaderInteractionEnabled { get; set; }
     public bool CombatLinkEnabled { get; set; }
     public bool UseBossModReborn { get; set; } = true;
     public bool UseRotationSolverReborn { get; set; } = true;

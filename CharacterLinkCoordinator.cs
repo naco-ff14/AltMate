@@ -54,6 +54,18 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private DateTime followProgressSampleUtc;
     private DateTime followStalledSinceUtc;
     private DateTime lastVnavRepathUtc;
+    private bool leaderWasInInteraction;
+    private uint observedInteractionTargetDataId;
+    private string observedInteractionTargetName = string.Empty;
+    private Vector3 observedInteractionTargetPosition;
+    private DateTime observedInteractionTargetUtc;
+    private uint interactionSequence;
+    private uint lastReceivedInteractionSequence;
+    private uint pendingInteractionTargetDataId;
+    private string pendingInteractionTargetName = string.Empty;
+    private Vector3 pendingInteractionTargetPosition;
+    private DateTime pendingInteractionExpiresUtc;
+    private DateTime lastInteractionAttemptUtc;
     private bool localCharacterUnavailable;
     private DateTime localCharacterReadySinceUtc;
     private DateTime followCommandStartedUtc;
@@ -460,6 +472,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
 
         DrainReceivedStates();
+        UpdateLeaderInteractionBroadcast(now);
         FlushOutboundTeleport();
         FlushOutboundHousingTravel();
 
@@ -574,6 +587,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         UpdateGeneralTravelSync(leader, now);
         UpdateHousingTravelSync(now);
         UpdateOccultAethernetSync(leader, now);
+        if (UpdateFollowerInteraction(now))
+            return;
         RunFollowerAutomation(leader, now);
     }
 
@@ -606,6 +621,19 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 case "return":
                     if (state.ContentId == plugin.Configuration.LinkLeaderContentId)
                         linkedReturnRequested = true;
+                    continue;
+                case "interact":
+                    if (state.ContentId == plugin.Configuration.LinkLeaderContentId &&
+                        state.InteractionSequence != 0 &&
+                        state.InteractionSequence != lastReceivedInteractionSequence)
+                    {
+                        lastReceivedInteractionSequence = state.InteractionSequence;
+                        pendingInteractionTargetDataId = state.InteractionTargetDataId;
+                        pendingInteractionTargetName = state.InteractionTargetName;
+                        pendingInteractionTargetPosition = new Vector3(
+                            state.InteractionTargetX, state.InteractionTargetY, state.InteractionTargetZ);
+                        pendingInteractionExpiresUtc = DateTime.UtcNow.AddSeconds(15);
+                    }
                     continue;
                 case "teleport":
                     if (state.ContentId == plugin.Configuration.LinkLeaderContentId &&
@@ -1847,6 +1875,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 PauseInCombat = plugin.Configuration.PauseLinkInCombat,
                 FollowDistance = plugin.Configuration.FollowStartDistance,
                 VnavmeshStuckRecoveryEnabled = plugin.Configuration.VnavmeshStuckRecoveryEnabled,
+                SyncLeaderInteractionEnabled = plugin.Configuration.SyncLeaderInteractionEnabled,
                 CombatLinkEnabled = plugin.Configuration.CombatLinkEnabled,
                 UseBossModReborn = plugin.Configuration.UseBossModReborn,
                 UseRotationSolverReborn = plugin.Configuration.UseRotationSolverReborn,
@@ -1886,6 +1915,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.PauseLinkInCombat = state.PauseInCombat;
         plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 1f, 15f);
         plugin.Configuration.VnavmeshStuckRecoveryEnabled = state.VnavmeshStuckRecoveryEnabled;
+        plugin.Configuration.SyncLeaderInteractionEnabled = state.SyncLeaderInteractionEnabled;
         plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
         plugin.Configuration.UseBossModReborn = state.UseBossModReborn;
         plugin.Configuration.UseRotationSolverReborn = state.UseRotationSolverReborn;
@@ -2061,6 +2091,125 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
     }
 
+    private void UpdateLeaderInteractionBroadcast(DateTime now)
+    {
+        if (!IsLeader || !plugin.Configuration.LinkEnabled ||
+            !plugin.Configuration.SyncLeaderInteractionEnabled)
+        {
+            leaderWasInInteraction = false;
+            return;
+        }
+
+        var target = Plugin.TargetManager.Target;
+        if (target is not null && target.IsValid() && target.BaseId != 0 &&
+            target is not Dalamud.Game.ClientState.Objects.Types.IPlayerCharacter)
+        {
+            observedInteractionTargetDataId = target.BaseId;
+            observedInteractionTargetName = target.Name.TextValue;
+            observedInteractionTargetPosition = target.Position;
+            observedInteractionTargetUtc = now;
+        }
+
+        var inInteraction = Plugin.Condition.Any(
+            ConditionFlag.OccupiedInEvent, ConditionFlag.OccupiedInQuestEvent);
+        if (inInteraction && !leaderWasInInteraction &&
+            observedInteractionTargetDataId != 0 &&
+            now - observedInteractionTargetUtc <= TimeSpan.FromSeconds(2))
+            BroadcastInteraction();
+        leaderWasInInteraction = inInteraction;
+    }
+
+    private void BroadcastInteraction()
+    {
+        if (sender is null)
+            return;
+        try
+        {
+            interactionSequence++;
+            if (interactionSequence == 0)
+                interactionSequence = 1;
+            var message = new LinkedCharacterState
+            {
+                Protocol = 1,
+                LinkKey = plugin.Configuration.LocalLinkKey,
+                Kind = "interact",
+                ContentId = Plugin.PlayerState.ContentId,
+                InteractionSequence = interactionSequence,
+                InteractionTargetDataId = observedInteractionTargetDataId,
+                InteractionTargetName = observedInteractionTargetName,
+                InteractionTargetX = observedInteractionTargetPosition.X,
+                InteractionTargetY = observedInteractionTargetPosition.Y,
+                InteractionTargetZ = observedInteractionTargetPosition.Z,
+            };
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(message);
+            lock (senderLock)
+                for (var i = 0; i < 3; i++)
+                    sender?.Send(bytes, bytes.Length, new IPEndPoint(Group, Port));
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Verbose(exception, "NPC・オブジェクト操作の連携指示を送信できませんでした。");
+        }
+    }
+
+    private unsafe bool UpdateFollowerInteraction(DateTime now)
+    {
+        if (!plugin.Configuration.SyncLeaderInteractionEnabled ||
+            pendingInteractionTargetDataId == 0 || now > pendingInteractionExpiresUtc)
+        {
+            ClearPendingInteraction();
+            return false;
+        }
+        if (Plugin.Condition.Any(ConditionFlag.Occupied, ConditionFlag.OccupiedInEvent,
+                ConditionFlag.OccupiedInQuestEvent, ConditionFlag.OccupiedInCutSceneEvent,
+                ConditionFlag.BetweenAreas, ConditionFlag.BetweenAreas51))
+        {
+            ClearPendingInteraction();
+            return false;
+        }
+
+        var local = Plugin.ObjectTable.LocalPlayer;
+        if (local is null)
+            return false;
+        var target = Plugin.ObjectTable
+            .Where(x => x.IsValid() && x.IsTargetable && x.BaseId == pendingInteractionTargetDataId)
+            .OrderBy(x => Vector3.DistanceSquared(x.Position, pendingInteractionTargetPosition))
+            .FirstOrDefault();
+        if (target is null)
+            return false;
+
+        var distance = Vector3.Distance(local.Position, target.Position);
+        if (distance > 2.8f)
+        {
+            StopVnavRecovery();
+            smoothFollow.Follow(target.Position - local.Position,
+                Math.Clamp((distance - 2f) / 3f, 0.3f, 1f));
+            LastAction = $"リーダーの操作対象へ接近中（{distance:0.0}m）";
+            return true;
+        }
+        if (now - lastInteractionAttemptUtc < TimeSpan.FromSeconds(1))
+            return true;
+
+        var native = (GameObject*)(void*)target.Address;
+        var targetSystem = TargetSystem.Instance();
+        if (native == null || targetSystem == null || !native->GetIsTargetable())
+            return false;
+        Plugin.TargetManager.Target = target;
+        lastInteractionAttemptUtc = now;
+        targetSystem->InteractWithObject(native, false);
+        LastAction = $"リーダーと同じ対象を操作：{target.Name.TextValue}";
+        ClearPendingInteraction();
+        return true;
+    }
+
+    private void ClearPendingInteraction()
+    {
+        pendingInteractionTargetDataId = 0;
+        pendingInteractionTargetName = string.Empty;
+        pendingInteractionTargetPosition = default;
+        pendingInteractionExpiresUtc = default;
+    }
+
     private bool UpdateVnavRecovery(Vector3 localPosition, Vector3 leaderPosition,
         float distance, float spacing, DateTime now)
     {
@@ -2213,6 +2362,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         smoothDistanceFollowing = false;
         StopVnavRecovery();
         followProgressSampleUtc = default;
+        ClearPendingInteraction();
+        leaderWasInInteraction = false;
         ResetPillionAttempts();
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
@@ -2252,6 +2403,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         smoothDistanceFollowing = false;
         StopVnavRecovery();
         followProgressSampleUtc = default;
+        ClearPendingInteraction();
+        leaderWasInInteraction = false;
         ResetPillionAttempts();
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
@@ -2430,6 +2583,7 @@ public sealed class LinkedCharacterState
     public bool PauseInCombat { get; set; }
     public float FollowDistance { get; set; }
     public bool VnavmeshStuckRecoveryEnabled { get; set; }
+    public bool SyncLeaderInteractionEnabled { get; set; }
     public bool CombatLinkEnabled { get; set; }
     public bool UseBossModReborn { get; set; }
     public bool UseRotationSolverReborn { get; set; }
@@ -2444,6 +2598,12 @@ public sealed class LinkedCharacterState
     public bool SyncZoneBoundaryEnabled { get; set; }
     public bool SyncFreeCompanyEstateEnabled { get; set; }
     public bool AutoOpenNearbyTreasureEnabled { get; set; }
+    public uint InteractionSequence { get; set; }
+    public uint InteractionTargetDataId { get; set; }
+    public string InteractionTargetName { get; set; } = string.Empty;
+    public float InteractionTargetX { get; set; }
+    public float InteractionTargetY { get; set; }
+    public float InteractionTargetZ { get; set; }
     public long SharedConfigurationRevision { get; set; }
     public ulong TargetContentId { get; set; }
     public ushort EmoteId { get; set; }
