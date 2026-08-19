@@ -2158,6 +2158,16 @@ public sealed class CharacterLinkCoordinator : IDisposable
             LastAction = "リーダーと別エリアです";
             return;
         }
+        if (combatAutomationActive)
+        {
+            // BMR/RSRの戦闘連携中は移動入力の所有権を戦闘AIへ完全に渡す。
+            // AltMateのSmoothFollowやvnavmeshを残すと、AIの位置取りを上書きする。
+            followController.Reset();
+            smoothFollow.Stop();
+            StopVnavRecovery();
+            LastAction = "戦闘AIへ移動制御を移譲中";
+            return;
+        }
         if (IsBlocked() || (plugin.Configuration.PauseLinkInCombat &&
                             (leader.InCombat || Plugin.Condition[ConditionFlag.InCombat])))
         {
