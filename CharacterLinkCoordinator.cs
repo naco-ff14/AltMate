@@ -66,6 +66,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private Vector3 pendingInteractionTargetPosition;
     private DateTime pendingInteractionExpiresUtc;
     private DateTime lastInteractionAttemptUtc;
+    private DateTime linkedInteractionConfirmationExpiresUtc;
     private bool localCharacterUnavailable;
     private DateTime localCharacterReadySinceUtc;
     private DateTime followCommandStartedUtc;
@@ -767,15 +768,27 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     public unsafe void OnSelectYesnoOpened(AddonArgs args)
     {
+        var addon = (AddonSelectYesno*)args.Addon.Address;
+        if (addon == null || addon->PromptText == null || addon->YesButton == null ||
+            addon->YesButton->OwnerNode == null)
+            return;
+
+        if (!IsLeader && plugin.Configuration.SyncLeaderInteractionEnabled &&
+            DateTime.UtcNow <= linkedInteractionConfirmationExpiresUtc &&
+            ContainsLinkedInteractionPrompt(addon->PromptText->NodeText.ToString()))
+        {
+            addon->AtkUnitBase.FireCallbackInt(0);
+            linkedInteractionConfirmationExpiresUtc = DateTime.MinValue;
+            LastAction = "リーダーと同じ移動確認を承認";
+            return;
+        }
+
         if (!IsLeader || !plugin.Configuration.SyncReturnEnabled ||
             !IsOccultTerritory(Plugin.ClientState.TerritoryType) ||
             DateTime.UtcNow > localReturnIntentExpiresUtc)
             return;
 
-        var addon = (AddonSelectYesno*)args.Addon.Address;
-        if (addon == null || addon->PromptText == null || addon->YesButton == null ||
-            addon->YesButton->OwnerNode == null ||
-            !ContainsReturnPrompt(addon->PromptText->NodeText.ToString()))
+        if (!ContainsReturnPrompt(addon->PromptText->NodeText.ToString()))
             return;
 
         demiReturnYesHandle = Plugin.AddonEventManager.AddEvent(
@@ -1026,6 +1039,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
         var looksLikeInvitation = ContainsAny(prompt, "誘われ", "招待", "参加します", "よろしいですか", "invited", "invitation", "join");
         return hasParty && looksLikeInvitation && !ContainsAny(prompt, "テレポ", "teleport");
     }
+
+    private static bool ContainsLinkedInteractionPrompt(string prompt) =>
+        ContainsAny(prompt, "へ入りますか", "に入りますか", "入場しますか", "移動しますか",
+            "enter ", "enter?", "enter the", "proceed to", "travel to");
 
     private static bool ContainsAny(string value, params string[] candidates) =>
         candidates.Any(candidate => value.Contains(candidate, StringComparison.OrdinalIgnoreCase));
@@ -2196,6 +2213,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return false;
         Plugin.TargetManager.Target = target;
         lastInteractionAttemptUtc = now;
+        linkedInteractionConfirmationExpiresUtc = now.AddSeconds(5);
         targetSystem->InteractWithObject(native, false);
         LastAction = $"リーダーと同じ対象を操作：{target.Name.TextValue}";
         ClearPendingInteraction();
