@@ -44,6 +44,9 @@ public sealed class Configuration : IPluginConfiguration
     public int FollowerFpsLimit { get; set; } = 30;
     public string Language { get; set; } = "ja";
     public string LocalLinkKey { get; set; } = string.Empty;
+    public bool WindowCompactMode { get; set; }
+    public int LastMainSection { get; set; }
+    public int LastHousingSection { get; set; }
 
     public void Save() => Plugin.SaveConfiguration(this);
 }

@@ -1874,6 +1874,14 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 ActiveAetheryteId = GetLifestreamId("Lifestream.GetActiveAetheryte"),
                 ActiveCustomAetheryteId = GetLifestreamId("Lifestream.GetActiveCustomAetheryte"),
                 ActiveResidentialAetheryteId = GetLifestreamId("Lifestream.GetActiveResidentialAetheryte"),
+                LastAction = LastAction,
+                CombatStatus = CombatStatus,
+                OccultTravelStatus = OccultTravelStatus,
+                GeneralTravelStatus = GeneralTravelStatus,
+                HousingTravelStatus = HousingTravelStatus,
+                AreaSyncStatus = AreaSyncStatus,
+                TreasureStatus = TreasureStatus,
+                WorldLinkStatus = WorldLinkStatus,
             };
             var bytes = JsonSerializer.SerializeToUtf8Bytes(state);
             lock (senderLock)
@@ -2362,6 +2370,16 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private unsafe bool UpdateFollowerInteraction(DateTime now)
     {
+        // The leader interaction packet for the source aetheryte can arrive again while
+        // Lifestream is selecting a destination. Re-interacting with that object resets
+        // TelepotTown and leaves the follower parked in the transfer menu.
+        if (travelCoordinator.ActiveJob is not null || IsAethernetMenuOpen() ||
+            lifestreamBusyThisFrame || housingMovementActive)
+        {
+            ClearPendingInteraction();
+            linkedInteractionConfirmationExpiresUtc = DateTime.MinValue;
+            return false;
+        }
         if (!plugin.Configuration.SyncLeaderInteractionEnabled ||
             pendingInteractionTargetDataId == 0 || now > pendingInteractionExpiresUtc)
         {
@@ -2783,6 +2801,14 @@ public sealed class LinkedCharacterState
     public uint ActiveAetheryteId { get; set; }
     public uint ActiveCustomAetheryteId { get; set; }
     public uint ActiveResidentialAetheryteId { get; set; }
+    public string LastAction { get; set; } = string.Empty;
+    public string CombatStatus { get; set; } = string.Empty;
+    public string OccultTravelStatus { get; set; } = string.Empty;
+    public string GeneralTravelStatus { get; set; } = string.Empty;
+    public string HousingTravelStatus { get; set; } = string.Empty;
+    public string AreaSyncStatus { get; set; } = string.Empty;
+    public string TreasureStatus { get; set; } = string.Empty;
+    public string WorldLinkStatus { get; set; } = string.Empty;
     public uint DestinationAetheryteId { get; set; }
     public byte DestinationSubIndex { get; set; }
     public ushort HousingWorldId { get; set; }

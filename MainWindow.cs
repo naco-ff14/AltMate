@@ -71,6 +71,10 @@ public sealed class MainWindow : Window
         $"AltMate v{Plugin.PluginInterface.Manifest.AssemblyVersion.ToString(3)} - {Loc.L("複数キャラクター支援", "Multi-Character Support")}###AltMate")
     {
         this.plugin = plugin;
+        if (Enum.IsDefined(typeof(MainSection), plugin.Configuration.LastMainSection))
+            selectedSection = (MainSection)plugin.Configuration.LastMainSection;
+        if (Enum.IsDefined(typeof(HousingSection), plugin.Configuration.LastHousingSection))
+            selectedHousingSection = (HousingSection)plugin.Configuration.LastHousingSection;
         Size = new Vector2(940, 520);
         SizeCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(760, 360) };
@@ -82,6 +86,8 @@ public sealed class MainWindow : Window
             ShowTooltip = () => ImGui.SetTooltip(Loc.T("Minimize")),
             Click = _ => EnterCompactMode(),
         });
+        if (plugin.Configuration.WindowCompactMode)
+            ApplyCompactMode();
     }
 
     public override void Draw()
@@ -117,8 +123,8 @@ public sealed class MainWindow : Window
 
     internal void OpenHousingLottery()
     {
-        selectedSection = MainSection.Housing;
-        selectedHousingSection = HousingSection.Lottery;
+        SelectSection(MainSection.Housing);
+        SelectHousingSection(HousingSection.Lottery);
         IsOpen = true;
     }
 
@@ -126,7 +132,7 @@ public sealed class MainWindow : Window
     {
         if (compactMode)
             ExitCompactMode();
-        selectedSection = MainSection.Settings;
+        SelectSection(MainSection.Settings);
         IsOpen = true;
         RequestFocus = true;
     }
@@ -154,6 +160,20 @@ public sealed class MainWindow : Window
                 DrawSettings();
                 break;
         }
+    }
+
+    private void SelectSection(MainSection section)
+    {
+        selectedSection = section;
+        plugin.Configuration.LastMainSection = (int)section;
+        plugin.Configuration.Save();
+    }
+
+    private void SelectHousingSection(HousingSection section)
+    {
+        selectedHousingSection = section;
+        plugin.Configuration.LastHousingSection = (int)section;
+        plugin.Configuration.Save();
     }
 
     private void DrawMainMenu()
@@ -190,6 +210,13 @@ public sealed class MainWindow : Window
         expandedWindowSize = ImGui.GetWindowSize();
         expandedWindowFlags = Flags;
         expandedBackgroundAlpha = BgAlpha;
+        ApplyCompactMode();
+        plugin.Configuration.WindowCompactMode = true;
+        plugin.Configuration.Save();
+    }
+
+    private void ApplyCompactMode()
+    {
         compactMode = true;
         BgAlpha = 0.58f;
         Flags = expandedWindowFlags | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize |
@@ -213,6 +240,8 @@ public sealed class MainWindow : Window
         Size = new Vector2(MathF.Max(760, expandedWindowSize.X), MathF.Max(360, expandedWindowSize.Y));
         SizeCondition = ImGuiCond.Always;
         clearForcedSize = true;
+        plugin.Configuration.WindowCompactMode = false;
+        plugin.Configuration.Save();
     }
 
     private void DrawCompactMenu()
@@ -242,7 +271,7 @@ public sealed class MainWindow : Window
         var statusColor = plugin.CharacterLink.RuntimeStopped
             ? new Vector4(1f, 0.32f, 0.28f, 1f)
             : new Vector4(0.42f, 0.82f, 1f, 1f);
-        ImGui.TextColored(statusColor, Loc.Status(plugin.CharacterLink.LastAction));
+        ImGui.TextColored(statusColor, Loc.Status(GetDisplayedStatus(plugin.CharacterLink.LastAction, x => x.LastAction)));
     }
 
     private void DrawMenuButton(string label, MainSection section, int badge = 0, string? detail = null)
@@ -264,7 +293,7 @@ public sealed class MainWindow : Window
         var buttonPosition = ImGui.GetCursorScreenPos();
         if (ImGui.Button($"{text}{(detail is null ? string.Empty : "\n ")}##main-{section}",
                 new Vector2(-1, buttonHeight * ImGuiHelpers.GlobalScale)))
-            selectedSection = section;
+            SelectSection(section);
         if (detail is not null)
         {
             var detailSize = ImGui.CalcTextSize(detail);
@@ -305,7 +334,8 @@ public sealed class MainWindow : Window
             MainSection.Housing);
 
         var peers = plugin.CharacterLink.Peers;
-        var linkTitle = plugin.CharacterLink.RuntimeStopped ? Loc.T("EmergencyStopped") : Loc.Status(plugin.CharacterLink.LastAction);
+        var linkTitle = plugin.CharacterLink.RuntimeStopped ? Loc.T("EmergencyStopped") :
+            Loc.Status(GetDisplayedStatus(plugin.CharacterLink.LastAction, x => x.LastAction));
         var leaderName = plugin.Configuration.Characters.TryGetValue(plugin.Configuration.LinkLeaderContentId, out var leader)
             ? leader.CharacterName : "—";
         DrawHomeCard(Loc.T("LinkStatus"), linkTitle,
@@ -332,7 +362,7 @@ public sealed class MainWindow : Window
         var position = ImGui.GetCursorScreenPos();
         var height = 88 * ImGuiHelpers.GlobalScale;
         if (ImGui.Button($"##home-card-{destination}", new Vector2(-1, height)))
-            selectedSection = destination;
+            SelectSection(destination);
         ImGui.PopStyleColor(2);
 
         var draw = ImGui.GetWindowDrawList();
@@ -348,13 +378,13 @@ public sealed class MainWindow : Window
     {
         DrawPageTitle(Loc.T("Housing"), Loc.T("HousingDescription"));
         if (DrawSubMenuButton(Loc.L("抽選状態", "Lottery Status"), selectedHousingSection == HousingSection.Lottery))
-            selectedHousingSection = HousingSection.Lottery;
+            SelectHousingSection(HousingSection.Lottery);
         ImGui.SameLine();
         if (DrawSubMenuButton($"{Loc.L("空き土地", "Open Plots")} ({plugin.Configuration.OpenPlots.Count})", selectedHousingSection == HousingSection.OpenPlots))
-            selectedHousingSection = HousingSection.OpenPlots;
+            SelectHousingSection(HousingSection.OpenPlots);
         ImGui.SameLine();
         if (DrawSubMenuButton(Loc.L("表示キャラクター", "Displayed Characters"), selectedHousingSection == HousingSection.Characters))
-            selectedHousingSection = HousingSection.Characters;
+            SelectHousingSection(HousingSection.Characters);
         ImGui.Separator();
         ImGui.Spacing();
 
@@ -661,7 +691,8 @@ public sealed class MainWindow : Window
                 plugin.CharacterLink.EmergencyStop();
             ImGui.PopStyleColor();
             ImGui.SameLine();
-            ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.Status(plugin.CharacterLink.LastAction));
+            ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f),
+                Loc.Status(GetDisplayedStatus(plugin.CharacterLink.LastAction, x => x.LastAction)));
         }
 
         ImGui.Spacing();
@@ -846,7 +877,7 @@ public sealed class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
-        ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.CombatStatus)}");
+        ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(GetDisplayedStatus(plugin.CharacterLink.CombatStatus, x => x.CombatStatus))}");
 
         ImGui.Spacing();
         if (ImGui.CollapsingHeader($"{Loc.T("OccultLink")}##occult-link"))
@@ -863,7 +894,7 @@ public sealed class MainWindow : Window
             ImGui.TextDisabled(plugin.CharacterLink.IsLifestreamLoaded
                 ? Loc.L("Lifestream：接続済み", "Lifestream: Connected")
                 : Loc.L("Lifestream：未接続（両クライアントで有効にしてください）", "Lifestream: Not connected (enable it on both clients)"));
-            ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.OccultTravelStatus)}");
+            ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(GetDisplayedStatus(plugin.CharacterLink.OccultTravelStatus, x => x.OccultTravelStatus))}");
 
             ImGui.Spacing();
             var syncReturn = plugin.Configuration.SyncReturnEnabled;
@@ -880,7 +911,7 @@ public sealed class MainWindow : Window
                 plugin.Configuration.Save();
                 plugin.CharacterLink.SettingsChanged();
             }
-            ImGui.TextDisabled($"{(Loc.IsEnglish ? "Treasure" : "宝箱")}：{Loc.Status(plugin.CharacterLink.TreasureStatus)}");
+            ImGui.TextDisabled($"{(Loc.IsEnglish ? "Treasure" : "宝箱")}：{Loc.Status(GetDisplayedStatus(plugin.CharacterLink.TreasureStatus, x => x.TreasureStatus))}");
             ImGui.Unindent(12 * ImGuiHelpers.GlobalScale);
         }
 
@@ -923,9 +954,9 @@ public sealed class MainWindow : Window
             plugin.CharacterLink.SettingsChanged();
         }
         ImGui.TextDisabled(plugin.CharacterLink.IsLifestreamLoaded
-            ? $"{Loc.L("移動同期", "Travel sync")}：{Loc.Status(plugin.CharacterLink.GeneralTravelStatus)}"
+            ? $"{Loc.L("移動同期", "Travel sync")}：{Loc.Status(GetDisplayedStatus(plugin.CharacterLink.GeneralTravelStatus, x => x.GeneralTravelStatus))}"
             : Loc.L("移動同期：Lifestream未接続（両クライアントで有効にしてください）", "Travel sync: Lifestream not connected (enable it on both clients)"));
-        ImGui.TextDisabled($"{(Loc.IsEnglish ? "FC estate" : "FCハウス")}：{Loc.Status(plugin.CharacterLink.HousingTravelStatus)}");
+        ImGui.TextDisabled($"{(Loc.IsEnglish ? "FC estate" : "FCハウス")}：{Loc.Status(GetDisplayedStatus(plugin.CharacterLink.HousingTravelStatus, x => x.HousingTravelStatus))}");
         ImGui.Spacing();
         var syncDuty = plugin.Configuration.SyncDutyCommenceEnabled;
         if (ImGui.Checkbox(Loc.IsEnglish ? "Follower accepts duty commencement" : "フォロワーもコンテンツ突入を承認", ref syncDuty))
@@ -949,7 +980,7 @@ public sealed class MainWindow : Window
             plugin.CharacterLink.SettingsChanged();
         }
         ImGui.TextDisabled(Loc.IsEnglish ? "Only followers currently connected to the leader accept these prompts." : "リーダーへ接続中のフォロワーだけが、PT招待・コンテンツ突入・テレポ勧誘を承認します。");
-        ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(plugin.CharacterLink.AreaSyncStatus)}");
+        ImGui.TextDisabled($"{Loc.T("Status")}：{Loc.Status(GetDisplayedStatus(plugin.CharacterLink.AreaSyncStatus, x => x.AreaSyncStatus))}");
 
         ImGui.Separator();
         ImGui.TextUnformatted($"{Loc.T("ConnectedClients")}：{plugin.CharacterLink.Peers.Length}");
@@ -982,14 +1013,29 @@ public sealed class MainWindow : Window
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(peer.JobName);
             ImGui.TableNextColumn();
-            var state = Plugin.CurrentConfiguration?.Language == "en"
-                ? peer.InCombat ? "In combat" : peer.RidingPillion ? "Riding pillion" : peer.Mounted ? "Mounted" : "Idle"
-                : peer.InCombat ? "戦闘中" : peer.RidingPillion ? "相乗り中" : peer.Mounted ? "マウント中" : "待機中";
+            var state = !string.IsNullOrWhiteSpace(peer.LastAction) ? Loc.Status(peer.LastAction) :
+                Plugin.CurrentConfiguration?.Language == "en"
+                    ? peer.InCombat ? "In combat" : peer.RidingPillion ? "Riding pillion" : peer.Mounted ? "Mounted" : "Idle"
+                    : peer.InCombat ? "戦闘中" : peer.RidingPillion ? "相乗り中" : peer.Mounted ? "マウント中" : "待機中";
             ImGui.TextUnformatted(state);
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(peer.MaxHp > 0 ? $"{peer.CurrentHp:N0}/{peer.MaxHp:N0}" : "—");
         }
         ImGui.EndTable();
+    }
+
+    private string GetDisplayedStatus(string localStatus, Func<LinkedCharacterState, string> peerStatus)
+    {
+        if (!plugin.CharacterLink.IsLeader)
+            return localStatus;
+        var supporter = plugin.CharacterLink.Peers
+            .Where(x => x.ContentId != plugin.Configuration.LinkLeaderContentId)
+            .OrderBy(x => x.CharacterName, StringComparer.CurrentCultureIgnoreCase)
+            .FirstOrDefault();
+        if (supporter is null)
+            return localStatus;
+        var status = peerStatus(supporter);
+        return string.IsNullOrWhiteSpace(status) ? localStatus : status;
     }
 
     private int GetHousingAttentionCount()
