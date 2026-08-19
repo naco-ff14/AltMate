@@ -13,6 +13,7 @@ internal sealed unsafe class SmoothFollowController : IDisposable
 {
     private Vector3? desiredDirection;
     private float desiredStrength = 1f;
+    private long desiredUntilTick;
     private readonly Hook<ReadWalkInputDelegate>? walkHook;
 
     private delegate void ReadWalkInputDelegate(nint self, float* sumLeft, float* sumForward,
@@ -32,13 +33,18 @@ internal sealed unsafe class SmoothFollowController : IDisposable
         }
     }
 
-    internal void Follow(Vector3 worldDirection, float strength = 1f)
+    internal void Follow(Vector3 worldDirection, float strength = 1f, int ttlMilliseconds = 250)
     {
         desiredDirection = worldDirection.LengthSquared() > 0.001f ? worldDirection : null;
         desiredStrength = Math.Clamp(strength, 0f, 1f);
+        desiredUntilTick = Environment.TickCount64 + Math.Clamp(ttlMilliseconds, 50, 1000);
     }
 
-    internal void Stop() => desiredDirection = null;
+    internal void Stop()
+    {
+        desiredDirection = null;
+        desiredUntilTick = 0;
+    }
 
     private void ReadWalkInputDetour(nint self, float* sumLeft, float* sumForward,
         float* sumTurnLeft, byte* haveBackwardOrStrafe, byte* unknown, byte additiveInput)
@@ -47,6 +53,12 @@ internal sealed unsafe class SmoothFollowController : IDisposable
             haveBackwardOrStrafe, unknown, additiveInput);
 
         // additiveInput == 0 is the final movement-input pass. Existing input always wins.
+        if (desiredUntilTick < Environment.TickCount64)
+        {
+            desiredDirection = null;
+            return;
+        }
+
         if (additiveInput != 0 || *sumLeft != 0 || *sumForward != 0 ||
             desiredDirection is not { } desired)
             return;

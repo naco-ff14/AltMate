@@ -34,6 +34,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private readonly CancellationTokenSource cancellation = new();
     private readonly object senderLock = new();
     private readonly SmoothFollowController smoothFollow;
+    private readonly FollowController followController;
     private UdpClient? receiver;
     private UdpClient? sender;
     private Task? receiveTask;
@@ -47,7 +48,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool runtimeStopped;
     private bool stopFollowRequested;
     private bool followCommandActive;
-    private bool smoothDistanceFollowing;
     private bool vnavRecoveryActive;
     private Vector3 followProgressSamplePosition;
     private Vector3 lastVnavDestination;
@@ -164,6 +164,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     {
         this.plugin = plugin;
         smoothFollow = new SmoothFollowController();
+        followController = new FollowController();
         TryHookActions();
         TryHookTeleport();
         TryStartNetwork();
@@ -191,6 +192,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     public void EmergencyStop()
     {
         runtimeStopped = true;
+        followController.Reset();
         smoothFollow.Stop();
         StopVnavRecovery();
         stopFollowRequested = true;
@@ -443,8 +445,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void OnFrameworkUpdate(IFramework framework)
     {
-        // 後段で追従条件が成立したフレームだけ再設定し、早期return時に入力を残さない。
-        smoothFollow.Stop();
+        // SmoothFollowの入力は短いTTLを持つ。追従更新が止まれば自動失効するため、
+        // フレームごとのStopによる入力の途切れを発生させない。
         // ログアウト・キャラクター選択・エリア切替中は、ゲームオブジェクトや
         // ネイティブUIへ触れる処理を最優先で止める。予約済み操作も持ち越さない。
         if (!IsLocalCharacterReady())
@@ -2072,34 +2074,35 @@ public sealed class CharacterLinkCoordinator : IDisposable
         var spacing = plugin.Configuration.FollowStartDistance;
         if (!plugin.Configuration.AutoFollowEnabled)
         {
-            smoothDistanceFollowing = false;
+            followController.Reset();
+            smoothFollow.Stop();
             StopVnavRecovery();
         }
-        else if (!smoothDistanceFollowing && distance >= spacing + 0.5f)
-            smoothDistanceFollowing = true;
-        else if (smoothDistanceFollowing && distance <= spacing)
-            smoothDistanceFollowing = false;
-
-        if (smoothDistanceFollowing)
+        else
         {
-            if (UpdateVnavRecovery(local.Position, leaderObject.Position, distance, spacing, now))
+            var follow = followController.Update(local.Position, leaderObject.Position,
+                leaderObject.Rotation, spacing);
+            if (follow.ShouldMove &&
+                UpdateVnavRecovery(local.Position, follow.Target, follow.DistanceToTarget, 0.5f, now))
             {
                 smoothFollow.Stop();
                 LastAction = $"vnavmeshで追従復帰中（{distance:0.0}m）";
             }
+            else if (follow.ShouldMove)
+            {
+                smoothFollow.Follow(follow.Direction, follow.Strength);
+                LastAction = follow.IsCatchingUp
+                    ? $"リーダー後方へCatchUp中（{distance:0.0}m）"
+                    : $"リーダー後方を追従中（{distance:0.0}m）";
+            }
             else
             {
-                var strength = Math.Clamp((distance - spacing) / 3f, 0.25f, 1f);
-                smoothFollow.Follow(leaderObject.Position - local.Position, strength);
-                LastAction = $"リーダーを追従中（{distance:0.0}m）";
+                smoothFollow.Stop();
+                StopVnavRecovery();
+                LastAction = leader.Mounted
+                    ? $"相乗りを再試行待ち（{distance:0.0}m）"
+                    : $"リーダー後方のDead Zone内で待機（{distance:0.0}m）";
             }
-        }
-        else if (distance <= spacing + 0.5f)
-        {
-            StopVnavRecovery();
-            LastAction = leader.Mounted
-                ? $"相乗りを再試行待ち（{distance:0.0}m）"
-                : $"リーダーの近くで待機中（{distance:0.0}m）";
         }
     }
 
@@ -2372,7 +2375,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingCommandTicks = 0;
         stopFollowRequested = false;
         followCommandActive = false;
-        smoothDistanceFollowing = false;
+        followController.Reset();
+        smoothFollow.Stop();
         StopVnavRecovery();
         followProgressSampleUtc = default;
         ClearPendingInteraction();
@@ -2413,7 +2417,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         pendingGameCommand = null;
         pendingTargetName = null;
         followCommandActive = false;
-        smoothDistanceFollowing = false;
+        followController.Reset();
+        smoothFollow.Stop();
         StopVnavRecovery();
         followProgressSampleUtc = default;
         ClearPendingInteraction();
