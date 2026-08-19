@@ -653,7 +653,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
                         pendingInteractionTargetName = state.InteractionTargetName;
                         pendingInteractionTargetPosition = new Vector3(
                             state.InteractionTargetX, state.InteractionTargetY, state.InteractionTargetZ);
-                        pendingInteractionExpiresUtc = DateTime.UtcNow.AddSeconds(15);
+                        pendingInteractionExpiresUtc = DateTime.UtcNow.AddSeconds(
+                            IsOccultAetherytePosition(Plugin.ClientState.TerritoryType,
+                                pendingInteractionTargetPosition) ? 60 : 15);
                     }
                     continue;
                 case "teleport":
@@ -1753,6 +1755,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
             .FirstOrDefault();
     }
 
+    private static bool IsOccultAetherytePosition(uint territoryType, Vector3 position) =>
+        IsOccultTerritory(territoryType) && OccultAetherytes.Any(a =>
+            a.TerritoryType == territoryType &&
+            Vector2.Distance(new Vector2(position.X, position.Z), new Vector2(a.X, a.Z)) <= 30f);
+
     private static string GetPlaceName(uint placeNameId)
     {
         try
@@ -2370,10 +2377,22 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private unsafe bool UpdateFollowerInteraction(DateTime now)
     {
+        var occultAetheryteInteraction = IsOccultAetherytePosition(
+            Plugin.ClientState.TerritoryType, pendingInteractionTargetPosition);
+        // クレセントの転送網はリーダーと同時には開かない。目的地が確定するまで
+        // 操作指示を保持し、確定後にだけ移動元を開いてLifestreamへ引き渡す。
+        if (occultAetheryteInteraction && pendingOccultDestinationId == 0 &&
+            pendingInteractionTargetDataId != 0 && now <= pendingInteractionExpiresUtc)
+        {
+            LastAction = "リーダーのエーテライト移動先を確認中";
+            return true;
+        }
         // The leader interaction packet for the source aetheryte can arrive again while
         // Lifestream is selecting a destination. Re-interacting with that object resets
         // TelepotTown and leaves the follower parked in the transfer menu.
-        if (travelCoordinator.ActiveJob is not null || IsAethernetMenuOpen() ||
+        var allowOccultSourceOpen = occultAetheryteInteraction &&
+                                    pendingOccultDestinationId != 0 && !IsAethernetMenuOpen();
+        if ((!allowOccultSourceOpen && travelCoordinator.ActiveJob is not null) || IsAethernetMenuOpen() ||
             lifestreamBusyThisFrame || housingMovementActive)
         {
             ClearPendingInteraction();
