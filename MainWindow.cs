@@ -534,12 +534,11 @@ public sealed class MainWindow : Window
         {
             ImGui.TextDisabled(Loc.L("潜水艦情報はまだ確認されていません。", "No submersible data has been observed yet."));
         }
-        else if (ImGui.BeginTable("gil-submarines", 6, flags))
+        else if (ImGui.BeginTable("gil-submarines", 5, flags))
         {
-            ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.2f);
-            ImGui.TableSetupColumn(Loc.L("潜水艦", "Submersible"), ImGuiTableColumnFlags.WidthStretch, 1.2f);
+            ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.45f);
+            ImGui.TableSetupColumn(Loc.L("潜水艦", "Submersible"), ImGuiTableColumnFlags.WidthStretch, 1.25f);
             ImGui.TableSetupColumn(Loc.L("状態", "Status"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-            ImGui.TableSetupColumn(Loc.L("航路", "Route"), ImGuiTableColumnFlags.WidthStretch, 1.8f);
             ImGui.TableSetupColumn(Loc.L("帰還時刻", "Returns At"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn(Loc.L("残り時間", "Remaining"), ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
@@ -558,12 +557,29 @@ public sealed class MainWindow : Window
         var underway = returnAt.HasValue && returnAt.Value > now.ToLocalTime();
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted($"{DisplayFcName(fc.Name)}（{fc.WorldName}）");
-        ImGui.TableNextColumn(); ImGui.TextUnformatted(submarine.Name);
+        ImGui.TextUnformatted(DisplayFcName(fc.Name));
+        ImGui.TextDisabled($"（{fc.WorldName}）");
+        ImGui.TableNextColumn();
+        ImGui.TextUnformatted(submarine.Name);
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(Loc.L("右クリックで航路を表示", "Right-click to show route"));
+        if (ImGui.BeginPopupContextItem($"submarine-route-{fc.FreeCompanyId}-{submarine.Name}"))
+        {
+            ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), submarine.Name);
+            ImGui.TextDisabled($"{DisplayFcName(fc.Name)}（{fc.WorldName}）");
+            ImGui.Separator();
+            ImGui.TextUnformatted(Loc.L("航行航路", "Voyage Route"));
+            var routeNames = GetSubmarineRouteNames(submarine.RoutePointIds);
+            if (routeNames.Length == 0)
+                ImGui.TextDisabled(Loc.L("航路情報なし", "No route information"));
+            else
+                for (var index = 0; index < routeNames.Length; index++)
+                    ImGui.BulletText($"{index + 1}. {routeNames[index]}");
+            ImGui.EndPopup();
+        }
         ImGui.TableNextColumn();
         ImGui.TextColored(underway ? new Vector4(0.35f, 0.8f, 1f, 1f) : new Vector4(0.3f, 0.9f, 0.45f, 1f),
             underway ? Loc.L("航海中", "Voyaging") : Loc.L("帰還済", "Returned"));
-        ImGui.TableNextColumn(); ImGui.TextDisabled(FormatSubmarineRoute(submarine.RoutePointIds));
         ImGui.TableNextColumn(); ImGui.TextDisabled(returnAt?.ToString("MM/dd (ddd) HH:mm") ?? "—");
         ImGui.TableNextColumn();
         if (!underway)
@@ -577,20 +593,19 @@ public sealed class MainWindow : Window
         }
     }
 
-    private static string FormatSubmarineRoute(byte[] pointIds)
+    private static string[] GetSubmarineRouteNames(byte[] pointIds)
     {
         if (pointIds.Length == 0)
-            return "—";
+            return [];
         var sheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.SubmarineExploration>();
-        var names = pointIds.Select(id =>
+        return pointIds.Select(id =>
         {
             var row = sheet.GetRowOrDefault(id);
             if (row == null)
                 return $"#{id}";
             var destination = row.Value.Destination.ToString();
             return string.IsNullOrWhiteSpace(destination) ? $"#{id}" : destination;
-        });
-        return string.Join(" → ", names);
+        }).ToArray();
     }
 
     private static string DisplayFcName(string name)
