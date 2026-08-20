@@ -164,7 +164,7 @@ public sealed unsafe class GilTracker : IDisposable
             var vessel = vessels.DataPointers[index].Value;
             if (vessel == null)
                 continue;
-            var name = ReadUtf8(vessel->Name, 20);
+            var name = ReadUtf8(vessel->Name);
             if (string.IsNullOrWhiteSpace(name))
                 continue;
             observed[name] = new SubmarineRecord { Name = name, ReturnTimeUnix = vessel->ReturnTime };
@@ -195,6 +195,13 @@ public sealed unsafe class GilTracker : IDisposable
         while (length < maximumLength && pointer[length] != 0)
             length++;
         return length == 0 ? string.Empty : Encoding.UTF8.GetString(pointer, length);
+    }
+
+    private static string ReadUtf8(Span<byte> bytes)
+    {
+        var terminator = bytes.IndexOf((byte)0);
+        var length = terminator < 0 ? bytes.Length : terminator;
+        return length == 0 ? string.Empty : Encoding.UTF8.GetString(bytes[..length]);
     }
 
     public void Dispose() => Plugin.Framework.Update -= OnFrameworkUpdate;
