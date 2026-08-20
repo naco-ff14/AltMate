@@ -593,8 +593,7 @@ public sealed class MainWindow : Window
         var underway = returnAt.HasValue && returnAt.Value > now.ToLocalTime();
         ImGui.TableNextRow();
         ImGui.TableNextColumn();
-        ImGui.TextUnformatted(DisplayFcName(fc.Name));
-        ImGui.TextDisabled($"（{fc.WorldName}）");
+        ImGui.TextUnformatted($"{DisplayFcName(fc.Name)}（{fc.WorldName}）");
         ImGui.TableNextColumn();
         ImGui.TextUnformatted(submarine.Name);
         if (ImGui.IsItemHovered())
