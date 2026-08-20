@@ -129,6 +129,42 @@ public sealed class MainWindow : Window
         IsOpen = true;
     }
 
+    internal void OpenPreviousState()
+    {
+        IsOpen = true;
+        RequestFocus = true;
+    }
+
+    internal void OpenCompact()
+    {
+        if (!compactMode)
+            EnterCompactMode();
+        IsOpen = true;
+        RequestFocus = true;
+    }
+
+    internal void OpenExpanded()
+    {
+        if (compactMode)
+            ExitCompactMode();
+        IsOpen = true;
+        RequestFocus = true;
+    }
+
+    internal void OpenAnimations() => OpenSection(MainSection.Animations);
+    internal void OpenHousing() => OpenSection(MainSection.Housing);
+    internal void OpenGil() => OpenSection(MainSection.Gil);
+    internal void OpenSubmarines() => OpenSection(MainSection.Submarines);
+
+    private void OpenSection(MainSection section)
+    {
+        if (compactMode)
+            ExitCompactMode();
+        SelectSection(section);
+        IsOpen = true;
+        RequestFocus = true;
+    }
+
     internal void OpenSettings()
     {
         if (compactMode)
