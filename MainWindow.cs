@@ -20,6 +20,7 @@ public sealed class MainWindow : Window
         Animations,
         Gil,
         Settings,
+        Submarines,
     }
 
     private enum HousingSection
@@ -156,6 +157,9 @@ public sealed class MainWindow : Window
             case MainSection.Gil:
                 DrawGil();
                 break;
+            case MainSection.Submarines:
+                DrawSubmarines();
+                break;
             case MainSection.Settings:
                 DrawSettings();
                 break;
@@ -199,6 +203,7 @@ public sealed class MainWindow : Window
         DrawMenuButton(Loc.T("Animation"), MainSection.Animations);
         DrawMenuButton(Loc.T("Housing"), MainSection.Housing, GetHousingAttentionCount());
         DrawMenuButton(Loc.T("Gil"), MainSection.Gil);
+        DrawMenuButton(Loc.L("潜水艦管理", "Submersibles"), MainSection.Submarines);
         var bottomY = ImGui.GetWindowHeight() - 62 * ImGuiHelpers.GlobalScale;
         if (ImGui.GetCursorPosY() < bottomY)
             ImGui.SetCursorPosY(bottomY);
@@ -509,11 +514,19 @@ public sealed class MainWindow : Window
             ImGui.EndTable();
         }
 
-        ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("FC潜水艦", "Free Company Submersibles"));
+    }
+
+    private void DrawSubmarines()
+    {
+        DrawPageTitle(Loc.L("潜水艦管理", "Submersible Management"), Loc.L(
+            "FCごとの潜水艦の発着状況と帰還予定を管理します。",
+            "Track submersible voyages and return schedules for each Free Company."));
         ImGui.TextDisabled(Loc.L(
             "カンパニーワークショップで潜水艦管理を開くと、名称と帰還時刻を自動更新します。",
             "Open Submersible Management in the company workshop to update names and return times."));
+        ImGui.Separator();
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
+                    ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable;
         var submarines = plugin.Configuration.FreeCompanyGil.Values
             .SelectMany(fc => fc.Submarines.Values.Select(submarine => (fc, submarine)))
             .OrderBy(x => x.fc.Name).ThenBy(x => x.submarine.Name).ToArray();
