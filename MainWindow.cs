@@ -556,7 +556,8 @@ public sealed class MainWindow : Window
             : DateTimeOffset.FromUnixTimeSeconds(submarine.ReturnTimeUnix).ToLocalTime();
         var underway = returnAt.HasValue && returnAt.Value > now.ToLocalTime();
         ImGui.TableNextRow();
-        ImGui.TableNextColumn(); ImGui.TextUnformatted(DisplayFcName(fc.Name));
+        ImGui.TableNextColumn();
+        ImGui.TextUnformatted($"{DisplayFcName(fc.Name)}（{fc.WorldName}）");
         ImGui.TableNextColumn(); ImGui.TextUnformatted(submarine.Name);
         ImGui.TableNextColumn();
         ImGui.TextColored(underway ? new Vector4(0.35f, 0.8f, 1f, 1f) : new Vector4(0.3f, 0.9f, 0.45f, 1f),
