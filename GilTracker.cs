@@ -1,5 +1,6 @@
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using System;
 using System.Text;
 
@@ -104,10 +105,8 @@ public sealed unsafe class GilTracker : IDisposable
             }
             fcGilWasLoaded = fcContainer != null && fcContainer->IsLoaded;
 
-            var workshopAgentModule = AgentModule.Instance();
-            var workshopAgent = workshopAgentModule == null ? null :
-                (AgentFreeCompany*)workshopAgentModule->GetAgentByInternalId(AgentId.FreeCompany);
-            var workshopInfo = workshopAgent == null ? null : workshopAgent->InfoProxyFreeCompany;
+            var infoModule = InfoModule.Instance();
+            var workshopInfo = infoModule == null ? null : infoModule->GetInfoProxyFreeCompany();
             if (workshopInfo != null && workshopInfo->Id != 0 &&
                 HousingManager.Instance()->WorkshopTerritory != null)
             {
