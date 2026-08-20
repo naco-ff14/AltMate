@@ -81,6 +81,15 @@ public sealed class FreeCompanyGilRecord
     public DateTime UpdatedAt { get; set; }
     public ulong LastCheckedByContentId { get; set; }
     public string LastCheckedByName { get; set; } = "不明";
+    public DateTime SubmarinesUpdatedAt { get; set; }
+    public Dictionary<string, SubmarineRecord> Submarines { get; set; } = new();
+}
+
+[Serializable]
+public sealed class SubmarineRecord
+{
+    public string Name { get; set; } = "不明な潜水艦";
+    public uint ReturnTimeUnix { get; set; }
 }
 
 [Serializable]

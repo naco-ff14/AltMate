@@ -188,9 +188,28 @@ internal sealed class SharedConfigurationStore : IDisposable
                     current.Retainers[retainer.Key] = retainer.Value;
         }
         foreach (var pair in incoming.FreeCompanyGil)
-            if (!target.FreeCompanyGil.TryGetValue(pair.Key, out var current) ||
-                pair.Value.UpdatedAt >= current.UpdatedAt)
+        {
+            if (!target.FreeCompanyGil.TryGetValue(pair.Key, out var current))
+            {
                 target.FreeCompanyGil[pair.Key] = pair.Value;
+                continue;
+            }
+            if (pair.Value.UpdatedAt >= current.UpdatedAt)
+            {
+                current.FreeCompanyId = pair.Value.FreeCompanyId;
+                current.Name = pair.Value.Name;
+                current.WorldName = pair.Value.WorldName;
+                current.Gil = pair.Value.Gil;
+                current.UpdatedAt = pair.Value.UpdatedAt;
+                current.LastCheckedByContentId = pair.Value.LastCheckedByContentId;
+                current.LastCheckedByName = pair.Value.LastCheckedByName;
+            }
+            if (pair.Value.SubmarinesUpdatedAt >= current.SubmarinesUpdatedAt)
+            {
+                current.SubmarinesUpdatedAt = pair.Value.SubmarinesUpdatedAt;
+                current.Submarines = pair.Value.Submarines;
+            }
+        }
         target.Version = Math.Max(target.Version, incoming.Version);
         if (incomingCycleIsNewer || target.OpenPlotsCycleStartsAtUtc is null)
         {

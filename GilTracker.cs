@@ -82,25 +82,55 @@ public sealed unsafe class GilTracker : IDisposable
                 if (info != null && info->Id != 0)
                 {
                     var fcGil = inventory->GetFreeCompanyGil();
-                    var fcName = ReadUtf8((byte*)info + 0x7C, 22);
+                    var fcName = info->NameString;
                     if (!plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var fc) ||
-                        fc.Gil != fcGil || fc.Name != fcName || !fcGilWasLoaded)
+                        fc.Gil != fcGil || (!string.IsNullOrWhiteSpace(fcName) && fc.Name != fcName) || !fcGilWasLoaded)
                     {
-                        plugin.Configuration.FreeCompanyGil[info->Id] = new FreeCompanyGilRecord
-                        {
-                            FreeCompanyId = info->Id,
-                            Name = string.IsNullOrWhiteSpace(fcName) ? $"FC {info->Id:X}" : fcName,
-                            WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString(),
-                            Gil = fcGil,
-                            UpdatedAt = DateTime.Now,
-                            LastCheckedByContentId = contentId,
-                            LastCheckedByName = Plugin.PlayerState.CharacterName,
-                        };
+                        fc ??= new FreeCompanyGilRecord { FreeCompanyId = info->Id };
+                        if (!string.IsNullOrWhiteSpace(fcName))
+                            fc.Name = fcName;
+                        else if (IsGeneratedFcName(fc.Name))
+                            fc.Name = "不明なFC";
+                        fc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
+                        fc.Gil = fcGil;
+                        fc.UpdatedAt = DateTime.Now;
+                        fc.LastCheckedByContentId = contentId;
+                        fc.LastCheckedByName = Plugin.PlayerState.CharacterName;
+                        plugin.Configuration.FreeCompanyGil[info->Id] = fc;
                         changed = true;
                     }
+
                 }
             }
             fcGilWasLoaded = fcContainer != null && fcContainer->IsLoaded;
+
+            var workshopAgentModule = AgentModule.Instance();
+            var workshopAgent = workshopAgentModule == null ? null :
+                (AgentFreeCompany*)workshopAgentModule->GetAgentByInternalId(AgentId.FreeCompany);
+            var workshopInfo = workshopAgent == null ? null : workshopAgent->InfoProxyFreeCompany;
+            if (workshopInfo != null && workshopInfo->Id != 0 &&
+                HousingManager.Instance()->WorkshopTerritory != null)
+            {
+                if (!plugin.Configuration.FreeCompanyGil.TryGetValue(workshopInfo->Id, out var workshopFc))
+                {
+                    workshopFc = new FreeCompanyGilRecord
+                    {
+                        FreeCompanyId = workshopInfo->Id,
+                        Name = string.IsNullOrWhiteSpace(workshopInfo->NameString) ? "不明なFC" : workshopInfo->NameString,
+                        WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString(),
+                        LastCheckedByContentId = contentId,
+                        LastCheckedByName = Plugin.PlayerState.CharacterName,
+                    };
+                    plugin.Configuration.FreeCompanyGil[workshopInfo->Id] = workshopFc;
+                }
+                else if (!string.IsNullOrWhiteSpace(workshopInfo->NameString) && workshopFc.Name != workshopInfo->NameString)
+                {
+                    workshopFc.Name = workshopInfo->NameString;
+                    changed = true;
+                }
+                if (UpdateSubmarines(workshopFc, now))
+                    changed = true;
+            }
 
             if (changed)
                 plugin.Configuration.Save();
@@ -109,6 +139,54 @@ public sealed unsafe class GilTracker : IDisposable
         {
             Plugin.Log.Verbose(exception, "ギル情報を更新できませんでした。");
         }
+    }
+
+    private static bool IsGeneratedFcName(string name)
+    {
+        if (!name.StartsWith("FC ", StringComparison.Ordinal) || name.Length <= 3)
+            return false;
+        foreach (var character in name.AsSpan(3))
+            if (!Uri.IsHexDigit(character))
+                return false;
+        return true;
+    }
+
+    private static bool UpdateSubmarines(FreeCompanyGilRecord fc, DateTime nowUtc)
+    {
+        var housing = HousingManager.Instance();
+        if (housing->WorkshopTerritory == null)
+            return false;
+
+        var observed = new System.Collections.Generic.Dictionary<string, SubmarineRecord>();
+        var vessels = housing->WorkshopTerritory->Submersible;
+        for (var index = 0; index < Math.Min(4, vessels.DataPointers.Length); index++)
+        {
+            var vessel = vessels.DataPointers[index].Value;
+            if (vessel == null)
+                continue;
+            var name = ReadUtf8(vessel->Name, 20);
+            if (string.IsNullOrWhiteSpace(name))
+                continue;
+            observed[name] = new SubmarineRecord { Name = name, ReturnTimeUnix = vessel->ReturnTime };
+        }
+        if (observed.Count == 0)
+            return false;
+
+        var changed = observed.Count != fc.Submarines.Count;
+        if (!changed)
+            foreach (var pair in observed)
+                if (!fc.Submarines.TryGetValue(pair.Key, out var current) ||
+                    current.ReturnTimeUnix != pair.Value.ReturnTimeUnix)
+                {
+                    changed = true;
+                    break;
+                }
+        if (!changed)
+            return false;
+
+        fc.Submarines = observed;
+        fc.SubmarinesUpdatedAt = nowUtc.ToLocalTime();
+        return true;
     }
 
     private static string ReadUtf8(byte* pointer, int maximumLength)

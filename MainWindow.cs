@@ -505,9 +505,67 @@ public sealed class MainWindow : Window
             ImGui.TableSetupColumn(Loc.L("最終確認", "Last Updated"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
             foreach (var fc in plugin.Configuration.FreeCompanyGil.Values.OrderBy(x => x.Name))
-                DrawGilRow(fc.Name, $"{fc.WorldName} / {fc.LastCheckedByName}", fc.Gil, fc.UpdatedAt, false);
+                DrawGilRow(DisplayFcName(fc.Name), $"{fc.WorldName} / {fc.LastCheckedByName}", fc.Gil, fc.UpdatedAt, false);
             ImGui.EndTable();
         }
+
+        ImGui.Spacing();
+        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("FC潜水艦", "Free Company Submersibles"));
+        ImGui.TextDisabled(Loc.L(
+            "カンパニーワークショップで潜水艦管理を開くと、名称と帰還時刻を自動更新します。",
+            "Open Submersible Management in the company workshop to update names and return times."));
+        var submarines = plugin.Configuration.FreeCompanyGil.Values
+            .SelectMany(fc => fc.Submarines.Values.Select(submarine => (fc, submarine)))
+            .OrderBy(x => x.fc.Name).ThenBy(x => x.submarine.Name).ToArray();
+        if (submarines.Length == 0)
+        {
+            ImGui.TextDisabled(Loc.L("潜水艦情報はまだ確認されていません。", "No submersible data has been observed yet."));
+        }
+        else if (ImGui.BeginTable("gil-submarines", 5, flags))
+        {
+            ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.2f);
+            ImGui.TableSetupColumn(Loc.L("潜水艦", "Submersible"), ImGuiTableColumnFlags.WidthStretch, 1.2f);
+            ImGui.TableSetupColumn(Loc.L("状態", "Status"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("帰還時刻", "Returns At"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("残り時間", "Remaining"), ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
+            ImGui.TableHeadersRow();
+            foreach (var (fc, submarine) in submarines)
+                DrawSubmarineRow(fc, submarine);
+            ImGui.EndTable();
+        }
+    }
+
+    private static void DrawSubmarineRow(FreeCompanyGilRecord fc, SubmarineRecord submarine)
+    {
+        var now = DateTimeOffset.UtcNow;
+        var returnAt = submarine.ReturnTimeUnix == 0
+            ? (DateTimeOffset?)null
+            : DateTimeOffset.FromUnixTimeSeconds(submarine.ReturnTimeUnix).ToLocalTime();
+        var underway = returnAt.HasValue && returnAt.Value > now.ToLocalTime();
+        ImGui.TableNextRow();
+        ImGui.TableNextColumn(); ImGui.TextUnformatted(DisplayFcName(fc.Name));
+        ImGui.TableNextColumn(); ImGui.TextUnformatted(submarine.Name);
+        ImGui.TableNextColumn();
+        ImGui.TextColored(underway ? new Vector4(0.35f, 0.8f, 1f, 1f) : new Vector4(0.3f, 0.9f, 0.45f, 1f),
+            underway ? Loc.L("航海中", "Voyaging") : Loc.L("帰還済", "Returned"));
+        ImGui.TableNextColumn(); ImGui.TextDisabled(returnAt?.ToString("MM/dd (ddd) HH:mm") ?? "—");
+        ImGui.TableNextColumn();
+        if (!underway)
+            ImGui.TextDisabled("—");
+        else
+        {
+            var remaining = returnAt!.Value - now.ToLocalTime();
+            ImGui.TextUnformatted(remaining.TotalDays >= 1
+                ? $"{(int)remaining.TotalDays}日 {remaining.Hours:D2}:{remaining.Minutes:D2}"
+                : $"{remaining.Hours:D2}:{remaining.Minutes:D2}:{remaining.Seconds:D2}");
+        }
+    }
+
+    private static string DisplayFcName(string name)
+    {
+        if (!name.StartsWith("FC ", StringComparison.Ordinal) || name.Length <= 3)
+            return name;
+        return name.AsSpan(3).ToString().All(Uri.IsHexDigit) ? Loc.L("不明なFC", "Unknown FC") : name;
     }
 
     private static void DrawGilRow(string name, string world, uint gil, DateTime updatedAt, bool muted,
