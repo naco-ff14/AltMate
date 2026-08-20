@@ -118,7 +118,29 @@ public sealed class Plugin : IDalamudPlugin
         windowSystem.AddWindow(mainWindow);
 
         CommandManager.AddHandler(Command, new CommandInfo(OnAltMateCommand)
-        { HelpMessage = "AltMate操作: open / min / max / stop / resume / animation / housing / gil / submarine / lottery" });
+        {
+            HelpMessage = Loc.L(
+                "前回の表示状態でAltMateを開く\n" +
+                "/altmate min → 最小化状態で開く\n" +
+                "/altmate max → 最大化状態で開く\n" +
+                "/altmate stop → 連携操作を停止\n" +
+                "/altmate resume → 連携操作を再開\n" +
+                "/altmate animation → アニメーションを開く\n" +
+                "/altmate housing → ハウジングを開く\n" +
+                "/altmate gil → ギル管理を開く\n" +
+                "/altmate submarine → 潜水艦管理を開く\n" +
+                "/altmate lottery → 未確認の抽選応募先へ移動",
+                "Open AltMate in its previous display state\n" +
+                "/altmate min → Open minimized\n" +
+                "/altmate max → Open maximized\n" +
+                "/altmate stop → Stop linked controls\n" +
+                "/altmate resume → Resume linked controls\n" +
+                "/altmate animation → Open Animations\n" +
+                "/altmate housing → Open Housing\n" +
+                "/altmate gil → Open Gil Management\n" +
+                "/altmate submarine → Open Submersible Management\n" +
+                "/altmate lottery → Travel to an unchecked lottery entry")
+        });
         CommandManager.AddHandler(LegacyCommand, new CommandInfo((_, _) => mainWindow.OpenPreviousState())
         { HelpMessage = "AltMateを開く（旧コマンド）", ShowInHelp = false });
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
