@@ -534,11 +534,12 @@ public sealed class MainWindow : Window
         {
             ImGui.TextDisabled(Loc.L("潜水艦情報はまだ確認されていません。", "No submersible data has been observed yet."));
         }
-        else if (ImGui.BeginTable("gil-submarines", 5, flags))
+        else if (ImGui.BeginTable("gil-submarines", 6, flags))
         {
             ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.2f);
             ImGui.TableSetupColumn(Loc.L("潜水艦", "Submersible"), ImGuiTableColumnFlags.WidthStretch, 1.2f);
             ImGui.TableSetupColumn(Loc.L("状態", "Status"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("航路", "Route"), ImGuiTableColumnFlags.WidthStretch, 1.8f);
             ImGui.TableSetupColumn(Loc.L("帰還時刻", "Returns At"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn(Loc.L("残り時間", "Remaining"), ImGuiTableColumnFlags.WidthFixed, 120 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
@@ -562,6 +563,7 @@ public sealed class MainWindow : Window
         ImGui.TableNextColumn();
         ImGui.TextColored(underway ? new Vector4(0.35f, 0.8f, 1f, 1f) : new Vector4(0.3f, 0.9f, 0.45f, 1f),
             underway ? Loc.L("航海中", "Voyaging") : Loc.L("帰還済", "Returned"));
+        ImGui.TableNextColumn(); ImGui.TextDisabled(FormatSubmarineRoute(submarine.RoutePointIds));
         ImGui.TableNextColumn(); ImGui.TextDisabled(returnAt?.ToString("MM/dd (ddd) HH:mm") ?? "—");
         ImGui.TableNextColumn();
         if (!underway)
@@ -573,6 +575,22 @@ public sealed class MainWindow : Window
                 ? $"{(int)remaining.TotalDays}日 {remaining.Hours:D2}:{remaining.Minutes:D2}"
                 : $"{remaining.Hours:D2}:{remaining.Minutes:D2}:{remaining.Seconds:D2}");
         }
+    }
+
+    private static string FormatSubmarineRoute(byte[] pointIds)
+    {
+        if (pointIds.Length == 0)
+            return "—";
+        var sheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.SubmarineExploration>();
+        var names = pointIds.Select(id =>
+        {
+            var row = sheet.GetRowOrDefault(id);
+            if (row == null)
+                return $"#{id}";
+            var destination = row.Value.Destination.ToString();
+            return string.IsNullOrWhiteSpace(destination) ? $"#{id}" : destination;
+        });
+        return string.Join(" → ", names);
     }
 
     private static string DisplayFcName(string name)

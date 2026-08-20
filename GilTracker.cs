@@ -2,6 +2,7 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using System;
+using System.Linq;
 using System.Text;
 
 namespace AltMate;
@@ -166,7 +167,12 @@ public sealed unsafe class GilTracker : IDisposable
             var name = ReadUtf8(vessel->Name);
             if (string.IsNullOrWhiteSpace(name))
                 continue;
-            observed[name] = new SubmarineRecord { Name = name, ReturnTimeUnix = vessel->ReturnTime };
+            observed[name] = new SubmarineRecord
+            {
+                Name = name,
+                ReturnTimeUnix = vessel->ReturnTime,
+                RoutePointIds = vessel->CurrentExplorationPoints.ToArray().Where(x => x != 0).ToArray(),
+            };
         }
         if (observed.Count == 0)
             return false;
@@ -175,7 +181,8 @@ public sealed unsafe class GilTracker : IDisposable
         if (!changed)
             foreach (var pair in observed)
                 if (!fc.Submarines.TryGetValue(pair.Key, out var current) ||
-                    current.ReturnTimeUnix != pair.Value.ReturnTimeUnix)
+                    (current.ReturnTimeUnix != pair.Value.ReturnTimeUnix ||
+                     !current.RoutePointIds.SequenceEqual(pair.Value.RoutePointIds)))
                 {
                     changed = true;
                     break;

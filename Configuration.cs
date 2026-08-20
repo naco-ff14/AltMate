@@ -90,6 +90,7 @@ public sealed class SubmarineRecord
 {
     public string Name { get; set; } = "不明な潜水艦";
     public uint ReturnTimeUnix { get; set; }
+    public byte[] RoutePointIds { get; set; } = [];
 }
 
 [Serializable]
