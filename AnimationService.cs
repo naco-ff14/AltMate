@@ -11,6 +11,8 @@ namespace AltMate;
 
 public sealed class AnimationService
 {
+    private const int GPoseLocalPlayerIndex = 201;
+
     public unsafe bool IsInGroupPose => GameMain.IsInGPose();
 
     public bool IsPenumbraLoaded => Plugin.PluginInterface.InstalledPlugins.Any(x =>
@@ -163,12 +165,31 @@ public sealed class AnimationService
         {
             var emote = Plugin.DataManager.GetExcelSheet<Emote>().GetRow(emoteId);
             var timelineId = emote.ActionTimeline[0].RowId;
-            var local = Plugin.ObjectTable.LocalPlayer;
-            var character = local is null ? null : (Character*)local.Address;
+            // GPoseは通常のLocalPlayerとは別に表示用キャラクターをObjectTable 201へ複製する。
+            // 通常側へタイムラインを送ってもGPose画面には反映されない。
+            var gPoseLocal = Plugin.ObjectTable[GPoseLocalPlayerIndex];
+            var character = gPoseLocal is null ? null : (Character*)gPoseLocal.Address;
             if (character == null || timelineId == 0 || timelineId > ushort.MaxValue)
             {
-                Status = "グループポーズ用アニメーションを取得できませんでした。";
+                Status = "グループポーズ用キャラクターを取得できませんでした。入り直して再試行してください。";
                 return false;
+            }
+
+            var timeline = Plugin.DataManager.GetExcelSheet<ActionTimeline>().GetRow(timelineId);
+            if (timeline.Pause)
+            {
+                character->Mode = CharacterModes.EmoteLoop;
+                character->ModeParam = 0;
+            }
+            else if (character->Mode == CharacterModes.EmoteLoop && character->ModeParam == 0)
+            {
+                character->Mode = CharacterModes.Normal;
+            }
+            else if (character->Mode == CharacterModes.AnimLock)
+            {
+                character->Mode = CharacterModes.Normal;
+                character->ModeParam = 0;
+                character->Timeline.BaseOverride = 0;
             }
 
             character->Timeline.TimelineSequencer.PlayTimeline((ushort)timelineId);
