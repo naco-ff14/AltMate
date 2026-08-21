@@ -40,6 +40,8 @@ public sealed class MainWindow : Window
     private MainSection selectedSection = MainSection.Home;
     private HousingSection selectedHousingSection = HousingSection.Lottery;
     private bool compactMode;
+    private bool requestCompactMode;
+    private bool requestExpandedMode;
     private bool clearForcedSize;
     private AnimationEmote[] animationEmotes = [];
     private bool animationListLoaded;
@@ -93,6 +95,19 @@ public sealed class MainWindow : Window
 
     public override void Draw()
     {
+        if (requestCompactMode)
+        {
+            requestCompactMode = false;
+            requestExpandedMode = false;
+            if (!compactMode)
+                EnterCompactMode();
+        }
+        else if (requestExpandedMode)
+        {
+            requestExpandedMode = false;
+            if (compactMode)
+                ExitCompactMode();
+        }
         if (clearForcedSize)
         {
             SizeCondition = ImGuiCond.None;
@@ -137,16 +152,16 @@ public sealed class MainWindow : Window
 
     internal void OpenCompact()
     {
-        if (!compactMode)
-            EnterCompactMode();
+        requestCompactMode = true;
+        requestExpandedMode = false;
         IsOpen = true;
         RequestFocus = true;
     }
 
     internal void OpenExpanded()
     {
-        if (compactMode)
-            ExitCompactMode();
+        requestExpandedMode = true;
+        requestCompactMode = false;
         IsOpen = true;
         RequestFocus = true;
     }
