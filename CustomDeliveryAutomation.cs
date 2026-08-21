@@ -464,6 +464,17 @@ internal sealed unsafe class CustomDeliveryAutomation
             {
                 // The path may already have completed.
             }
+            if (Plugin.Condition[ConditionFlag.Mounted] || Plugin.Condition[ConditionFlag.InFlight])
+            {
+                if (now - lastTravelRequestUtc < TimeSpan.FromSeconds(2))
+                    return false;
+                lastTravelRequestUtc = now;
+                var actionManager = ActionManager.Instance();
+                if (actionManager != null)
+                    actionManager->UseAction(ActionType.Mount, 0);
+                Status = Loc.L("目的地に到着：マウントを降りています", "Dismounting at destination");
+                return false;
+            }
             return true;
         }
 
@@ -471,12 +482,40 @@ internal sealed unsafe class CustomDeliveryAutomation
             return false;
         if (!Plugin.PluginInterface.GetIpcSubscriber<bool>("vnavmesh.Nav.IsReady").InvokeFunc())
             return false;
+
+        if (distance >= 25f && !Plugin.Condition[ConditionFlag.Mounted])
+        {
+            var actionManager = ActionManager.Instance();
+            if (actionManager != null)
+            {
+                var rouletteAction = actionManager->GetActionStatus(ActionType.GeneralAction, 24) == 0
+                    ? 24u
+                    : actionManager->GetActionStatus(ActionType.GeneralAction, 9) == 0 ? 9u : 0u;
+                if (rouletteAction != 0 &&
+                    actionManager->UseAction(ActionType.GeneralAction, rouletteAction))
+                {
+                    lastTravelRequestUtc = now;
+                    Status = Loc.L("目的地への移動前にマウントを呼び出しています",
+                        "Mounting before travelling to the destination");
+                    return false;
+                }
+            }
+        }
+
+        var flying = Plugin.Condition[ConditionFlag.Mounted] &&
+            (Plugin.Condition[ConditionFlag.InFlight] || Control.CanFly);
         lastTravelRequestUtc = now;
         var started = Plugin.PluginInterface.GetIpcSubscriber<Vector3, bool, float, bool>(
-            "vnavmesh.SimpleMove.PathfindAndMoveCloseTo").InvokeFunc(position, false, 2.8f);
+            "vnavmesh.SimpleMove.PathfindAndMoveCloseTo").InvokeFunc(position, flying, 2.8f);
         if (started)
-            Status = Loc.L($"目的地へ移動中（残り{distance:0}m）",
-                $"Walking to destination ({distance:0}m remaining)");
+            Status = flying
+                ? Loc.L($"目的地へ飛行中（残り{distance:0}m）",
+                    $"Flying to destination ({distance:0}m remaining)")
+                : Plugin.Condition[ConditionFlag.Mounted]
+                    ? Loc.L($"マウントで目的地へ移動中（残り{distance:0}m）",
+                        $"Riding to destination ({distance:0}m remaining)")
+                    : Loc.L($"目的地へ移動中（残り{distance:0}m）",
+                        $"Walking to destination ({distance:0}m remaining)");
         return false;
     }
 
