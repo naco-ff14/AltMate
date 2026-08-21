@@ -115,7 +115,10 @@ public sealed class AnimationService
         }
         var result = Plugin.DataManager.GetExcelSheet<Emote>()
             .Where(x => x.RowId is > 0 and <= ushort.MaxValue &&
+                        x.Icon != 0 &&
                         !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
+                        x.TextCommand.IsValid &&
+                        x.TextCommand.Value.Command.ToString().StartsWith("/", StringComparison.Ordinal) &&
                         Plugin.UnlockState.IsEmoteUnlocked(x))
             .Select(x => new AnimationEmote((ushort)x.RowId, x.Name.ToString(), string.Empty, string.Empty))
             .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
