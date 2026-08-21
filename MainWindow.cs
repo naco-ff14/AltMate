@@ -47,6 +47,7 @@ public sealed class MainWindow : Window
     private bool animationListLoaded;
     private ulong animationTargetContentId;
     private string animationFilter = string.Empty;
+    private DateTime treasureMonth = new(DateTime.Now.Year, DateTime.Now.Month, 1);
     private Vector2 expandedWindowSize = new(940, 520);
     private ImGuiWindowFlags expandedWindowFlags;
     private float? expandedBackgroundAlpha;
@@ -576,6 +577,24 @@ public sealed class MainWindow : Window
             "カンパニーワークショップで潜水艦管理を開くと、名称と帰還時刻を自動更新します。",
             "Open Submersible Management in the company workshop to update names and return times."));
         ImGui.Separator();
+        if (ImGui.BeginTabBar("submarine-tabs"))
+        {
+            if (ImGui.BeginTabItem(Loc.L("運航状況", "Voyage Status")))
+            {
+                DrawSubmarineStatus();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem(Loc.L("財宝収益", "Treasure Revenue")))
+            {
+                DrawSubmarineTreasureRevenue();
+                ImGui.EndTabItem();
+            }
+            ImGui.EndTabBar();
+        }
+    }
+
+    private void DrawSubmarineStatus()
+    {
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
                     ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable;
         var submarines = plugin.Configuration.FreeCompanyGil.Values
@@ -597,6 +616,78 @@ public sealed class MainWindow : Window
                 DrawSubmarineRow(fc, submarine);
             ImGui.EndTable();
         }
+    }
+
+    private void DrawSubmarineTreasureRevenue()
+    {
+        ImGui.TextDisabled(Loc.L(
+            "帰還報告を開いた時点から、沈没船の財宝8種類のNPC換金額を記録します。",
+            "Records NPC sale value for the eight salvaged treasure items when a voyage report is opened."));
+        if (ImGui.SmallButton("◀##treasure-month-prev"))
+            treasureMonth = treasureMonth.AddMonths(-1);
+        ImGui.SameLine();
+        ImGui.TextUnformatted(treasureMonth.ToString(Loc.IsEnglish ? "MMMM yyyy" : "yyyy年 M月",
+            Loc.IsEnglish ? EnglishCulture : JapaneseCulture));
+        ImGui.SameLine();
+        if (ImGui.SmallButton("▶##treasure-month-next") &&
+            treasureMonth < new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1))
+            treasureMonth = treasureMonth.AddMonths(1);
+
+        var monthStart = new DateTimeOffset(treasureMonth, TimeZoneInfo.Local.GetUtcOffset(treasureMonth));
+        var monthEnd = monthStart.AddMonths(1);
+        var companies = plugin.Configuration.FreeCompanyGil.Values
+            .Where(x => x.TreasureVoyages.Count > 0)
+            .OrderBy(x => x.Name).ToArray();
+        if (companies.Length == 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextDisabled(Loc.L("財宝の帰還記録はまだありません。", "No treasure voyage has been recorded yet."));
+            return;
+        }
+
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp;
+        if (!ImGui.BeginTable("submarine-treasure-revenue", 5, flags))
+            return;
+        ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.5f);
+        ImGui.TableSetupColumn(Loc.L("トータル", "Total"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("選択月", "Selected Month"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("1航行平均", "Per Voyage"), ImGuiTableColumnFlags.WidthFixed, 135 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("換金効率", "Efficiency"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+        ImGui.TableHeadersRow();
+        foreach (var fc in companies)
+        {
+            var voyages = fc.TreasureVoyages;
+            var total = voyages.Aggregate(0UL, (sum, voyage) => sum + voyage.TreasureGil);
+            var monthly = voyages.Where(voyage =>
+            {
+                var returned = DateTimeOffset.FromUnixTimeSeconds(voyage.ReturnedAtUnix);
+                return returned >= monthStart.ToUniversalTime() && returned < monthEnd.ToUniversalTime();
+            }).Aggregate(0UL, (sum, voyage) => sum + voyage.TreasureGil);
+            var average = voyages.Count == 0 ? 0UL : total / (ulong)voyages.Count;
+            var totalDays = voyages.Sum(voyage => voyage.DepartedAtUnix > 0 && voyage.ReturnedAtUnix > voyage.DepartedAtUnix
+                ? (voyage.ReturnedAtUnix - voyage.DepartedAtUnix) / 86400d : 0d);
+            var efficiency = totalDays > 0 ? (ulong)Math.Round(total / totalDays) : 0UL;
+
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted($"{DisplayFcName(fc.Name)}（{fc.WorldName}）");
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Loc.L($"記録航行数：{voyages.Count}", $"Recorded voyages: {voyages.Count}"));
+            DrawTreasureAmount(total);
+            DrawTreasureAmount(monthly);
+            DrawTreasureAmount(average);
+            ImGui.TableNextColumn();
+            ImGui.TextColored(new Vector4(0.95f, 0.78f, 0.25f, 1f), $"{efficiency:N0} G/日");
+        }
+        ImGui.EndTable();
+    }
+
+    private static void DrawTreasureAmount(ulong amount)
+    {
+        ImGui.TableNextColumn();
+        var text = $"{amount:N0} G";
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + Math.Max(0, ImGui.GetContentRegionAvail().X - ImGui.CalcTextSize(text).X));
+        ImGui.TextColored(new Vector4(0.95f, 0.78f, 0.25f, 1f), text);
     }
 
     private static void DrawSubmarineRow(FreeCompanyGilRecord fc, SubmarineRecord submarine)

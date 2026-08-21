@@ -83,6 +83,8 @@ public sealed class FreeCompanyGilRecord
     public string LastCheckedByName { get; set; } = "不明";
     public DateTime SubmarinesUpdatedAt { get; set; }
     public Dictionary<string, SubmarineRecord> Submarines { get; set; } = new();
+    public DateTime TreasureVoyagesUpdatedAt { get; set; }
+    public List<SubmarineTreasureVoyageRecord> TreasureVoyages { get; set; } = new();
 }
 
 [Serializable]
@@ -91,6 +93,17 @@ public sealed class SubmarineRecord
     public string Name { get; set; } = "不明な潜水艦";
     public uint ReturnTimeUnix { get; set; }
     public byte[] RoutePointIds { get; set; } = [];
+}
+
+[Serializable]
+public sealed class SubmarineTreasureVoyageRecord
+{
+    public string Id { get; set; } = string.Empty;
+    public string SubmarineName { get; set; } = "不明な潜水艦";
+    public uint DepartedAtUnix { get; set; }
+    public uint ReturnedAtUnix { get; set; }
+    public ulong TreasureGil { get; set; }
+    public Dictionary<uint, uint> TreasureItems { get; set; } = new();
 }
 
 [Serializable]

@@ -209,6 +209,11 @@ internal sealed class SharedConfigurationStore : IDisposable
                 current.SubmarinesUpdatedAt = pair.Value.SubmarinesUpdatedAt;
                 current.Submarines = pair.Value.Submarines;
             }
+            if (pair.Value.TreasureVoyagesUpdatedAt >= current.TreasureVoyagesUpdatedAt)
+            {
+                current.TreasureVoyagesUpdatedAt = pair.Value.TreasureVoyagesUpdatedAt;
+                current.TreasureVoyages = pair.Value.TreasureVoyages;
+            }
         }
         target.Version = Math.Max(target.Version, incoming.Version);
         if (incomingCycleIsNewer || target.OpenPlotsCycleStartsAtUtc is null)

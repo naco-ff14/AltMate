@@ -130,6 +130,8 @@ public sealed unsafe class GilTracker : IDisposable
                 }
                 if (UpdateSubmarines(workshopFc, now))
                     changed = true;
+                if (CaptureTreasureVoyage(workshopFc, now))
+                    changed = true;
             }
 
             if (changed)
@@ -193,6 +195,55 @@ public sealed unsafe class GilTracker : IDisposable
         fc.Submarines = observed;
         fc.SubmarinesUpdatedAt = nowUtc.ToLocalTime();
         return true;
+    }
+
+    private static bool CaptureTreasureVoyage(FreeCompanyGilRecord fc, DateTime nowUtc)
+    {
+        if (Plugin.GameGui.GetAddonByName("AirShipExplorationResult").Address == nint.Zero)
+            return false;
+        var territory = HousingManager.Instance()->WorkshopTerritory;
+        if (territory == null)
+            return false;
+        var current = territory->Submersible.DataPointers[4].Value;
+        if (current == null || current->GatheredData[0].ItemIdPrimary == 0)
+            return false;
+
+        var submarineName = ReadUtf8(current->Name);
+        var id = $"{fc.FreeCompanyId:X16}:{current->RegisterTime}:{submarineName}";
+        if (fc.TreasureVoyages.Any(x => x.Id == id))
+            return false;
+
+        var itemCounts = new System.Collections.Generic.Dictionary<uint, uint>();
+        foreach (var gathered in current->GatheredData)
+        {
+            AddTreasure(gathered.ItemIdPrimary, gathered.ItemCountPrimary);
+            AddTreasure(gathered.ItemIdAdditional, gathered.ItemCountAdditional);
+        }
+
+        var itemSheet = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Item>();
+        ulong total = 0;
+        foreach (var pair in itemCounts)
+            total += (ulong)itemSheet.GetRow(pair.Key).PriceLow * pair.Value;
+
+        var returnedAt = (uint)new DateTimeOffset(nowUtc).ToUnixTimeSeconds();
+        fc.TreasureVoyages.Add(new SubmarineTreasureVoyageRecord
+        {
+            Id = id,
+            SubmarineName = submarineName,
+            DepartedAtUnix = current->RegisterTime,
+            ReturnedAtUnix = returnedAt,
+            TreasureGil = total,
+            TreasureItems = itemCounts,
+        });
+        fc.TreasureVoyagesUpdatedAt = nowUtc.ToLocalTime();
+        return true;
+
+        void AddTreasure(uint itemId, ushort count)
+        {
+            if (itemId is < 22500 or > 22507 || count == 0)
+                return;
+            itemCounts[itemId] = itemCounts.GetValueOrDefault(itemId) + count;
+        }
     }
 
     private static string ReadUtf8(byte* pointer, int maximumLength)
