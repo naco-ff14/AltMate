@@ -581,16 +581,15 @@ internal sealed unsafe class CustomDeliveryAutomation
         return true;
     }
 
-    private static bool TryProgressSelection()
+    private bool TryProgressSelection()
     {
         foreach (var name in new[] { "SelectIconString", "SelectString" })
         {
             var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName(name).Address;
             if (addon == null || !addon->IsVisible || !addon->IsReady)
                 continue;
-            AtkValue choice = default;
-            choice.SetInt(0);
-            addon->FireCallback(1, &choice, true);
+            Status = Loc.L("会話の選択肢を手動で選択してください。選択後に自動処理を再開します。",
+                "Select the dialogue option manually. Automation will resume after your selection.");
             return true;
         }
         return false;
@@ -620,11 +619,7 @@ internal sealed unsafe class CustomDeliveryAutomation
         agent->ReceiveEvent(&result, arguments, 4, 1);
         if (agent->SelectedTurnInSlot >= 0)
             return false;
-        var addonId = agent->AddonId;
         agent->ReceiveEvent(&result, arguments, 4, 0);
-        var addon = RaptureAtkUnitManager.Instance()->GetAddonById((ushort)addonId);
-        if (addon != null && addon->IsVisible)
-            addon->Close(false);
         return true;
     }
 
