@@ -10,7 +10,7 @@ using System.Numerics;
 
 namespace AltMate;
 
-public sealed class MainWindow : Window
+public sealed partial class MainWindow : Window
 {
     private enum MainSection
     {
@@ -21,6 +21,7 @@ public sealed class MainWindow : Window
         Gil,
         Settings,
         Submarines,
+        CustomDeliveries,
     }
 
     private enum HousingSection
@@ -174,6 +175,7 @@ public sealed class MainWindow : Window
     internal void OpenHousing() => OpenSection(MainSection.Housing);
     internal void OpenGil() => OpenSection(MainSection.Gil);
     internal void OpenSubmarines() => OpenSection(MainSection.Submarines);
+    internal void OpenCustomDeliveries() => OpenSection(MainSection.CustomDeliveries);
 
     private void OpenSection(MainSection section)
     {
@@ -214,6 +216,9 @@ public sealed class MainWindow : Window
                 break;
             case MainSection.Submarines:
                 DrawSubmarines();
+                break;
+            case MainSection.CustomDeliveries:
+                DrawCustomDeliveries();
                 break;
             case MainSection.Settings:
                 DrawSettings();
@@ -258,6 +263,7 @@ public sealed class MainWindow : Window
         DrawMenuButton(Loc.T("Animation"), MainSection.Animations);
         DrawMenuButton(Loc.T("Housing"), MainSection.Housing, GetHousingAttentionCount());
         DrawMenuButton(Loc.T("Gil"), MainSection.Gil);
+        DrawMenuButton(Loc.L("お得意様", "Custom Deliveries"), MainSection.CustomDeliveries);
         DrawMenuButton(Loc.L("潜水艦管理", "Submersibles"), MainSection.Submarines);
         var bottomY = ImGui.GetWindowHeight() - 62 * ImGuiHelpers.GlobalScale;
         if (ImGui.GetCursorPosY() < bottomY)
@@ -317,7 +323,10 @@ public sealed class MainWindow : Window
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.72f, 0.08f, 0.08f, 0.95f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.12f, 0.12f, 1f));
         if (ImGui.SmallButton($"{Loc.T("EmergencyStop")}##compact-stop"))
+        {
             plugin.CharacterLink.EmergencyStop();
+            plugin.CustomDeliveries.Automation.Stop();
+        }
         ImGui.PopStyleColor(2);
         ImGui.SameLine();
         if (ImGui.SmallButton("⛶##compact-expand"))
@@ -436,6 +445,21 @@ public sealed class MainWindow : Window
         DrawHomeCard(Loc.L("潜水艦管理", "Submersibles"), submarineStatus, submarineDetail,
             returned > 0 ? new Vector4(0.35f, 0.9f, 0.5f, 1f) : new Vector4(0.42f, 0.82f, 1f, 1f),
             MainSection.Submarines);
+
+        var deliveryRecords = plugin.Configuration.CustomDeliveryCharacters.Values.ToArray();
+        var incompleteCharacters = deliveryRecords.Count(record => record.RemainingWeeklyAllowances > 0);
+        var deliveryStatus = deliveryRecords.Length == 0
+            ? Loc.L("お得意様情報なし", "No custom delivery data")
+            : Loc.L($"未消化 {incompleteCharacters}人 / 確認済み {deliveryRecords.Length}人",
+                $"Incomplete {incompleteCharacters} / Checked {deliveryRecords.Length}");
+        var currentDeliveryRecord = Plugin.PlayerState.IsLoaded &&
+            plugin.Configuration.CustomDeliveryCharacters.TryGetValue(Plugin.PlayerState.ContentId, out var active)
+                ? Loc.L($"このキャラクター：残り {active.RemainingWeeklyAllowances}回",
+                    $"This character: {active.RemainingWeeklyAllowances} deliveries remaining")
+                : Loc.L("ログイン中キャラクターの状況を取得", "Read the current character's delivery status");
+        DrawHomeCard(Loc.L("お得意様取引", "Custom Deliveries"), deliveryStatus, currentDeliveryRecord,
+            incompleteCharacters > 0 ? new Vector4(0.95f, 0.78f, 0.25f, 1f) :
+                new Vector4(0.35f, 0.9f, 0.5f, 1f), MainSection.CustomDeliveries);
     }
 
     private void DrawHomeCard(string title, string mainText, string detail, Vector4 accent, MainSection destination)
