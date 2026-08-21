@@ -8,8 +8,10 @@ using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using FFXIVClientStructs.FFXIV.Component.GUI;
+using Lumina.Excel;
 using Lumina.Excel.Sheets;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Numerics;
 
@@ -744,12 +746,20 @@ internal sealed unsafe class CustomDeliveryAutomation
         if (candidateShopIds.Count == 0)
             return null;
         var npcSheet = Plugin.DataManager.GetExcelSheet<ENpcBase>();
+        var preHandlerSheet = Plugin.DataManager.GetExcelSheet<PreHandler>();
+        var topicSelectSheet = Plugin.DataManager.GetExcelSheet<TopicSelect>();
+        var customTalkSheet = Plugin.DataManager.GetExcelSheet<CustomTalk>();
         VendorLocation? fallback = null;
         foreach (var level in Plugin.DataManager.GetExcelSheet<Level>())
         {
             if (level.Object.RowId == 0 || !npcSheet.TryGetRow(level.Object.RowId, out var npc))
                 continue;
-            if (!npc.ENpcData.Any(data => candidateShopIds.Contains(data.RowId)))
+            var reachableShops = new HashSet<uint>();
+            var visited = new HashSet<(string Type, uint RowId)>();
+            foreach (var data in npc.ENpcData)
+                CollectReachableExchangeShops(data, reachableShops, visited,
+                    preHandlerSheet, topicSelectSheet, customTalkSheet);
+            if (!reachableShops.Overlaps(candidateShopIds))
                 continue;
             var found = new VendorLocation(level.Object.RowId, level.Territory.RowId,
                 new Vector3(level.X, level.Y, level.Z), 0);
@@ -758,6 +768,47 @@ internal sealed unsafe class CustomDeliveryAutomation
             fallback ??= found;
         }
         return fallback;
+    }
+
+    private static void CollectReachableExchangeShops(
+        RowRef entry,
+        HashSet<uint> shops,
+        HashSet<(string Type, uint RowId)> visited,
+        ExcelSheet<PreHandler> preHandlerSheet,
+        ExcelSheet<TopicSelect> topicSelectSheet,
+        ExcelSheet<CustomTalk> customTalkSheet)
+    {
+        if (entry.RowId == 0)
+            return;
+        if (entry.Is<InclusionShop>() || entry.Is<SpecialShop>())
+        {
+            shops.Add(entry.RowId);
+            return;
+        }
+        if (entry.Is<PreHandler>())
+        {
+            if (visited.Add((nameof(PreHandler), entry.RowId)) &&
+                preHandlerSheet.TryGetRow(entry.RowId, out var handler))
+                CollectReachableExchangeShops(handler.Target, shops, visited,
+                    preHandlerSheet, topicSelectSheet, customTalkSheet);
+            return;
+        }
+        if (entry.Is<TopicSelect>())
+        {
+            if (visited.Add((nameof(TopicSelect), entry.RowId)) &&
+                topicSelectSheet.TryGetRow(entry.RowId, out var topic))
+            {
+                foreach (var child in topic.Shop)
+                    CollectReachableExchangeShops(child, shops, visited,
+                        preHandlerSheet, topicSelectSheet, customTalkSheet);
+            }
+            return;
+        }
+        if (entry.Is<CustomTalk>() &&
+            visited.Add((nameof(CustomTalk), entry.RowId)) &&
+            customTalkSheet.TryGetRow(entry.RowId, out var talk))
+            CollectReachableExchangeShops(talk.SpecialLinks, shops, visited,
+                preHandlerSheet, topicSelectSheet, customTalkSheet);
     }
 
     private bool SelectExchangeCategory(ScripExchangeItem item, DateTime now)
