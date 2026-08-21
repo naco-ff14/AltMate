@@ -1,4 +1,6 @@
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.Character;
 using Lumina.Excel.Sheets;
 using System;
 using System.Collections.Generic;
@@ -9,6 +11,8 @@ namespace AltMate;
 
 public sealed class AnimationService
 {
+    public unsafe bool IsInGroupPose => GameMain.IsInGPose();
+
     public bool IsPenumbraLoaded => Plugin.PluginInterface.InstalledPlugins.Any(x =>
         x.IsLoaded && x.InternalName.Equals("Penumbra", StringComparison.OrdinalIgnoreCase));
 
@@ -78,7 +82,8 @@ public sealed class AnimationService
                 var candidate = ExtractChangedItemName(item);
                 if (emotesByName.TryGetValue(candidate, out var exact))
                 {
-                    result.Add(new AnimationEmote((ushort)exact.RowId, exact.Name.ToString(), sourceDirectories, sourceNames));
+                    result.Add(new AnimationEmote((ushort)exact.RowId, exact.Name.ToString(), sourceDirectories, sourceNames,
+                        Plugin.UnlockState.IsEmoteUnlocked(exact)));
                     continue;
                 }
 
@@ -90,7 +95,8 @@ public sealed class AnimationService
                     .Select(x => x.Value)
                     .FirstOrDefault();
                 if (match.RowId != 0)
-                    result.Add(new AnimationEmote((ushort)match.RowId, match.Name.ToString(), sourceDirectories, sourceNames));
+                    result.Add(new AnimationEmote((ushort)match.RowId, match.Name.ToString(), sourceDirectories, sourceNames,
+                        Plugin.UnlockState.IsEmoteUnlocked(match)));
             }
 
             Status = result.Count > 0
@@ -106,7 +112,7 @@ public sealed class AnimationService
         }
     }
 
-    public IReadOnlyList<AnimationEmote> LoadUnlockedGameEmotes()
+    public IReadOnlyList<AnimationEmote> LoadGameEmotes()
     {
         if (!Plugin.PlayerState.IsLoaded)
         {
@@ -118,12 +124,12 @@ public sealed class AnimationService
                         x.Icon != 0 &&
                         !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
                         x.TextCommand.IsValid &&
-                        x.TextCommand.Value.Command.ToString().StartsWith("/", StringComparison.Ordinal) &&
-                        Plugin.UnlockState.IsEmoteUnlocked(x))
-            .Select(x => new AnimationEmote((ushort)x.RowId, x.Name.ToString(), string.Empty, string.Empty))
+                        x.TextCommand.Value.Command.ToString().StartsWith("/", StringComparison.Ordinal))
+            .Select(x => new AnimationEmote((ushort)x.RowId, x.Name.ToString(), string.Empty, string.Empty,
+                Plugin.UnlockState.IsEmoteUnlocked(x)))
             .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToArray();
-        Status = $"取得済みエモートを{result.Length}件読み込みました。";
+        Status = $"ゲーム内エモートを{result.Length}件読み込みました。";
         return result;
     }
 
@@ -153,6 +159,25 @@ public sealed class AnimationService
             return false;
         }
 
+        if (IsInGroupPose)
+        {
+            var emote = Plugin.DataManager.GetExcelSheet<Emote>().GetRow(emoteId);
+            var timelineId = emote.ActionTimeline[0].RowId;
+            var local = Plugin.ObjectTable.LocalPlayer;
+            var character = local is null ? null : (Character*)local.Address;
+            if (character == null || timelineId == 0 || timelineId > ushort.MaxValue)
+            {
+                Status = "グループポーズ用アニメーションを取得できませんでした。";
+                return false;
+            }
+
+            character->Timeline.TimelineSequencer.PlayTimeline((ushort)timelineId);
+            Status = Plugin.UnlockState.IsEmoteUnlocked(emote)
+                ? "グループポーズ内でエモートを再生しました。"
+                : "グループポーズ内で未習得エモートをローカル再生しました。";
+            return true;
+        }
+
         var manager = EmoteManager.Instance();
         if (manager == null || !manager->CanExecuteEmote(emoteId))
         {
@@ -167,4 +192,5 @@ public sealed class AnimationService
 }
 
 public readonly record struct AnimationMod(string Directory, string Name);
-public readonly record struct AnimationEmote(ushort Id, string Name, string ModDirectory, string ModName);
+public readonly record struct AnimationEmote(
+    ushort Id, string Name, string ModDirectory, string ModName, bool IsUnlocked);
