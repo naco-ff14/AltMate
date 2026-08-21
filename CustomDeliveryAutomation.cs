@@ -107,6 +107,13 @@ internal sealed unsafe class CustomDeliveryAutomation
 
         nextActionUtc = now.AddMilliseconds(400);
         var step = activePlan.Steps[currentStep];
+        if ((step.Kind == CustomDeliveryStepKind.DeliverItems ||
+             step.Kind == CustomDeliveryStepKind.ExchangeScrip) &&
+            TryAdvanceDialogue(step.Kind == CustomDeliveryStepKind.DeliverItems))
+        {
+            nextActionUtc = now.AddMilliseconds(800);
+            return;
+        }
         var timeout = step.Kind switch
         {
             CustomDeliveryStepKind.GatherMaterials => TimeSpan.FromMinutes(20),
@@ -651,11 +658,44 @@ internal sealed unsafe class CustomDeliveryAutomation
             var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName(name).Address;
             if (addon == null || !addon->IsVisible || !addon->IsReady)
                 continue;
-            Status = Loc.L("会話の選択肢を手動で選択してください。選択後に自動処理を再開します。",
-                "Select the dialogue option manually. Automation will resume after your selection.");
+            AtkValue selected = default;
+            selected.SetInt(0);
+            addon->FireCallback(1, &selected, true);
+            Status = Loc.L("会話の選択肢を自動選択中", "Automatically selecting the dialogue option");
             return true;
         }
         return false;
+    }
+
+    private bool TryAdvanceDialogue(bool confirmDelivery)
+    {
+        var talk = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("Talk").Address;
+        if (talk != null && talk->IsVisible && talk->IsReady)
+        {
+            var stage = AtkStage.Instance();
+            if (stage == null)
+                return false;
+            var click = new AtkEvent
+            {
+                Listener = &talk->AtkEventListener,
+                Target = &stage->AtkEventTarget,
+            };
+            AtkEventData data = default;
+            talk->ReceiveEvent(AtkEventType.MouseClick, 0, &click, &data);
+            Status = Loc.L("会話を自動で送っています", "Automatically advancing dialogue");
+            return true;
+        }
+
+        if (!confirmDelivery)
+            return false;
+        var yesno = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("SelectYesno").Address;
+        if (yesno == null || !yesno->IsVisible || !yesno->IsReady)
+            return false;
+        AtkValue confirm = default;
+        confirm.SetInt(0);
+        yesno->FireCallback(1, &confirm, true);
+        Status = Loc.L("納品確認を自動承認中", "Automatically confirming the delivery");
+        return true;
     }
 
     private static bool TryAdvanceNpcTrade(uint itemId, int slot, ref int phase)
