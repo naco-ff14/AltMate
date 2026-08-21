@@ -1,6 +1,9 @@
 name: Resolve Discord bug report
 
 on:
+  issues:
+    types:
+      - closed
   workflow_dispatch:
     inputs:
       issue_number:
@@ -21,11 +24,12 @@ permissions:
   issues: write
 
 concurrency:
-  group: discord-bug-resolution-${{ inputs.issue_number }}
+  group: discord-bug-resolution-${{ inputs.issue_number || github.event.issue.number }}
   cancel-in-progress: false
 
 jobs:
   resolve-report:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.issue.body, 'discord_message_id:')
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -41,7 +45,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_BUG_CHANNEL_ID: ${{ secrets.DISCORD_BUG_CHANNEL_ID }}
-          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_NUMBER: ${{ inputs.issue_number || github.event.issue.number }}
           RELEASE_VERSION: ${{ inputs.release_version }}
           FIX_SUMMARY: ${{ inputs.fix_summary }}
         run: python3 scripts/resolve_discord_bug.py

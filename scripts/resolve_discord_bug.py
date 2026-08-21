@@ -70,7 +70,11 @@ def mark_issue_resolved(body: str, tag: str, summary: str, release_url: str) -> 
     )
     if "-->" not in body:
         raise ValueError("The support issue is missing its Discord metadata block.")
-    return body.replace("\n-->", f"\n{RESOLUTION_MARKER}\n-->", 1) + result
+    body = body.replace("\n-->", f"\n{RESOLUTION_MARKER}\n-->", 1)
+    previous_result = body.find("\n\n## 修正結果")
+    if previous_result >= 0:
+        body = body[:previous_result]
+    return body + result
 
 
 def resolution_message(
@@ -130,6 +134,10 @@ def run_self_test() -> None:
     assert "- 状態: 修正済み" in updated
     assert RESOLUTION_MARKER in updated
     assert "- 修正バージョン: v1.0.0" in updated
+    existing_result = body + "\n\n## 修正結果\n\n- 修正バージョン: v0.9.0\n"
+    refreshed = mark_issue_resolved(existing_result, "v1.0.0", "修正しました", "https://example.com")
+    assert refreshed.count("## 修正結果") == 1
+    assert "v0.9.0" not in refreshed
     reply = resolution_message(1, "v1.0.0", "修正しました", "123")
     assert reply["message_reference"]["message_id"] == "123"
     assert reply["allowed_mentions"]["replied_user"] is False
@@ -248,7 +256,12 @@ def main() -> None:
     )
     discord = DiscordClient(required_environment("DISCORD_BOT_TOKEN"))
     channel_id = required_environment("DISCORD_BUG_CHANNEL_ID")
-    tag = release_tag(required_environment("RELEASE_VERSION"))
+    configured_version = os.environ.get("RELEASE_VERSION", "").strip()
+    if configured_version:
+        tag = release_tag(configured_version)
+    else:
+        latest = github.get(f"{github.repository_path}/releases/latest")
+        tag = release_tag(str(latest.get("tag_name") or ""))
 
     if resolve_release:
         for number in numbers:
@@ -260,7 +273,7 @@ def main() -> None:
             issue_number(required_environment("ISSUE_NUMBER")),
             tag,
             channel_id,
-            required_environment("FIX_SUMMARY"),
+            os.environ.get("FIX_SUMMARY", "").strip() or None,
         )
 
 
