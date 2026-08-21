@@ -319,12 +319,11 @@ internal sealed unsafe class CustomDeliveryAutomation
 
         if (IsNpcTradeRequestActive(step.Request.ItemId))
         {
-            if (TryConfirmNpcTrade(step.Request.ItemId, step.Request.Slot))
-                stepPhase = 2;
-            nextActionUtc = now.AddSeconds(2);
+            if (TryAdvanceNpcTrade(step.Request.ItemId, step.Request.Slot, ref stepPhase))
+                nextActionUtc = now.AddSeconds(1);
             return;
         }
-        if (stepPhase == 2)
+        if (stepPhase > 0)
         {
             Status = Loc.L("前の納品結果を確認中", "Waiting for the previous delivery to complete");
             nextActionUtc = now.AddSeconds(1);
@@ -659,32 +658,47 @@ internal sealed unsafe class CustomDeliveryAutomation
         return false;
     }
 
-    private static bool TryConfirmNpcTrade(uint itemId, int slot)
+    private static bool TryAdvanceNpcTrade(uint itemId, int slot, ref int phase)
     {
         var agent = AgentNpcTrade.Instance();
         var ui = UIState.Instance();
         if (agent == null || ui == null || !agent->IsAgentActive() ||
             ui->NpcTrade.Requests.Count != 1 || ui->NpcTrade.Requests.Items[0].ItemId != itemId)
             return false;
-        if (agent->SelectedTurnInSlot >= 0)
-            return false;
-
         AtkValue result = default;
         var arguments = stackalloc AtkValue[4];
-        arguments[0].SetInt(2);
-        arguments[1].SetInt(slot);
         arguments[2].SetInt(0);
         arguments[3].SetInt(0);
-        agent->ReceiveEvent(&result, arguments, 4, 0);
-        if (agent->SelectedTurnInSlot != slot || agent->SelectedTurnInSlotItemOptions <= 0)
-            return false;
-        arguments[0].SetInt(0);
-        arguments[1].SetInt(0);
-        agent->ReceiveEvent(&result, arguments, 4, 1);
-        if (agent->SelectedTurnInSlot >= 0)
-            return false;
-        agent->ReceiveEvent(&result, arguments, 4, 0);
-        return true;
+
+        switch (phase)
+        {
+            case 0:
+                if (agent->SelectedTurnInSlot >= 0)
+                    return false;
+                arguments[0].SetInt(2);
+                arguments[1].SetInt(slot);
+                agent->ReceiveEvent(&result, arguments, 4, 0);
+                phase = 1;
+                return true;
+            case 1:
+                if (agent->SelectedTurnInSlot != slot || agent->SelectedTurnInSlotItemOptions <= 0)
+                    return false;
+                arguments[0].SetInt(0);
+                arguments[1].SetInt(0);
+                agent->ReceiveEvent(&result, arguments, 4, 1);
+                phase = 2;
+                return true;
+            case 2:
+                if (agent->SelectedTurnInSlot >= 0)
+                    return false;
+                arguments[0].SetInt(0);
+                arguments[1].SetInt(0);
+                agent->ReceiveEvent(&result, arguments, 4, 0);
+                phase = 3;
+                return true;
+            default:
+                return false;
+        }
     }
 
     private static bool IsNpcTradeRequestActive(uint itemId)
