@@ -27,6 +27,8 @@ DISCORD_MESSAGE_URL_PATTERN = re.compile(
 )
 MANAGEMENT_ID_PATTERN = re.compile(r"\bAM-0*(\d+)\b", re.IGNORECASE)
 RESOLVED_EMOJI_NAMES = ("edit", "修正済", "修正済み", "fixed", "resolved", "shuseizumi")
+RESOLVED_FORUM_TAG_NAME = "修正済"
+FORUM_STATUS_TAG_NAMES = {"確認中", "修正対応中", "修正済", "見送り", "情報不足"}
 
 
 def issue_number(value: str) -> int:
@@ -59,6 +61,56 @@ def issue_fix_summary(issue: dict[str, Any]) -> str:
     title = str(issue.get("title") or "").strip()
     report_title = title.partition("｜")[2].strip() or title
     return f"「{report_title}」の問題を修正しました。"
+
+
+def resolved_forum_tags(
+    available_tags: list[dict[str, Any]], applied_tags: list[str]
+) -> list[str]:
+    resolved = next(
+        (
+            tag
+            for tag in available_tags
+            if str(tag.get("name") or "").strip() == RESOLVED_FORUM_TAG_NAME
+            and tag.get("id")
+        ),
+        None,
+    )
+    if resolved is None:
+        raise RuntimeError(
+            f'The Discord bug-report forum has no "{RESOLVED_FORUM_TAG_NAME}" tag.'
+        )
+
+    status_ids = {
+        str(tag["id"])
+        for tag in available_tags
+        if str(tag.get("name") or "").strip() in FORUM_STATUS_TAG_NAMES
+        and tag.get("id")
+    }
+    preserved = [str(tag_id) for tag_id in applied_tags if str(tag_id) not in status_ids]
+    return [*preserved, str(resolved["id"])]
+
+
+def apply_resolved_forum_tag(
+    discord: DiscordClient, channel: dict[str, Any], reply_channel_id: str
+) -> bool:
+    parent_id = str(channel.get("parent_id") or "")
+    if not parent_id:
+        print("The original Discord report is not a forum post; no forum tag was changed.")
+        return False
+
+    forum = discord.get(f"/channels/{parent_id}")
+    if forum.get("type") != 15:
+        print("The original Discord thread does not belong to a forum; no forum tag was changed.")
+        return False
+
+    current_tags = [str(tag_id) for tag_id in channel.get("applied_tags", [])]
+    updated_tags = resolved_forum_tags(forum.get("available_tags", []), current_tags)
+    if current_tags != updated_tags:
+        discord.patch(f"/channels/{reply_channel_id}", {"applied_tags": updated_tags})
+        print(f'Updated the Discord forum tag to "{RESOLVED_FORUM_TAG_NAME}".')
+    else:
+        print(f'The Discord forum already has the "{RESOLVED_FORUM_TAG_NAME}" tag.')
+    return True
 
 
 def mark_issue_resolved(body: str, tag: str, summary: str, release_url: str) -> str:
@@ -130,6 +182,20 @@ def run_self_test() -> None:
     ) == "222"
     assert report_reply_channel("Discord metadata unavailable", "999") == "999"
     assert issue_fix_summary({"title": "AM-0002｜表示の不具合"}) == "「表示の不具合」の問題を修正しました。"
+    forum_tags = [
+        {"id": "10", "name": "確認中"},
+        {"id": "20", "name": "修正対応中"},
+        {"id": "30", "name": "修正済"},
+        {"id": "40", "name": "その他"},
+    ]
+    assert resolved_forum_tags(forum_tags, ["10", "40"]) == ["40", "30"]
+    assert resolved_forum_tags(forum_tags, ["20", "30"]) == ["30"]
+    assert resolved_forum_tags(forum_tags, []) == ["30"]
+    try:
+        resolved_forum_tags([{"id": "10", "name": "確認中"}], ["10"])
+        raise AssertionError("A missing resolved forum tag should fail.")
+    except RuntimeError:
+        pass
     body = "- 状態: 未確認\n<!-- altmate-support\ndiscord_message_id: 123\ndiscord_thread_id: 456\n-->"
     updated = mark_issue_resolved(body, "v1.0.0", "修正しました", "https://example.com")
     assert "- 状態: 修正済み" in updated
@@ -174,7 +240,7 @@ def resolve_issue(
     issue = github.get(f"{github.repository_path}/issues/{number}")
     summary = summary or issue_fix_summary(issue)
     body = issue.get("body") or ""
-    if RESOLUTION_MARKER in body or UNAVAILABLE_MARKER in body:
+    if UNAVAILABLE_MARKER in body:
         print(f"{management_id(number)} has already been resolved and announced.")
         return
 
@@ -226,7 +292,12 @@ def resolve_issue(
     guild_id = channel.get("guild_id")
     if not guild_id:
         raise RuntimeError("The Discord bug-report channel does not belong to a server.")
+    if RESOLUTION_MARKER in body:
+        apply_resolved_forum_tag(discord, channel, reply_channel_id)
+        print(f"{management_id(number)} has already been resolved and announced.")
+        return
     emoji = resolved_emoji(discord.get(f"/guilds/{guild_id}/emojis"))
+    forum_tag_updated = apply_resolved_forum_tag(discord, channel, reply_channel_id)
 
     discord.post(
         f"/channels/{reply_channel_id}/messages",
@@ -244,6 +315,11 @@ def resolve_issue(
                 f"- リリース: {release['html_url']}\n"
                 "- Discord元投稿へ修正完了を返信済み\n"
                 "- Discord元投稿へ修正済の絵文字を追加済み"
+                + (
+                    f'\n- Discordフォーラムのタグを「{RESOLVED_FORUM_TAG_NAME}」へ変更済み'
+                    if forum_tag_updated
+                    else ""
+                )
             )
         },
     )

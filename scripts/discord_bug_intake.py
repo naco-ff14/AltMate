@@ -85,6 +85,9 @@ class DiscordClient:
     def put(self, path: str) -> Any:
         return request_json("PUT", f"{DISCORD_API}{path}", headers=self.headers)
 
+    def patch(self, path: str, payload: dict[str, Any]) -> Any:
+        return request_json("PATCH", f"{DISCORD_API}{path}", headers=self.headers, payload=payload)
+
 
 class GitHubClient:
     def __init__(self, token: str, repository: str) -> None:
