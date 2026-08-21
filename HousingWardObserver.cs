@@ -7,9 +7,6 @@ namespace AltMate;
 
 internal sealed unsafe class HousingWardObserver : IDisposable
 {
-    private const string ReadPacketSignature =
-        "40 55 53 41 54 41 55 41 57 48 8D AC 24 ?? ?? ?? ?? B8";
-
     private readonly Plugin plugin;
     private readonly Hook<ReadPacketDelegate> hook;
 
@@ -18,7 +15,8 @@ internal sealed unsafe class HousingWardObserver : IDisposable
     private HousingWardObserver(Plugin plugin)
     {
         this.plugin = plugin;
-        hook = Plugin.InteropProvider.HookFromSignature<ReadPacketDelegate>(ReadPacketSignature, Detour);
+        hook = Plugin.InteropProvider.HookFromAddress<ReadPacketDelegate>(
+            (nint)AgentHousingPortal.MemberFunctionPointers.ReadPacket, Detour);
         hook.Enable();
     }
 
@@ -37,7 +35,6 @@ internal sealed unsafe class HousingWardObserver : IDisposable
 
     private void Detour(AgentHousingPortal* agent, HousingPortalPacket* packet)
     {
-        hook.Original(agent, packet);
         try
         {
             plugin.SaveWardSnapshot(packet);
@@ -46,6 +43,7 @@ internal sealed unsafe class HousingWardObserver : IDisposable
         {
             Plugin.Log.Error(exception, "住宅区画情報の保存に失敗しました。");
         }
+        hook.Original(agent, packet);
     }
 
     public void Dispose() => hook.Dispose();
