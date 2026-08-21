@@ -1,5 +1,7 @@
 # AltMate
 
+[Discordサーバーに参加する](https://discord.gg/gPu6reUhDw)
+
 同じPCで起動している複数のFFXIVキャラクターをまとめて支援するDalamudプラグインです。
 追従・移動・戦闘などの連携操作に加え、ハウジング抽選、ギル、FC潜水艦の情報をキャラクター横断で管理できます。
 
@@ -106,6 +108,12 @@ https://raw.githubusercontent.com/naco-ff14/AltMate/main/repo.json
 | Penumbra | 差し替えエモートの検出と再生 | 対象機能のみ必要 |
 | BossMod Reborn | フォロワーの戦闘移動制御 | 任意 |
 | Rotation Solver Reborn | フォロワーの戦闘行動制御 | 任意 |
+
+## サポート・コミュニティ
+
+更新情報の確認、不具合報告、機能要望はAltMateのDiscordサーバーをご利用ください。
+
+[AltMate Discordサーバーに参加する](https://discord.gg/gPu6reUhDw)
 
 ## データとプライバシー
 
