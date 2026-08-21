@@ -409,7 +409,7 @@ internal sealed unsafe class CustomDeliveryAutomation
         {
             if (IsLifestreamBusy() || now - lastTravelRequestUtc < TimeSpan.FromSeconds(8))
                 return false;
-            var destination = Plugin.DataManager.GetExcelSheet<Aetheryte>()
+            var destination = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>()
                 .FirstOrDefault(aetheryte => aetheryte.IsAetheryte &&
                     aetheryte.Territory.RowId == territoryId).RowId;
             if (destination == 0)
