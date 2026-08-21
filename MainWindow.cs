@@ -413,6 +413,29 @@ public sealed class MainWindow : Window
         DrawHomeCard(Loc.T("Gil"), $"{Loc.T("TotalAssets")} {availableGil + depositedGil:N0} G",
             $"{Loc.T("Available")} {availableGil:N0} G / {Loc.T("LotteryDeposit")} {depositedGil:N0} G",
             new Vector4(0.95f, 0.78f, 0.25f, 1f), MainSection.Gil);
+
+        var submarines = plugin.Configuration.FreeCompanyGil.Values
+            .SelectMany(fc => fc.Submarines.Values)
+            .ToArray();
+        var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var voyaging = submarines.Count(submarine => submarine.ReturnTimeUnix > nowUnix);
+        var returned = submarines.Length - voyaging;
+        var nextReturnUnix = submarines
+            .Where(submarine => submarine.ReturnTimeUnix > nowUnix)
+            .Select(submarine => (long)submarine.ReturnTimeUnix)
+            .DefaultIfEmpty(0)
+            .Min();
+        var submarineStatus = submarines.Length == 0
+            ? Loc.L("潜水艦情報なし", "No submersible data")
+            : Loc.L($"航海中 {voyaging}隻 / 帰還済み {returned}隻",
+                $"Voyaging {voyaging} / Returned {returned}");
+        var submarineDetail = nextReturnUnix == 0
+            ? Loc.L("帰還予定なし", "No scheduled returns")
+            : Loc.L($"次の帰還 {DateTimeOffset.FromUnixTimeSeconds(nextReturnUnix).ToLocalTime():MM/dd HH:mm}",
+                $"Next return {DateTimeOffset.FromUnixTimeSeconds(nextReturnUnix).ToLocalTime():MM/dd HH:mm}");
+        DrawHomeCard(Loc.L("潜水艦管理", "Submersibles"), submarineStatus, submarineDetail,
+            returned > 0 ? new Vector4(0.35f, 0.9f, 0.5f, 1f) : new Vector4(0.42f, 0.82f, 1f, 1f),
+            MainSection.Submarines);
     }
 
     private void DrawHomeCard(string title, string mainText, string detail, Vector4 accent, MainSection destination)
