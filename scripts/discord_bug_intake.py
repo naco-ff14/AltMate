@@ -162,11 +162,6 @@ def message_url(guild_id: str, channel_id: str, message_id: str) -> str:
     return f"https://discord.com/channels/{guild_id}/{channel_id}/{message_id}"
 
 
-def author_name(message: dict[str, Any]) -> str:
-    author = message.get("author") or {}
-    return author.get("global_name") or author.get("username") or "不明"
-
-
 def eligible_message(message: dict[str, Any], bot_id: str) -> bool:
     author = message.get("author") or {}
     if author.get("bot") or str(author.get("id", "")) == bot_id:
@@ -216,7 +211,6 @@ def issue_body(message: dict[str, Any], guild_id: str, channel_id: str) -> str:
         "## 報告内容\n\n"
         f"{content}\n\n"
         "## 受付情報\n\n"
-        f"- 投稿者: {author_name(message)}\n"
         f"- 投稿日時: {format_japan_time(message['timestamp'])}\n"
         f"- 元投稿: [Discordメッセージを開く]({report_link})\n\n"
         "## 添付ファイル\n\n"
@@ -268,6 +262,19 @@ def run_self_test() -> None:
     assert not eligible_message({"author": {"id": "1"}, "content": "固定案内", "pinned": True}, "2")
     assert report_channel_id({"_forum_thread_id": "456"}, "123") == "456"
     assert report_channel_id({}, "123") == "123"
+    body = issue_body(
+        {
+            "id": "789",
+            "content": "テスト報告",
+            "timestamp": "2026-08-21T00:30:00+00:00",
+            "author": {"username": "表示しない投稿者"},
+        },
+        "111",
+        "456",
+    )
+    assert "投稿者" not in body
+    assert "表示しない投稿者" not in body
+    assert "- 投稿日時: 2026/08/21 09:30 JST" in body
     assert is_acknowledged({"body": "<!-- discord_acknowledged: true -->"})
     assert not is_acknowledged({"body": "<!-- discord_acknowledged: false -->"})
     assert is_acknowledged({"body": "<!-- discord_forwarded: true -->"})
