@@ -14,6 +14,7 @@ on:
 
 permissions:
   contents: write
+  issues: write
 
 jobs:
   build-release:
@@ -198,3 +199,13 @@ jobs:
         with:
           name: AltMate-latest
           path: latest.zip
+
+      - name: Resolve linked Discord bug reports
+        if: env.RELEASE_EXISTS != 'true'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_BUG_CHANNEL_ID: ${{ secrets.DISCORD_BUG_CHANNEL_ID }}
+        run: python scripts/resolve_discord_bug.py --resolve-release

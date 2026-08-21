@@ -1,0 +1,56 @@
+name: Import Discord bug reports
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/discord-bug-intake.yml
+      - scripts/discord_bug_intake.py
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Check Discord access without creating issues or replying to reports"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: discord-bug-intake
+  cancel-in-progress: false
+
+jobs:
+  import-reports:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate intake helpers
+        run: python3 scripts/discord_bug_intake.py --self-test
+
+      - name: Import new Discord reports
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_BUG_CHANNEL_ID: ${{ secrets.DISCORD_BUG_CHANNEL_ID }}
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          for attempt in 1 2 3; do
+            python3 scripts/discord_bug_intake.py
+
+            if [ "${{ github.event_name }}" != "schedule" ] || [ "$attempt" -eq 3 ]; then
+              break
+            fi
+
+            echo "Waiting 120 seconds before the next Discord report check..."
+            sleep 120
+          done

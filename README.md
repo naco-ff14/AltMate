@@ -115,6 +115,9 @@ https://raw.githubusercontent.com/naco-ff14/AltMate/main/repo.json
 
 [AltMate Discordサーバーに参加する](https://discord.gg/gPu6reUhDw)
 
+不具合報告フォーラムへの新規投稿は、このリポジトリのIssueへ自動登録されます。
+Discordの返信とIssueに表示される `AM-0001` 形式の管理番号で、調査状況と修正結果を確認できます。
+
 ## データとプライバシー
 
 共有データは同じPC内の次のファイルへ保存されます。

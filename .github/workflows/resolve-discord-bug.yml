@@ -1,0 +1,47 @@
+name: Resolve Discord bug report
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "AltMate issue number or management ID, such as 1 or AM-0001"
+        required: true
+        type: string
+      release_version:
+        description: "Published AltMate version, such as 1.31.0.2"
+        required: true
+        type: string
+      fix_summary:
+        description: "Fix details to post as a reply to the original Discord report"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: discord-bug-resolution-${{ inputs.issue_number }}
+  cancel-in-progress: false
+
+jobs:
+  resolve-report:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate resolution helpers
+        run: python3 scripts/resolve_discord_bug.py --self-test
+
+      - name: Reply to Discord and close AltMate issue
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_BUG_CHANNEL_ID: ${{ secrets.DISCORD_BUG_CHANNEL_ID }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+          FIX_SUMMARY: ${{ inputs.fix_summary }}
+        run: python3 scripts/resolve_discord_bug.py
