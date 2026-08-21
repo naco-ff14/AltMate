@@ -429,7 +429,10 @@ internal sealed unsafe class CustomDeliveryAutomation
             var destination = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>()
                 .Where(aetheryte => aetheryte.IsAetheryte &&
                     aetheryte.Territory.RowId == territoryId)
-                .OrderBy(aetheryte =>
+                // Nitowikwe is reached from Sheshenewezi Springs; straight-line
+                // distance incorrectly favors Hhusatahwi across the terrain.
+                .OrderByDescending(aetheryte => territoryId == 1190 && aetheryte.RowId == 208)
+                .ThenBy(aetheryte =>
                 {
                     var level = aetheryte.Level[0].ValueNullable;
                     return level is null ? float.MaxValue : Vector3.DistanceSquared(position,
