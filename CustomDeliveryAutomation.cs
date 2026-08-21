@@ -162,11 +162,17 @@ internal sealed unsafe class CustomDeliveryAutomation
         }
 
         var materialId = recipe.Value.Ingredient[0].RowId;
-        var needed = recipe.Value.AmountIngredient[0] * step.Quantity;
+        var finishedItems = InventoryCount(step.Request.ItemId, 1);
+        var remainingCrafts = Math.Max(0, step.Quantity - finishedItems);
+        var needed = recipe.Value.AmountIngredient[0] * remainingCrafts;
         var owned = InventoryCount(materialId, 0);
         if (owned >= needed)
         {
-            CloseGilShop();
+            if (!EnsureGilShopClosed())
+            {
+                nextActionUtc = now.AddSeconds(1);
+                return;
+            }
             CompleteStep();
             return;
         }
@@ -409,8 +415,15 @@ internal sealed unsafe class CustomDeliveryAutomation
             if (IsLifestreamBusy() || now - lastTravelRequestUtc < TimeSpan.FromSeconds(8))
                 return false;
             var destination = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Aetheryte>()
-                .FirstOrDefault(aetheryte => aetheryte.IsAetheryte &&
-                    aetheryte.Territory.RowId == territoryId).RowId;
+                .Where(aetheryte => aetheryte.IsAetheryte &&
+                    aetheryte.Territory.RowId == territoryId)
+                .OrderBy(aetheryte =>
+                {
+                    var level = aetheryte.Level[0].ValueNullable;
+                    return level is null ? float.MaxValue : Vector3.DistanceSquared(position,
+                        new Vector3(level.Value.X, level.Value.Y, level.Value.Z));
+                })
+                .FirstOrDefault().RowId;
             if (destination == 0)
             {
                 Stop(Loc.L("目的地エリアへのエーテライトが見つかりません。",
@@ -590,6 +603,8 @@ internal sealed unsafe class CustomDeliveryAutomation
         if (agent == null || ui == null || !agent->IsAgentActive() ||
             ui->NpcTrade.Requests.Count != 1 || ui->NpcTrade.Requests.Items[0].ItemId != itemId)
             return false;
+        if (agent->SelectedTurnInSlot >= 0)
+            return false;
 
         AtkValue result = default;
         var arguments = stackalloc AtkValue[4];
@@ -598,12 +613,18 @@ internal sealed unsafe class CustomDeliveryAutomation
         arguments[2].SetInt(0);
         arguments[3].SetInt(0);
         agent->ReceiveEvent(&result, arguments, 4, 0);
-        if (agent->SelectedTurnInSlot < 0)
+        if (agent->SelectedTurnInSlot != slot || agent->SelectedTurnInSlotItemOptions <= 0)
             return false;
         arguments[0].SetInt(0);
         arguments[1].SetInt(0);
         agent->ReceiveEvent(&result, arguments, 4, 1);
+        if (agent->SelectedTurnInSlot >= 0)
+            return false;
+        var addonId = agent->AddonId;
         agent->ReceiveEvent(&result, arguments, 4, 0);
+        var addon = RaptureAtkUnitManager.Instance()->GetAddonById((ushort)addonId);
+        if (addon != null && addon->IsVisible)
+            addon->Close(false);
         return true;
     }
 
@@ -638,15 +659,22 @@ internal sealed unsafe class CustomDeliveryAutomation
         return false;
     }
 
-    private static void CloseGilShop()
+    private static bool EnsureGilShopClosed()
     {
         var agent = AgentShop.Instance();
         if (agent == null || !agent->IsAgentActive())
-            return;
+            return true;
+        if (agent->EventReceiver != null)
+        {
+            var proxy = (ShopEventHandler.AgentProxy*)agent->EventReceiver;
+            if (proxy->Handler != null)
+                proxy->Handler->CancelInteraction();
+        }
         AtkValue result = default;
         AtkValue close = default;
         close.SetInt(-1);
         agent->ReceiveEvent(&result, &close, 1, 0);
+        return !agent->IsAgentActive();
     }
 
     private static VendorLocation? FindGilVendor(uint territoryId, uint materialId)
