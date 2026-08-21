@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - feature/custom-deliveries
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
