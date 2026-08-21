@@ -136,6 +136,49 @@ jobs:
             --generate-notes `
             --title "AltMate $env:RELEASE_TAG"
 
+      - name: Notify Discord
+        if: env.RELEASE_EXISTS != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:DISCORD_WEBHOOK_URL)) {
+            throw "Repository secret DISCORD_WEBHOOK_URL is not configured."
+          }
+
+          $release = gh release view $env:RELEASE_TAG --json url,body | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or -not $release.url) {
+            throw "Failed to read the published GitHub release."
+          }
+
+          $description = [string]$release.body
+          if ([string]::IsNullOrWhiteSpace($description)) {
+            $description = "更新内容はGitHub Releaseで確認できます。"
+          }
+          if ($description.Length -gt 3800) {
+            $description = $description.Substring(0, 3797) + "..."
+          }
+
+          $payload = @{
+            username = "AltMate Updates"
+            avatar_url = "https://raw.githubusercontent.com/naco-ff14/AltMate/main/images/icon.png"
+            allowed_mentions = @{ parse = @() }
+            embeds = @(
+              @{
+                title = "AltMate $env:RELEASE_TAG を公開しました"
+                description = $description
+                url = [string]$release.url
+                color = 3447003
+                footer = @{ text = "AltMate Release Notification" }
+                timestamp = (Get-Date).ToUniversalTime().ToString("o")
+              }
+            )
+          } | ConvertTo-Json -Depth 6
+
+          Invoke-RestMethod -Uri $env:DISCORD_WEBHOOK_URL -Method Post `
+            -ContentType "application/json; charset=utf-8" -Body $payload
+
       - name: Upload workflow artifact
         if: env.RELEASE_EXISTS != 'true'
         uses: actions/upload-artifact@v4
