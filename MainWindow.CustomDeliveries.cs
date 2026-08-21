@@ -209,24 +209,30 @@ public sealed partial class MainWindow
         var label = selected is null
             ? Loc.L("交換アイテムを選択", "Choose an exchange item")
             : $"{selected.Name} ({selected.Cost})";
-        ImGui.SetNextItemWidth(320 * ImGuiHelpers.GlobalScale);
-        if (!ImGui.BeginCombo(Loc.L("交換アイテム", "Exchange item"), label))
-            return;
-
         var filter = customDeliveryExchangeFilter.Trim();
         var matches = service.ExchangeItems
             .Where(item => (currency == 0 || item.CurrencyItemId == currency) &&
                 (filter.Length == 0 || item.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)))
-            .Take(filter.Length == 0 ? 80 : 250);
-        foreach (var item in matches)
+            .ToList();
+        ImGui.SetNextItemWidth(320 * ImGuiHelpers.GlobalScale);
+        if (ImGui.BeginCombo(Loc.L("交換アイテム", "Exchange item"), label))
         {
-            if (!ImGui.Selectable($"{item.Name} ({item.Cost})##exchange-{item.ItemId}-{item.CurrencyItemId}",
-                    settings.ExchangeItemId == item.ItemId))
-                continue;
-            settings.ExchangeItemId = item.ItemId;
-            changed = true;
+            if (matches.Count == 0)
+                ImGui.TextDisabled(Loc.L("該当する交換アイテムはありません。", "No exchange items match the filter."));
+            foreach (var item in matches)
+            {
+                if (!ImGui.Selectable($"{item.Name} ({item.Cost})##exchange-{item.ItemId}-{item.CurrencyItemId}",
+                        settings.ExchangeItemId == item.ItemId))
+                    continue;
+                settings.ExchangeItemId = item.ItemId;
+                changed = true;
+            }
+            ImGui.EndCombo();
         }
-        ImGui.EndCombo();
+        var availableCount = service.ExchangeItems.Count(item => currency == 0 || item.CurrencyItemId == currency);
+        ImGui.TextDisabled(filter.Length == 0
+            ? Loc.L($"交換候補：{availableCount}件", $"Available exchange items: {availableCount}")
+            : Loc.L($"絞り込み：{matches.Count}/{availableCount}件", $"Filtered: {matches.Count}/{availableCount}"));
     }
 
     private void DrawCustomDeliveryPlan(CustomDeliveryService service)
