@@ -298,13 +298,12 @@ internal sealed unsafe class CustomDeliveryAutomation
             return;
         }
 
-        if (plugin.Configuration.CustomDeliverySettings.AutoExchangeEnabled &&
-            activePlan?.PreferredCurrencyId is > 0 &&
-            CustomDeliveryService.CurrencyCount(activePlan.PreferredCurrencyId) >=
-                plugin.Configuration.CustomDeliverySettings.ExchangeThreshold)
+        var wouldExceedCap = step.Request.Rewards.Any(reward =>
+            CustomDeliveryService.CurrencyCount(reward.CurrencyItemId) + reward.Amount > 4000);
+        if (wouldExceedCap)
         {
-            Stop(Loc.L("スクリップ上限に近いため納品を停止しました。交換後に再計画してください。",
-                "Delivery stopped near the scrip cap. Exchange scrips and rebuild the plan."));
+            Stop(Loc.L("次の納品でスクリップ上限を超えるため停止しました。交換設定を確認して再計画してください。",
+                "Stopped because the next delivery would exceed the scrip cap. Check exchange settings and rebuild the plan."));
             return;
         }
 

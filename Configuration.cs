@@ -61,7 +61,10 @@ public sealed class CustomDeliverySettings
     public uint PreferredNpcId { get; set; }
     public bool PrioritizeBonus { get; set; } = true;
     public bool AutoExchangeEnabled { get; set; }
+    [Obsolete("Use PurpleExchangeItemId and OrangeExchangeItemId.")]
     public uint ExchangeItemId { get; set; }
+    public uint PurpleExchangeItemId { get; set; }
+    public uint OrangeExchangeItemId { get; set; }
     public int ExchangeThreshold { get; set; } = 3500;
     public bool RunUntilWeeklyLimit { get; set; } = true;
     public uint CrafterJobId { get; set; } = 8;

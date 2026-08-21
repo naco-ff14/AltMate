@@ -192,18 +192,35 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
         if (settings.JobType == CustomDeliveryJobType.Gatherer && !IsQuestionableAvailable)
             warnings.Add(Loc.L("ギャザラー自動採集にはQuestionableが必要です。", "Questionable is required for automatic gathering."));
 
-        ScripExchangeItem? exchange = null;
+        var exchanges = new Dictionary<uint, ScripExchangeItem>();
         if (settings.AutoExchangeEnabled)
         {
-            exchange = exchangeItems.FirstOrDefault(item => item.ItemId == settings.ExchangeItemId &&
-                (preferredCurrency == 0 || item.CurrencyItemId == preferredCurrency));
-            if (exchange is null)
-                warnings.Add(Loc.L("優先スクリップに対応する交換アイテムを選択してください。", "Select an exchange item matching the preferred scrip."));
+            foreach (var currency in new[] { PurpleCurrencyId(settings.JobType), OrangeCurrencyId(settings.JobType) })
+            {
+                var configuredId = currency == PurpleCurrencyId(settings.JobType)
+                    ? settings.PurpleExchangeItemId
+                    : settings.OrangeExchangeItemId;
+                if (configuredId == 0 && settings.ExchangeItemId != 0)
+                    configuredId = settings.ExchangeItemId;
+                var exchange = exchangeItems.FirstOrDefault(item => item.ItemId == configuredId &&
+                    item.CurrencyItemId == currency);
+                if (exchange is not null)
+                    exchanges[currency] = exchange;
+            }
+            var rewardedCurrencies = candidatePairs.SelectMany(pair => pair.Request.Rewards)
+                .Select(reward => reward.CurrencyItemId).Distinct();
+            foreach (var currency in rewardedCurrencies.Where(currency => !exchanges.ContainsKey(currency)))
+                warnings.Add(Loc.L($"{ItemName(currency)}の交換アイテムを選択してください。",
+                    $"Select an exchange item for {ItemName(currency)}."));
         }
 
         var steps = new List<CustomDeliveryPlanStep>();
         var remaining = RemainingWeeklyAllowances;
-        var projectedScrip = preferredCurrency == 0 ? 0 : (int)CurrencyCount(preferredCurrency);
+        var projectedScrip = new Dictionary<uint, int>
+        {
+            [PurpleCurrencyId(settings.JobType)] = (int)CurrencyCount(PurpleCurrencyId(settings.JobType)),
+            [OrangeCurrencyId(settings.JobType)] = (int)CurrencyCount(OrangeCurrencyId(settings.JobType)),
+        };
         foreach (var (npc, request) in candidatePairs)
         {
             if (remaining <= 0)
@@ -214,17 +231,6 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
             if (count <= 0)
                 continue;
 
-            var rewardPerTurnin = preferredCurrency == 0
-                ? request.Rewards.Sum(reward => reward.Amount)
-                : request.Rewards.FirstOrDefault(reward => reward.CurrencyItemId == preferredCurrency)?.Amount ?? 0;
-            if (settings.AutoExchangeEnabled && exchange is not null &&
-                projectedScrip + rewardPerTurnin * count >= settings.ExchangeThreshold)
-            {
-                steps.Add(new CustomDeliveryPlanStep(
-                    CustomDeliveryStepKind.ExchangeScrip, npc, request, 0, exchange));
-                projectedScrip = 0;
-            }
-
             steps.Add(new CustomDeliveryPlanStep(
                 settings.JobType == CustomDeliveryJobType.Crafter
                     ? CustomDeliveryStepKind.BuyMaterials
@@ -232,15 +238,30 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
                 npc, request, count));
             if (settings.JobType == CustomDeliveryJobType.Crafter)
                 steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.CraftItems, npc, request, count));
-            steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.TravelToClient, npc, request, count));
-            steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.DeliverItems, npc, request, count));
-            projectedScrip += rewardPerTurnin * count;
+            for (var delivery = 0; delivery < count; delivery++)
+            {
+                foreach (var reward in request.Rewards)
+                {
+                    if (!projectedScrip.TryGetValue(reward.CurrencyItemId, out var balance))
+                        continue;
+                    if (settings.AutoExchangeEnabled && exchanges.TryGetValue(reward.CurrencyItemId, out var exchange) &&
+                        balance + reward.Amount >= settings.ExchangeThreshold)
+                    {
+                        steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.ExchangeScrip,
+                            npc, request, 0, exchange));
+                        balance %= Math.Max(1, exchange.Cost);
+                    }
+                    projectedScrip[reward.CurrencyItemId] = balance + reward.Amount;
+                }
+                steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.TravelToClient, npc, request, 1));
+                steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.DeliverItems, npc, request, 1));
+            }
             remaining -= count;
             if (!settings.RunUntilWeeklyLimit)
                 break;
         }
 
-        Plan = new CustomDeliveryPlan(DateTime.UtcNow, settings.JobType, preferredCurrency,
+        Plan = new CustomDeliveryPlan(DateTime.UtcNow, settings.JobType,
             RemainingWeeklyAllowances, steps, warnings);
         return Plan;
     }
@@ -254,6 +275,12 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
             (CustomDeliveryJobType.Gatherer, CustomDeliveryScripPreference.Purple) => PurpleGathererScripId,
             _ => 0,
         };
+
+    internal static uint PurpleCurrencyId(CustomDeliveryJobType jobType) =>
+        jobType == CustomDeliveryJobType.Crafter ? PurpleCrafterScripId : PurpleGathererScripId;
+
+    internal static uint OrangeCurrencyId(CustomDeliveryJobType jobType) =>
+        jobType == CustomDeliveryJobType.Crafter ? OrangeCrafterScripId : OrangeGathererScripId;
 
     internal static uint CurrencyCount(uint currencyId)
     {
@@ -492,7 +519,6 @@ internal sealed record CustomDeliveryPlanStep(
 internal sealed record CustomDeliveryPlan(
     DateTime CreatedAtUtc,
     CustomDeliveryJobType JobType,
-    uint PreferredCurrencyId,
     int WeeklyAllowances,
     IReadOnlyList<CustomDeliveryPlanStep> Steps,
     IReadOnlyList<string> Warnings)
