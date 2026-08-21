@@ -76,8 +76,12 @@ def resolved_forum_tags(
         None,
     )
     if resolved is None:
+        available_names = ", ".join(
+            repr(str(tag.get("name") or "")) for tag in available_tags
+        ) or "none"
         raise RuntimeError(
-            f'The Discord bug-report forum has no "{RESOLVED_FORUM_TAG_NAME}" tag.'
+            f'The Discord bug-report forum has no "{RESOLVED_FORUM_TAG_NAME}" tag. '
+            f"Available tags: {available_names}."
         )
 
     status_ids = {
