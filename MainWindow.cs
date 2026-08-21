@@ -895,15 +895,15 @@ public sealed partial class MainWindow : Window
     private void DrawGameEmotes()
     {
         ImGui.TextDisabled(Loc.L(
-            "現在のキャラクターが取得済みのゲーム内エモートを表示します。",
-            "Shows in-game emotes unlocked by the current character."));
+            "全ゲーム内エモートを表示します。未習得エモートはグループポーズ中のみ再生できます。",
+            "Shows all in-game emotes. Locked emotes can only be played while in Group Pose."));
         if (!gameEmoteListLoaded)
         {
-            gameEmotes = plugin.Animations.LoadUnlockedGameEmotes().ToArray();
+            gameEmotes = plugin.Animations.LoadGameEmotes().ToArray();
             gameEmoteListLoaded = true;
         }
         if (ImGui.Button($"{Loc.T("RefreshList")}##game-emotes"))
-            gameEmotes = plugin.Animations.LoadUnlockedGameEmotes().ToArray();
+            gameEmotes = plugin.Animations.LoadGameEmotes().ToArray();
         ImGui.SameLine();
         ImGui.TextDisabled(plugin.Animations.Status);
         ImGui.Spacing();
@@ -932,11 +932,19 @@ public sealed partial class MainWindow : Window
         foreach (var emote in filtered)
         {
             ImGui.TableNextRow();
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(emote.Name);
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(emote.IsUnlocked
+                ? emote.Name
+                : Loc.L($"{emote.Name}（未習得・GPoseのみ）", $"{emote.Name} (Locked, GPose only)"));
             ImGui.TableNextColumn(); ImGui.TextDisabled(emote.Id.ToString());
             ImGui.TableNextColumn();
+            var canPlay = emote.IsUnlocked || plugin.Animations.IsInGroupPose;
+            if (!canPlay)
+                ImGui.BeginDisabled();
             if (ImGui.SmallButton($"{Loc.T("Play")}##play-game-emote-{emote.Id}"))
                 plugin.CharacterLink.PlayEmote(emote.Id, animationTargetContentId);
+            if (!canPlay)
+                ImGui.EndDisabled();
         }
         ImGui.EndTable();
     }
