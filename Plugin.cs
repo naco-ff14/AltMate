@@ -349,18 +349,28 @@ public sealed class Plugin : IDalamudPlugin
 
     internal unsafe void SaveWardSnapshot(HousingPortalPacket* packet)
     {
-        if (packet == null || packet->HouseId.WorldId == 0)
+        if (packet == null)
             return;
 
         var houseId = packet->HouseId;
+        var worldId = houseId.WorldId != 0
+            ? houseId.WorldId
+            : (ushort)PlayerState.CurrentWorld.RowId;
+        var territoryTypeId = houseId.TerritoryTypeId != 0
+            ? houseId.TerritoryTypeId
+            : (ushort)ClientState.TerritoryType;
+        if (worldId == 0 || territoryTypeId is not (339 or 340 or 341 or 641 or 979) ||
+            houseId.WardIndex >= 30)
+            return;
+
         var wardNumber = houseId.WardIndex + 1;
         var checkedAt = DateTime.Now;
-        var districtName = GetDistrictName(houseId.TerritoryTypeId);
-        var worldName = GetWorldName(houseId.WorldId);
+        var districtName = GetDistrictName(territoryTypeId);
+        var worldName = GetWorldName(worldId);
 
         Configuration.OpenPlots.RemoveAll(x =>
-            x.WorldId == houseId.WorldId &&
-            x.TerritoryTypeId == houseId.TerritoryTypeId &&
+            x.WorldId == worldId &&
+            x.TerritoryTypeId == territoryTypeId &&
             x.WardNumber == wardNumber);
 
         for (var index = 0; index < 60; index++)
@@ -371,19 +381,22 @@ public sealed class Plugin : IDalamudPlugin
 
             Configuration.OpenPlots.Add(new OpenPlotRecord
             {
-                WorldId = houseId.WorldId,
+                WorldId = worldId,
                 WorldName = worldName,
-                TerritoryTypeId = houseId.TerritoryTypeId,
+                TerritoryTypeId = territoryTypeId,
                 DistrictName = districtName,
                 WardNumber = wardNumber,
                 PlotNumber = index + 1,
-                Size = GetPlotSize(houseId.TerritoryTypeId, index),
+                Size = GetPlotSize(territoryTypeId, index),
                 Price = info.HousePrice,
                 CheckedAt = checkedAt,
             });
         }
 
         Configuration.Save();
+        ChatGui.Print(Loc.L(
+            $"AltMate：{districtName} {wardNumber}区の空き土地 {Configuration.OpenPlots.Count(x => x.WorldId == worldId && x.TerritoryTypeId == territoryTypeId && x.WardNumber == wardNumber)}件を更新しました。",
+            $"AltMate: Updated {districtName} Ward {wardNumber} open plots."));
     }
 
     private static string GetDistrictName(ushort territoryTypeId)
