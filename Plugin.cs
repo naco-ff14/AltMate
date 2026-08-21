@@ -67,6 +67,7 @@ public sealed class Plugin : IDalamudPlugin
     internal CharacterLinkCoordinator CharacterLink { get; }
     internal AnimationService Animations { get; }
     internal RoleBasedFpsController RoleBasedFps { get; }
+    internal CustomDeliveryService CustomDeliveries { get; }
     internal string IconPath { get; }
 
     internal Configuration Configuration { get; }
@@ -113,6 +114,7 @@ public sealed class Plugin : IDalamudPlugin
         Animations = new AnimationService();
         CharacterLink = new CharacterLinkCoordinator(this);
         RoleBasedFps = new RoleBasedFpsController(this);
+        CustomDeliveries = new CustomDeliveryService(this);
         wardObserver = HousingWardObserver.TryCreate(this);
         gilTracker = new GilTracker(this);
         mainWindow = new MainWindow(this);
@@ -130,6 +132,7 @@ public sealed class Plugin : IDalamudPlugin
                 "/altmate housing → ハウジングを開く\n" +
                 "/altmate gil → ギル管理を開く\n" +
                 "/altmate submarine → 潜水艦管理を開く\n" +
+                "/altmate delivery → お得意様取引を開く\n" +
                 "/altmate lottery → 未確認の抽選応募先へ移動",
                 "Open AltMate in its previous display state\n" +
                 "/altmate min → Open minimized\n" +
@@ -140,6 +143,7 @@ public sealed class Plugin : IDalamudPlugin
                 "/altmate housing → Open Housing\n" +
                 "/altmate gil → Open Gil Management\n" +
                 "/altmate submarine → Open Submersible Management\n" +
+                "/altmate delivery → Open Custom Deliveries\n" +
                 "/altmate lottery → Travel to an unchecked lottery entry")
         });
         CommandManager.AddHandler(LegacyCommand, new CommandInfo((_, _) => mainWindow.OpenPreviousState())
@@ -464,6 +468,7 @@ public sealed class Plugin : IDalamudPlugin
             case "stop":
             case "停止":
                 CharacterLink.EmergencyStop();
+                CustomDeliveries.Automation.Stop();
                 ChatGui.Print(Loc.L("AltMate：連携操作を停止しました。", "AltMate: linked controls stopped."));
                 break;
             case "resume":
@@ -489,14 +494,20 @@ public sealed class Plugin : IDalamudPlugin
             case "潜水艦":
                 mainWindow.OpenSubmarines();
                 break;
+            case "delivery":
+            case "deliveries":
+            case "custom":
+            case "お得意様":
+                mainWindow.OpenCustomDeliveries();
+                break;
             case "lottery":
             case "抽選確認":
                 TravelToUncheckedLotteryEntry();
                 break;
             default:
                 ChatGui.Print(Loc.L(
-                    "AltMate：不明なコマンドです。open / min / max / stop / resume / animation / housing / gil / submarine / lottery",
-                    "AltMate: Unknown command. open / min / max / stop / resume / animation / housing / gil / submarine / lottery"));
+                    "AltMate：不明なコマンドです。open / min / max / stop / resume / animation / housing / gil / submarine / delivery / lottery",
+                    "AltMate: Unknown command. open / min / max / stop / resume / animation / housing / gil / submarine / delivery / lottery"));
                 break;
         }
     }
@@ -849,6 +860,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        CustomDeliveries.Dispose();
         RoleBasedFps.Dispose();
         CharacterLink.Dispose();
         gilTracker.Dispose();
