@@ -21,6 +21,7 @@ from discord_bug_intake import (
 
 
 RESOLUTION_MARKER = "discord_resolution_notified: true"
+UNAVAILABLE_MARKER = "discord_resolution_unavailable: true"
 DISCORD_MESSAGE_URL_PATTERN = re.compile(
     r"https://(?:www\.)?discord\.com/channels/\d+/(\d+)/\d+"
 )
@@ -138,6 +139,7 @@ def run_self_test() -> None:
     refreshed = mark_issue_resolved(existing_result, "v1.0.0", "修正しました", "https://example.com")
     assert refreshed.count("## 修正結果") == 1
     assert "v0.9.0" not in refreshed
+    assert RESOLUTION_MARKER in refreshed
     reply = resolution_message(1, "v1.0.0", "修正しました", "123")
     assert reply["message_reference"]["message_id"] == "123"
     assert reply["allowed_mentions"]["replied_user"] is False
@@ -172,7 +174,7 @@ def resolve_issue(
     issue = github.get(f"{github.repository_path}/issues/{number}")
     summary = summary or issue_fix_summary(issue)
     body = issue.get("body") or ""
-    if RESOLUTION_MARKER in body:
+    if RESOLUTION_MARKER in body or UNAVAILABLE_MARKER in body:
         print(f"{management_id(number)} has already been resolved and announced.")
         return
 
@@ -181,7 +183,46 @@ def resolve_issue(
         raise RuntimeError(f"{management_id(number)} does not contain a Discord message ID.")
 
     reply_channel_id = report_reply_channel(body, channel_id)
-    channel = discord.get(f"/channels/{reply_channel_id}")
+    try:
+        channel = discord.get(f"/channels/{reply_channel_id}")
+    except RuntimeError as error:
+        if "HTTP 404" not in str(error) or "Unknown Channel" not in str(error):
+            raise
+        unavailable_body = mark_issue_resolved(
+            body, tag, summary, release["html_url"]
+        ).replace(RESOLUTION_MARKER, UNAVAILABLE_MARKER, 1)
+        unavailable_body += "- Discord通知: 元投稿チャンネルが削除済みのため送信できませんでした。\n"
+        labels = [
+            label["name"]
+            for label in issue.get("labels", [])
+            if label["name"] not in {"未確認", "調査中", "対応不要"}
+        ]
+        if "修正済み" not in labels:
+            labels.append("修正済み")
+        github.post(
+            f"{github.repository_path}/issues/{number}/comments",
+            {
+                "body": (
+                    f"## 修正完了\n\n{summary}\n\n"
+                    f"- 修正バージョン: {tag}\n"
+                    "- Discord元投稿チャンネルは削除済みのため、返信とリアクションは省略しました。"
+                )
+            },
+        )
+        github.patch(
+            f"{github.repository_path}/issues/{number}",
+            {
+                "body": unavailable_body,
+                "labels": labels,
+                "state": "closed",
+                "state_reason": "completed",
+            },
+        )
+        print(
+            f"Resolved {management_id(number)} in {tag}; "
+            "the original Discord channel no longer exists."
+        )
+        return
     guild_id = channel.get("guild_id")
     if not guild_id:
         raise RuntimeError("The Discord bug-report channel does not belong to a server.")
