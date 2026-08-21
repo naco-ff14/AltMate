@@ -163,7 +163,7 @@ internal sealed unsafe class CustomDeliveryAutomation
 
         var materialId = recipe.Value.Ingredient[0].RowId;
         var finishedItems = InventoryCount(step.Request.ItemId, 1);
-        var remainingCrafts = Math.Max(0, step.Quantity - finishedItems);
+        var remainingCrafts = Math.Max(0, RequiredQuantity(step) - finishedItems);
         var needed = recipe.Value.AmountIngredient[0] * remainingCrafts;
         var owned = InventoryCount(materialId, 0);
         if (owned >= needed)
@@ -207,8 +207,9 @@ internal sealed unsafe class CustomDeliveryAutomation
 
     private void UpdateCrafting(CustomDeliveryPlanStep step, DateTime now)
     {
+        var required = RequiredQuantity(step);
         var owned = InventoryCount(step.Request.ItemId, 1);
-        if (owned >= step.Quantity)
+        if (owned >= required)
         {
             CompleteStep();
             return;
@@ -248,15 +249,16 @@ internal sealed unsafe class CustomDeliveryAutomation
 
         startingInventory = owned;
         Plugin.PluginInterface.GetIpcSubscriber<ushort, int, object>("Artisan.CraftItem")
-            .InvokeAction((ushort)recipe.Value.RowId, step.Quantity - owned);
+            .InvokeAction((ushort)recipe.Value.RowId, required - owned);
         stepPhase = 1;
         nextActionUtc = now.AddSeconds(2);
     }
 
     private void UpdateGathering(CustomDeliveryPlanStep step, DateTime now)
     {
+        var required = RequiredQuantity(step);
         var owned = InventoryCount(step.Request.ItemId, (short)Math.Min(short.MaxValue, step.Request.Collectability));
-        if (owned >= step.Quantity)
+        if (owned >= required)
         {
             CompleteStep();
             return;
@@ -279,7 +281,7 @@ internal sealed unsafe class CustomDeliveryAutomation
         var accepted = Plugin.PluginInterface.GetIpcSubscriber<uint, uint, byte, int, ushort, bool>(
             "Questionable.StartGatheringComplex").InvokeFunc(step.Npc.ResidentId,
             step.Request.ItemId, (byte)plugin.Configuration.CustomDeliverySettings.GathererJobId,
-            step.Quantity - owned, step.Request.Collectability);
+            required - owned, step.Request.Collectability);
         if (!accepted)
         {
             Stop(Loc.L("Questionableが採集依頼を受け付けませんでした。",
@@ -313,9 +315,17 @@ internal sealed unsafe class CustomDeliveryAutomation
             return;
         }
 
-        if (TryConfirmNpcTrade(step.Request.ItemId, step.Request.Slot))
+        if (IsNpcTradeRequestActive(step.Request.ItemId))
         {
+            if (TryConfirmNpcTrade(step.Request.ItemId, step.Request.Slot))
+                stepPhase = 2;
             nextActionUtc = now.AddSeconds(2);
+            return;
+        }
+        if (stepPhase == 2)
+        {
+            Status = Loc.L("前の納品結果を確認中", "Waiting for the previous delivery to complete");
+            nextActionUtc = now.AddSeconds(1);
             return;
         }
 
@@ -517,6 +527,16 @@ internal sealed unsafe class CustomDeliveryAutomation
             minimumCollectability);
     }
 
+    private static int RequiredQuantity(CustomDeliveryPlanStep step)
+    {
+        var manager = SatisfactionSupplyManager.Instance();
+        var index = (int)step.Npc.RowId - 1;
+        if (manager == null || index < 0 || index >= manager->UsedAllowances.Length)
+            return step.Quantity;
+        var npcRemaining = Math.Max(0, step.Npc.WeeklyLimit - manager->UsedAllowances[index]);
+        return Math.Min(step.Quantity, npcRemaining);
+    }
+
     private static Recipe? FindRecipe(uint itemId, uint jobId)
     {
         var sheet = Plugin.DataManager.GetExcelSheet<RecipeLookup>();
@@ -621,6 +641,14 @@ internal sealed unsafe class CustomDeliveryAutomation
             return false;
         agent->ReceiveEvent(&result, arguments, 4, 0);
         return true;
+    }
+
+    private static bool IsNpcTradeRequestActive(uint itemId)
+    {
+        var agent = AgentNpcTrade.Instance();
+        var ui = UIState.Instance();
+        return agent != null && ui != null && agent->IsAgentActive() &&
+            ui->NpcTrade.Requests.Count == 1 && ui->NpcTrade.Requests.Items[0].ItemId == itemId;
     }
 
     private static bool IsGilShopOpen(uint shopId)
