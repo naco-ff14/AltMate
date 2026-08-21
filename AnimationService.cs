@@ -106,6 +106,24 @@ public sealed class AnimationService
         }
     }
 
+    public IReadOnlyList<AnimationEmote> LoadUnlockedGameEmotes()
+    {
+        if (!Plugin.PlayerState.IsLoaded)
+        {
+            Status = "ログイン中のキャラクターがいません。";
+            return [];
+        }
+        var result = Plugin.DataManager.GetExcelSheet<Emote>()
+            .Where(x => x.RowId is > 0 and <= ushort.MaxValue &&
+                        !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
+                        Plugin.UnlockState.IsEmoteUnlocked(x))
+            .Select(x => new AnimationEmote((ushort)x.RowId, x.Name.ToString(), string.Empty, string.Empty))
+            .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        Status = $"取得済みエモートを{result.Length}件読み込みました。";
+        return result;
+    }
+
     private static string ExtractChangedItemName(string item)
     {
         var separator = item.IndexOfAny([':', '：']);

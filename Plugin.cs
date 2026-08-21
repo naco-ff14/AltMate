@@ -49,6 +49,7 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ITextureProvider TextureProvider { get; private set; } = null!;
     [PluginService] internal static IChatGui ChatGui { get; private set; } = null!;
     [PluginService] internal static IGameConfig GameConfig { get; private set; } = null!;
+    [PluginService] internal static IUnlockState UnlockState { get; private set; } = null!;
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
 
     private const string Command = "/altmate";

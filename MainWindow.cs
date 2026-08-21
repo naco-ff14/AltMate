@@ -44,9 +44,12 @@ public sealed class MainWindow : Window
     private bool requestExpandedMode;
     private bool clearForcedSize;
     private AnimationEmote[] animationEmotes = [];
+    private AnimationEmote[] gameEmotes = [];
     private bool animationListLoaded;
+    private bool gameEmoteListLoaded;
     private ulong animationTargetContentId;
     private string animationFilter = string.Empty;
+    private string gameEmoteFilter = string.Empty;
     private DateTime treasureMonth = new(DateTime.Now.Year, DateTime.Now.Month, 1);
     private Vector2 expandedWindowSize = new(940, 520);
     private ImGuiWindowFlags expandedWindowFlags;
@@ -823,7 +826,76 @@ public sealed class MainWindow : Window
 
     private void DrawAnimations()
     {
-        DrawPageTitle(Loc.T("Animation"), Loc.T("AnimationDescription"));
+        DrawPageTitle(Loc.T("Animation"), Loc.L(
+            "ゲーム内エモートとPenumbraで差し替えたアニメーションを再生します。",
+            "Play in-game emotes and Penumbra-replaced animations."));
+        if (ImGui.BeginTabBar("animation-tabs"))
+        {
+            if (ImGui.BeginTabItem(Loc.L("ゲーム内エモート", "In-game Emotes")))
+            {
+                DrawGameEmotes();
+                ImGui.EndTabItem();
+            }
+            if (ImGui.BeginTabItem("Penumbra"))
+            {
+                DrawPenumbraAnimations();
+                ImGui.EndTabItem();
+            }
+            ImGui.EndTabBar();
+        }
+    }
+
+    private void DrawGameEmotes()
+    {
+        ImGui.TextDisabled(Loc.L(
+            "現在のキャラクターが取得済みのゲーム内エモートを表示します。",
+            "Shows in-game emotes unlocked by the current character."));
+        if (!gameEmoteListLoaded)
+        {
+            gameEmotes = plugin.Animations.LoadUnlockedGameEmotes().ToArray();
+            gameEmoteListLoaded = true;
+        }
+        if (ImGui.Button($"{Loc.T("RefreshList")}##game-emotes"))
+            gameEmotes = plugin.Animations.LoadUnlockedGameEmotes().ToArray();
+        ImGui.SameLine();
+        ImGui.TextDisabled(plugin.Animations.Status);
+        ImGui.Spacing();
+
+        DrawAnimationTargetSelector("game");
+        ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##game-emote-filter", Loc.L("エモート名で絞り込み", "Filter by emote name"), ref gameEmoteFilter, 100);
+        ImGui.Separator();
+
+        var filtered = gameEmotes.Where(x => string.IsNullOrWhiteSpace(gameEmoteFilter) ||
+            x.Name.Contains(gameEmoteFilter, StringComparison.CurrentCultureIgnoreCase)).ToArray();
+        if (filtered.Length == 0)
+        {
+            ImGui.TextDisabled(Loc.L("表示できるエモートがありません。", "No emotes to display."));
+            return;
+        }
+        var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
+                    ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY;
+        if (!ImGui.BeginTable("game-emotes", 3, flags, new Vector2(0, -1)))
+            return;
+        ImGui.TableSetupScrollFreeze(0, 1);
+        ImGui.TableSetupColumn(Loc.T("Emote"), ImGuiTableColumnFlags.WidthStretch);
+        ImGui.TableSetupColumn("ID", ImGuiTableColumnFlags.WidthFixed, 65 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("", ImGuiTableColumnFlags.WidthFixed, 68 * ImGuiHelpers.GlobalScale);
+        ImGui.TableHeadersRow();
+        foreach (var emote in filtered)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(emote.Name);
+            ImGui.TableNextColumn(); ImGui.TextDisabled(emote.Id.ToString());
+            ImGui.TableNextColumn();
+            if (ImGui.SmallButton($"{Loc.T("Play")}##play-game-emote-{emote.Id}"))
+                plugin.CharacterLink.PlayEmote(emote.Id, animationTargetContentId);
+        }
+        ImGui.EndTable();
+    }
+
+    private void DrawPenumbraAnimations()
+    {
         ImGui.TextDisabled(Plugin.CurrentConfiguration?.Language == "en"
             ? "The list reflects the active Penumbra collection, options, and winning mod priority on this client."
             : "このクライアントで実際に有効なPenumbraコレクション・オプション・Mod優先度を表示します。");
@@ -848,23 +920,7 @@ public sealed class MainWindow : Window
         ImGui.TextDisabled(plugin.Animations.Status);
         ImGui.Spacing();
 
-        var targets = GetAnimationTargets();
-        if (animationTargetContentId == 0 || targets.All(x => x.ContentId != animationTargetContentId))
-            animationTargetContentId = Plugin.PlayerState.ContentId;
-        var targetPreview = targets.FirstOrDefault(x => x.ContentId == animationTargetContentId).Label ?? Loc.T("Character");
-        ImGui.SetNextItemWidth(330 * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginCombo(Loc.T("PlayCharacter"), targetPreview))
-        {
-            foreach (var target in targets)
-            {
-                var selected = target.ContentId == animationTargetContentId;
-                if (ImGui.Selectable($"{target.Label}##animation-target-{target.ContentId}", selected))
-                    animationTargetContentId = target.ContentId;
-                if (selected)
-                    ImGui.SetItemDefaultFocus();
-            }
-            ImGui.EndCombo();
-        }
+        DrawAnimationTargetSelector("penumbra");
 
         ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
         ImGui.InputTextWithHint("##animation-filter", Loc.T("FilterEmote"), ref animationFilter, 100);
@@ -903,6 +959,26 @@ public sealed class MainWindow : Window
                 plugin.CharacterLink.PlayEmote(emote.Id, animationTargetContentId);
         }
         ImGui.EndTable();
+    }
+
+    private void DrawAnimationTargetSelector(string id)
+    {
+        var targets = GetAnimationTargets();
+        if (animationTargetContentId == 0 || targets.All(x => x.ContentId != animationTargetContentId))
+            animationTargetContentId = Plugin.PlayerState.ContentId;
+        var targetPreview = targets.FirstOrDefault(x => x.ContentId == animationTargetContentId).Label ?? Loc.T("Character");
+        ImGui.SetNextItemWidth(330 * ImGuiHelpers.GlobalScale);
+        if (!ImGui.BeginCombo($"{Loc.T("PlayCharacter")}##animation-target-{id}", targetPreview))
+            return;
+        foreach (var target in targets)
+        {
+            var selected = target.ContentId == animationTargetContentId;
+            if (ImGui.Selectable($"{target.Label}##animation-target-{id}-{target.ContentId}", selected))
+                animationTargetContentId = target.ContentId;
+            if (selected)
+                ImGui.SetItemDefaultFocus();
+        }
+        ImGui.EndCombo();
     }
 
     private (ulong ContentId, string Label)[] GetAnimationTargets()
