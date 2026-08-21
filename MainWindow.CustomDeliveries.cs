@@ -104,7 +104,6 @@ public sealed partial class MainWindow
                 priorityLabels, priorityLabels.Length))
         {
             settings.ScripPreference = (CustomDeliveryScripPreference)priority;
-            settings.ExchangeItemId = 0;
             changed = true;
         }
 
@@ -203,9 +202,18 @@ public sealed partial class MainWindow
         ImGui.InputTextWithHint("##delivery-exchange-filter", Loc.L("交換アイテムを検索", "Search exchange items"),
             ref customDeliveryExchangeFilter, 100);
 
-        var currency = CustomDeliveryService.PreferredCurrencyId(settings);
-        var selected = service.ExchangeItems.FirstOrDefault(item => item.ItemId == settings.ExchangeItemId &&
-            (currency == 0 || item.CurrencyItemId == currency));
+        DrawExchangeItemSelector(service, settings, CustomDeliveryService.PurpleCurrencyId(settings.JobType),
+            true, ref changed);
+        DrawExchangeItemSelector(service, settings, CustomDeliveryService.OrangeCurrencyId(settings.JobType),
+            false, ref changed);
+    }
+
+    private void DrawExchangeItemSelector(CustomDeliveryService service, CustomDeliverySettings settings,
+        uint currency, bool purple, ref bool changed)
+    {
+        var selectedId = purple ? settings.PurpleExchangeItemId : settings.OrangeExchangeItemId;
+        var selected = service.ExchangeItems.FirstOrDefault(item => item.ItemId == selectedId &&
+            item.CurrencyItemId == currency);
         var label = selected is null
             ? Loc.L("交換アイテムを選択", "Choose an exchange item")
             : $"{selected.Name} ({selected.Cost})";
@@ -215,16 +223,21 @@ public sealed partial class MainWindow
                 (filter.Length == 0 || item.Name.Contains(filter, StringComparison.CurrentCultureIgnoreCase)))
             .ToList();
         ImGui.SetNextItemWidth(320 * ImGuiHelpers.GlobalScale);
-        if (ImGui.BeginCombo(Loc.L("交換アイテム", "Exchange item"), label))
+        var selectorLabel = purple ? Loc.L("紫貨の交換アイテム", "Purple scrip item")
+            : Loc.L("橙貨の交換アイテム", "Orange scrip item");
+        if (ImGui.BeginCombo(selectorLabel, label))
         {
             if (matches.Count == 0)
                 ImGui.TextDisabled(Loc.L("該当する交換アイテムはありません。", "No exchange items match the filter."));
             foreach (var item in matches)
             {
                 if (!ImGui.Selectable($"{item.Name} ({item.Cost})##exchange-{item.ItemId}-{item.CurrencyItemId}",
-                        settings.ExchangeItemId == item.ItemId))
+                        selectedId == item.ItemId))
                     continue;
-                settings.ExchangeItemId = item.ItemId;
+                if (purple)
+                    settings.PurpleExchangeItemId = item.ItemId;
+                else
+                    settings.OrangeExchangeItemId = item.ItemId;
                 changed = true;
             }
             ImGui.EndCombo();
