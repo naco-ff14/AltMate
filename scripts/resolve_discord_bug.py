@@ -21,6 +21,7 @@ from discord_bug_intake import (
 
 
 RESOLUTION_MARKER = "discord_resolution_notified: true"
+DECLINED_MARKER = "discord_resolution_declined: true"
 UNAVAILABLE_MARKER = "discord_resolution_unavailable: true"
 DISCORD_MESSAGE_URL_PATTERN = re.compile(
     r"https://(?:www\.)?discord\.com/channels/\d+/(\d+)/\d+"
@@ -28,6 +29,7 @@ DISCORD_MESSAGE_URL_PATTERN = re.compile(
 MANAGEMENT_ID_PATTERN = re.compile(r"\bAM-0*(\d+)\b", re.IGNORECASE)
 RESOLVED_EMOJI_NAMES = ("edit", "修正済", "修正済み", "fixed", "resolved", "shuseizumi")
 RESOLVED_FORUM_TAG_NAME = "修正済"
+DECLINED_FORUM_TAG_NAME = "見送り"
 FORUM_STATUS_TAG_NAMES = {"確認中", "修正対応中", "修正済", "見送り", "情報不足"}
 
 
@@ -63,24 +65,24 @@ def issue_fix_summary(issue: dict[str, Any]) -> str:
     return f"「{report_title}」の問題を修正しました。"
 
 
-def resolved_forum_tags(
-    available_tags: list[dict[str, Any]], applied_tags: list[str]
+def forum_tags_for_status(
+    available_tags: list[dict[str, Any]], applied_tags: list[str], status_name: str
 ) -> list[str]:
-    resolved = next(
+    desired = next(
         (
             tag
             for tag in available_tags
-            if str(tag.get("name") or "").strip().endswith(RESOLVED_FORUM_TAG_NAME)
+            if str(tag.get("name") or "").strip().endswith(status_name)
             and tag.get("id")
         ),
         None,
     )
-    if resolved is None:
+    if desired is None:
         available_names = ", ".join(
             repr(str(tag.get("name") or "")) for tag in available_tags
         ) or "none"
         raise RuntimeError(
-            f'The Discord bug-report forum has no "{RESOLVED_FORUM_TAG_NAME}" tag. '
+            f'The Discord bug-report forum has no "{status_name}" tag. '
             f"Available tags: {available_names}."
         )
 
@@ -94,11 +96,20 @@ def resolved_forum_tags(
         and tag.get("id")
     }
     preserved = [str(tag_id) for tag_id in applied_tags if str(tag_id) not in status_ids]
-    return [*preserved, str(resolved["id"])]
+    return [*preserved, str(desired["id"])]
 
 
-def apply_resolved_forum_tag(
-    discord: DiscordClient, channel: dict[str, Any], reply_channel_id: str
+def resolved_forum_tags(
+    available_tags: list[dict[str, Any]], applied_tags: list[str]
+) -> list[str]:
+    return forum_tags_for_status(available_tags, applied_tags, RESOLVED_FORUM_TAG_NAME)
+
+
+def apply_forum_status_tag(
+    discord: DiscordClient,
+    channel: dict[str, Any],
+    reply_channel_id: str,
+    status_name: str,
 ) -> bool:
     parent_id = str(channel.get("parent_id") or "")
     if not parent_id:
@@ -111,13 +122,50 @@ def apply_resolved_forum_tag(
         return False
 
     current_tags = [str(tag_id) for tag_id in channel.get("applied_tags", [])]
-    updated_tags = resolved_forum_tags(forum.get("available_tags", []), current_tags)
+    updated_tags = forum_tags_for_status(
+        forum.get("available_tags", []), current_tags, status_name
+    )
     if current_tags != updated_tags:
         discord.patch(f"/channels/{reply_channel_id}", {"applied_tags": updated_tags})
-        print(f'Updated the Discord forum tag to "{RESOLVED_FORUM_TAG_NAME}".')
+        print(f'Updated the Discord forum tag to "{status_name}".')
     else:
-        print(f'The Discord forum already has the "{RESOLVED_FORUM_TAG_NAME}" tag.')
+        print(f'The Discord forum already has the "{status_name}" tag.')
     return True
+
+
+def apply_resolved_forum_tag(
+    discord: DiscordClient, channel: dict[str, Any], reply_channel_id: str
+) -> bool:
+    return apply_forum_status_tag(
+        discord, channel, reply_channel_id, RESOLVED_FORUM_TAG_NAME
+    )
+
+
+def mark_issue_declined(body: str, reason: str) -> str:
+    body = re.sub(
+        r"(?m)^- 状態: (未確認|調査中|修正対応中)$",
+        "- 状態: 対応不要",
+        body,
+        count=1,
+    )
+    if "-->" not in body:
+        raise ValueError("The support issue is missing its Discord metadata block.")
+    body = body.replace("\n-->", f"\n{DECLINED_MARKER}\n-->", 1)
+    previous_result = body.find("\n\n## 対応結果")
+    if previous_result >= 0:
+        body = body[:previous_result]
+    return body + f"\n\n## 対応結果\n\n- 結果: 見送り\n- 理由: {reason}\n"
+
+
+def declined_message(number: int, reason: str, original_message_id: str) -> dict[str, Any]:
+    return {
+        "content": f"⏸ **{management_id(number)} 見送り**\n{reason}",
+        "message_reference": {
+            "message_id": original_message_id,
+            "fail_if_not_exists": True,
+        },
+        "allowed_mentions": {"parse": [], "replied_user": False},
+    }
 
 
 def mark_issue_resolved(body: str, tag: str, summary: str, release_url: str) -> str:
@@ -203,6 +251,8 @@ def run_self_test() -> None:
         raise AssertionError("A missing resolved forum tag should fail.")
     except RuntimeError:
         pass
+    forum_tags.append({"id": "50", "name": "⏸ 見送り"})
+    assert forum_tags_for_status(forum_tags, ["10", "40"], "見送り") == ["40", "50"]
     body = "- 状態: 未確認\n<!-- altmate-support\ndiscord_message_id: 123\ndiscord_thread_id: 456\n-->"
     updated = mark_issue_resolved(body, "v1.0.0", "修正しました", "https://example.com")
     assert "- 状態: 修正済み" in updated
@@ -213,6 +263,15 @@ def run_self_test() -> None:
     assert refreshed.count("## 修正結果") == 1
     assert "v0.9.0" not in refreshed
     assert RESOLUTION_MARKER in refreshed
+    declined = mark_issue_declined(body, "テスト投稿のため、対応不要としてクローズしました。")
+    assert "- 状態: 対応不要" in declined
+    assert DECLINED_MARKER in declined
+    assert "- 結果: 見送り" in declined
+    declined_reply = declined_message(
+        4, "テスト投稿のため、対応不要としてクローズしました。", "123"
+    )
+    assert "AM-0004 見送り" in declined_reply["content"]
+    assert declined_reply["message_reference"]["message_id"] == "123"
     reply = resolution_message(1, "v1.0.0", "修正しました", "123")
     assert reply["message_reference"]["message_id"] == "123"
     assert reply["allowed_mentions"]["replied_user"] is False
@@ -240,12 +299,7 @@ def resolve_issue(
     channel_id: str,
     summary: str | None = None,
 ) -> None:
-    release = github.get(f"{github.repository_path}/releases/tags/{tag}")
-    if release.get("draft") or release.get("tag_name") != tag:
-        raise RuntimeError(f"AltMate release {tag} has not been published.")
-
     issue = github.get(f"{github.repository_path}/issues/{number}")
-    summary = summary or issue_fix_summary(issue)
     body = issue.get("body") or ""
     if UNAVAILABLE_MARKER in body:
         print(f"{management_id(number)} has already been resolved and announced.")
@@ -255,12 +309,43 @@ def resolve_issue(
     if not match:
         raise RuntimeError(f"{management_id(number)} does not contain a Discord message ID.")
 
+    labels = [label["name"] for label in issue.get("labels", [])]
+    is_declined = "対応不要" in labels or issue.get("state_reason") == "not_planned"
     reply_channel_id = report_reply_channel(body, channel_id)
     try:
         channel = discord.get(f"/channels/{reply_channel_id}")
     except RuntimeError as error:
         if "HTTP 404" not in str(error) or "Unknown Channel" not in str(error):
             raise
+        if is_declined:
+            reason = summary or "テスト投稿のため、対応不要としてクローズしました。"
+            unavailable_body = mark_issue_declined(body, reason).replace(
+                DECLINED_MARKER, UNAVAILABLE_MARKER, 1
+            )
+            unavailable_body += "- Discord通知: 元投稿チャンネルが削除済みのため送信できませんでした。\n"
+            declined_labels = [
+                name for name in labels if name not in {"未確認", "調査中", "修正済み"}
+            ]
+            if "対応不要" not in declined_labels:
+                declined_labels.append("対応不要")
+            github.patch(
+                f"{github.repository_path}/issues/{number}",
+                {
+                    "body": unavailable_body,
+                    "labels": declined_labels,
+                    "state": "closed",
+                    "state_reason": "not_planned",
+                },
+            )
+            print(
+                f"Declined {management_id(number)}; "
+                "the original Discord channel no longer exists."
+            )
+            return
+        release = github.get(f"{github.repository_path}/releases/tags/{tag}")
+        if release.get("draft") or release.get("tag_name") != tag:
+            raise RuntimeError(f"AltMate release {tag} has not been published.")
+        summary = summary or issue_fix_summary(issue)
         unavailable_body = mark_issue_resolved(
             body, tag, summary, release["html_url"]
         ).replace(RESOLUTION_MARKER, UNAVAILABLE_MARKER, 1)
@@ -296,6 +381,55 @@ def resolve_issue(
             "the original Discord channel no longer exists."
         )
         return
+
+    if is_declined:
+        reason = summary or "テスト投稿のため、対応不要としてクローズしました。"
+        if DECLINED_MARKER in body:
+            apply_forum_status_tag(
+                discord, channel, reply_channel_id, DECLINED_FORUM_TAG_NAME
+            )
+            print(f"{management_id(number)} has already been declined and announced.")
+            return
+        forum_tag_updated = apply_forum_status_tag(
+            discord, channel, reply_channel_id, DECLINED_FORUM_TAG_NAME
+        )
+        discord.post(
+            f"/channels/{reply_channel_id}/messages",
+            declined_message(number, reason, match.group(1)),
+        )
+        github.post(
+            f"{github.repository_path}/issues/{number}/comments",
+            {
+                "body": (
+                    f"## 対応結果: 見送り\n\n{reason}\n\n"
+                    "- Discord元投稿へ見送りを返信済み"
+                    + (
+                        f'\n- Discordフォーラムのタグを「{DECLINED_FORUM_TAG_NAME}」へ変更済み'
+                        if forum_tag_updated
+                        else ""
+                    )
+                )
+            },
+        )
+        declined_labels = [name for name in labels if name not in {"未確認", "調査中", "修正済み"}]
+        if "対応不要" not in declined_labels:
+            declined_labels.append("対応不要")
+        github.patch(
+            f"{github.repository_path}/issues/{number}",
+            {
+                "body": mark_issue_declined(body, reason),
+                "labels": declined_labels,
+                "state": "closed",
+                "state_reason": "not_planned",
+            },
+        )
+        print(f"Declined {management_id(number)} and replied to the original Discord message.")
+        return
+
+    release = github.get(f"{github.repository_path}/releases/tags/{tag}")
+    if release.get("draft") or release.get("tag_name") != tag:
+        raise RuntimeError(f"AltMate release {tag} has not been published.")
+    summary = summary or issue_fix_summary(issue)
     guild_id = channel.get("guild_id")
     if not guild_id:
         raise RuntimeError("The Discord bug-report channel does not belong to a server.")
