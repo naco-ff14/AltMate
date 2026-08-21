@@ -70,7 +70,7 @@ def resolved_forum_tags(
         (
             tag
             for tag in available_tags
-            if str(tag.get("name") or "").strip() == RESOLVED_FORUM_TAG_NAME
+            if str(tag.get("name") or "").strip().endswith(RESOLVED_FORUM_TAG_NAME)
             and tag.get("id")
         ),
         None,
@@ -87,7 +87,10 @@ def resolved_forum_tags(
     status_ids = {
         str(tag["id"])
         for tag in available_tags
-        if str(tag.get("name") or "").strip() in FORUM_STATUS_TAG_NAMES
+        if any(
+            str(tag.get("name") or "").strip().endswith(status)
+            for status in FORUM_STATUS_TAG_NAMES
+        )
         and tag.get("id")
     }
     preserved = [str(tag_id) for tag_id in applied_tags if str(tag_id) not in status_ids]
@@ -187,9 +190,9 @@ def run_self_test() -> None:
     assert report_reply_channel("Discord metadata unavailable", "999") == "999"
     assert issue_fix_summary({"title": "AM-0002｜表示の不具合"}) == "「表示の不具合」の問題を修正しました。"
     forum_tags = [
-        {"id": "10", "name": "確認中"},
-        {"id": "20", "name": "修正対応中"},
-        {"id": "30", "name": "修正済"},
+        {"id": "10", "name": "🔍 確認中"},
+        {"id": "20", "name": "🔧 修正対応中"},
+        {"id": "30", "name": "✅ 修正済"},
         {"id": "40", "name": "その他"},
     ]
     assert resolved_forum_tags(forum_tags, ["10", "40"]) == ["40", "30"]
