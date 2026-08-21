@@ -11,7 +11,9 @@ public sealed class Configuration : IPluginConfiguration
     public Dictionary<ulong, CharacterLotteryRecord> Characters { get; set; } = new();
     public List<OpenPlotRecord> OpenPlots { get; set; } = new();
     public Dictionary<ulong, CharacterGilRecord> CharacterGil { get; set; } = new();
+    public Dictionary<ulong, CustomDeliveryCharacterRecord> CustomDeliveryCharacters { get; set; } = new();
     public Dictionary<ulong, FreeCompanyGilRecord> FreeCompanyGil { get; set; } = new();
+    public CustomDeliverySettings CustomDeliverySettings { get; set; } = new();
     public DateTime? OpenPlotsCycleStartsAtUtc { get; set; }
     // 2026-08-13 00:00 JST: beginning of an entry period.
     public DateTime CycleAnchorUtc { get; set; } = new(2026, 8, 12, 15, 0, 0, DateTimeKind.Utc);
@@ -49,6 +51,48 @@ public sealed class Configuration : IPluginConfiguration
     public int LastHousingSection { get; set; }
 
     public void Save() => Plugin.SaveConfiguration(this);
+}
+
+[Serializable]
+public sealed class CustomDeliverySettings
+{
+    public CustomDeliveryJobType JobType { get; set; } = CustomDeliveryJobType.Crafter;
+    public CustomDeliveryScripPreference ScripPreference { get; set; } = CustomDeliveryScripPreference.Orange;
+    public uint PreferredNpcId { get; set; }
+    public bool PrioritizeBonus { get; set; } = true;
+    public bool AutoExchangeEnabled { get; set; }
+    public uint ExchangeItemId { get; set; }
+    public int ExchangeThreshold { get; set; } = 3500;
+    public bool RunUntilWeeklyLimit { get; set; } = true;
+    public uint CrafterJobId { get; set; } = 8;
+    public uint GathererJobId { get; set; } = 16;
+}
+
+public enum CustomDeliveryJobType
+{
+    Crafter,
+    Gatherer,
+}
+
+public enum CustomDeliveryScripPreference
+{
+    Orange,
+    Purple,
+    HighestTotal,
+}
+
+[Serializable]
+public sealed class CustomDeliveryCharacterRecord
+{
+    public ulong ContentId { get; set; }
+    public string CharacterName { get; set; } = "不明";
+    public string WorldName { get; set; } = "不明";
+    public int RemainingWeeklyAllowances { get; set; }
+    public uint PurpleCrafterScrip { get; set; }
+    public uint PurpleGathererScrip { get; set; }
+    public uint OrangeCrafterScrip { get; set; }
+    public uint OrangeGathererScrip { get; set; }
+    public DateTime UpdatedAt { get; set; }
 }
 
 [Serializable]

@@ -187,6 +187,12 @@ internal sealed class SharedConfigurationStore : IDisposable
                     retainer.Value.UpdatedAt >= existingRetainer.UpdatedAt)
                     current.Retainers[retainer.Key] = retainer.Value;
         }
+        foreach (var pair in incoming.CustomDeliveryCharacters)
+        {
+            if (!target.CustomDeliveryCharacters.TryGetValue(pair.Key, out var existing) ||
+                pair.Value.UpdatedAt >= existing.UpdatedAt)
+                target.CustomDeliveryCharacters[pair.Key] = pair.Value;
+        }
         foreach (var pair in incoming.FreeCompanyGil)
         {
             if (!target.FreeCompanyGil.TryGetValue(pair.Key, out var current))
@@ -249,6 +255,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.RoleBasedFpsEnabled = incoming.RoleBasedFpsEnabled;
         target.LeaderFpsLimit = incoming.LeaderFpsLimit;
         target.FollowerFpsLimit = incoming.FollowerFpsLimit;
+        target.CustomDeliverySettings = incoming.CustomDeliverySettings ?? new CustomDeliverySettings();
         target.Language = incoming.Language;
         if (!string.IsNullOrWhiteSpace(incoming.LocalLinkKey)) target.LocalLinkKey = incoming.LocalLinkKey;
     }
@@ -282,6 +289,9 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.RoleBasedFpsEnabled != baseline.RoleBasedFpsEnabled) target.RoleBasedFpsEnabled = current.RoleBasedFpsEnabled;
         if (current.LeaderFpsLimit != baseline.LeaderFpsLimit) target.LeaderFpsLimit = current.LeaderFpsLimit;
         if (current.FollowerFpsLimit != baseline.FollowerFpsLimit) target.FollowerFpsLimit = current.FollowerFpsLimit;
+        if (JsonSerializer.Serialize(current.CustomDeliverySettings) !=
+            JsonSerializer.Serialize(baseline.CustomDeliverySettings))
+            target.CustomDeliverySettings = current.CustomDeliverySettings;
         if (current.Language != baseline.Language) target.Language = current.Language;
         if (current.LocalLinkKey != baseline.LocalLinkKey) target.LocalLinkKey = current.LocalLinkKey;
     }
