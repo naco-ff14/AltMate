@@ -8,7 +8,7 @@ on:
       - .github/workflows/discord-bug-intake.yml
       - scripts/discord_bug_intake.py
   schedule:
-    - cron: "2-59/5 * * * *"
+    - cron: "2 * * * *"
   workflow_dispatch:
     inputs:
       dry_run:
