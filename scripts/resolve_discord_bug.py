@@ -489,6 +489,8 @@ def release_commit_messages() -> str:
         ["git", "describe", "--tags", "--abbrev=0", "HEAD^"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     commit_range = (
@@ -498,6 +500,8 @@ def release_commit_messages() -> str:
         ["git", "log", commit_range, "--format=%B"],
         capture_output=True,
         text=True,
+        encoding="utf-8",
+        errors="replace",
         check=True,
     ).stdout
 
