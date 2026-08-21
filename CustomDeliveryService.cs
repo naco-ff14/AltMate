@@ -231,6 +231,20 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
             if (count <= 0)
                 continue;
 
+            foreach (var reward in request.Rewards)
+            {
+                if (!projectedScrip.TryGetValue(reward.CurrencyItemId, out var balance) ||
+                    !settings.AutoExchangeEnabled ||
+                    !exchanges.TryGetValue(reward.CurrencyItemId, out var exchange) ||
+                    balance + reward.Amount * count < settings.ExchangeThreshold ||
+                    balance < exchange.Cost)
+                    continue;
+
+                steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.ExchangeScrip,
+                    npc, request, 0, exchange));
+                projectedScrip[reward.CurrencyItemId] = balance % Math.Max(1, exchange.Cost);
+            }
+
             steps.Add(new CustomDeliveryPlanStep(
                 settings.JobType == CustomDeliveryJobType.Crafter
                     ? CustomDeliveryStepKind.BuyMaterials
@@ -244,13 +258,6 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
                 {
                     if (!projectedScrip.TryGetValue(reward.CurrencyItemId, out var balance))
                         continue;
-                    if (settings.AutoExchangeEnabled && exchanges.TryGetValue(reward.CurrencyItemId, out var exchange) &&
-                        balance + reward.Amount >= settings.ExchangeThreshold)
-                    {
-                        steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.ExchangeScrip,
-                            npc, request, 0, exchange));
-                        balance %= Math.Max(1, exchange.Cost);
-                    }
                     projectedScrip[reward.CurrencyItemId] = balance + reward.Amount;
                 }
                 steps.Add(new CustomDeliveryPlanStep(CustomDeliveryStepKind.TravelToClient, npc, request, 1));
@@ -368,7 +375,23 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
         exchangeCatalogLoaded = true;
         var seen = new HashSet<(uint Item, uint Currency)>();
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
-        foreach (var shop in Plugin.DataManager.GetExcelSheet<SpecialShop>())
+        var inclusionSheet = Plugin.DataManager.GetExcelSheet<InclusionShop>();
+        var seriesSheet = Plugin.DataManager.GetSubrowExcelSheet<InclusionShopSeries>();
+        var accessibleShops = new HashSet<uint>();
+        foreach (var inclusion in inclusionSheet)
+        {
+            foreach (var category in inclusion.Category)
+            {
+                if (category.RowId == 0 ||
+                    !seriesSheet.TryGetRow(category.Value.InclusionShopSeries.RowId, out var series))
+                    continue;
+                for (var index = 0; index < series.Count; index++)
+                    accessibleShops.Add(series[index].SpecialShop.RowId);
+            }
+        }
+
+        foreach (var shop in Plugin.DataManager.GetExcelSheet<SpecialShop>()
+                     .OrderByDescending(shop => accessibleShops.Contains(shop.RowId)))
         {
             foreach (var merchandise in shop.Item)
             {
