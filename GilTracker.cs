@@ -242,7 +242,8 @@ public sealed unsafe class GilTracker : IDisposable
         {
             if (itemId is < 22500 or > 22507 || count == 0)
                 return;
-            itemCounts[itemId] = itemCounts.GetValueOrDefault(itemId) + count;
+            itemCounts.TryGetValue(itemId, out var currentCount);
+            itemCounts[itemId] = currentCount + count;
         }
     }
 
