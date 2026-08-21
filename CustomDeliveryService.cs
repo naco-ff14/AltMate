@@ -203,7 +203,7 @@ internal sealed unsafe class CustomDeliveryService : IDisposable
 
         var steps = new List<CustomDeliveryPlanStep>();
         var remaining = RemainingWeeklyAllowances;
-        var projectedScrip = preferredCurrency == 0 ? 0 : CurrencyCount(preferredCurrency);
+        var projectedScrip = preferredCurrency == 0 ? 0 : (int)CurrencyCount(preferredCurrency);
         foreach (var (npc, request) in candidatePairs)
         {
             if (remaining <= 0)
