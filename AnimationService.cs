@@ -9,9 +9,15 @@ using System.Text.RegularExpressions;
 
 namespace AltMate;
 
-public sealed class AnimationService
+public sealed class AnimationService : IDisposable
 {
     private const int GPoseLocalPlayerIndex = 201;
+    private readonly EmoteSwapService emoteSwap;
+
+    public AnimationService()
+    {
+        emoteSwap = new EmoteSwapService(SetStatus, PlayGposeDirect);
+    }
 
     public unsafe bool IsInGroupPose => GameMain.IsInGPose();
 
@@ -161,55 +167,71 @@ public sealed class AnimationService
             return false;
         }
 
-        if (IsInGroupPose)
+        var emote = Plugin.DataManager.GetExcelSheet<Emote>().GetRow(emoteId);
+        var isUnlocked = Plugin.UnlockState.IsEmoteUnlocked(emote);
+        var manager = EmoteManager.Instance();
+
+        // 習得済みはGPose内外ともゲーム本体の通常経路で実行する。
+        if (isUnlocked && manager != null && manager->CanExecuteEmote(emoteId))
         {
-            var emote = Plugin.DataManager.GetExcelSheet<Emote>().GetRow(emoteId);
-            var timelineId = emote.ActionTimeline[0].RowId;
-            // GPoseは通常のLocalPlayerとは別に表示用キャラクターをObjectTable 201へ複製する。
-            // 通常側へタイムラインを送ってもGPose画面には反映されない。
-            var gPoseLocal = Plugin.ObjectTable[GPoseLocalPlayerIndex];
-            var character = gPoseLocal is null ? null : (Character*)gPoseLocal.Address;
-            if (character == null || timelineId == 0 || timelineId > ushort.MaxValue)
-            {
-                Status = "グループポーズ用キャラクターを取得できませんでした。入り直して再試行してください。";
-                return false;
-            }
-
-            var timeline = Plugin.DataManager.GetExcelSheet<ActionTimeline>().GetRow(timelineId);
-            if (timeline.Pause)
-            {
-                character->Mode = CharacterModes.EmoteLoop;
-                character->ModeParam = 0;
-            }
-            else if (character->Mode == CharacterModes.EmoteLoop && character->ModeParam == 0)
-            {
-                character->Mode = CharacterModes.Normal;
-            }
-            else if (character->Mode == CharacterModes.AnimLock)
-            {
-                character->Mode = CharacterModes.Normal;
-                character->ModeParam = 0;
-                character->Timeline.BaseOverride = 0;
-            }
-
-            character->Timeline.TimelineSequencer.PlayTimeline((ushort)timelineId);
-            Status = Plugin.UnlockState.IsEmoteUnlocked(emote)
-                ? "グループポーズ内でエモートを再生しました。"
-                : "グループポーズ内で未習得エモートをローカル再生しました。";
-            return true;
+            var result = manager->ExecuteEmote(emoteId);
+            Status = result ? "エモートを再生しました。" : "エモートの再生に失敗しました。";
+            return result;
         }
 
-        var manager = EmoteManager.Instance();
-        if (manager == null || !manager->CanExecuteEmote(emoteId))
+        if (IsInGroupPose)
         {
-            Status = "現在このエモートを再生できません。";
+            if (!isUnlocked && IsPenumbraLoaded && emoteSwap.TryQueue(emote, out var swapStatus))
+            {
+                Status = swapStatus;
+                return true;
+            }
+
+            return PlayGposeDirect(emote, out _);
+        }
+
+        Status = "現在このエモートを再生できません。";
+        return false;
+    }
+
+    private unsafe bool PlayGposeDirect(Emote emote, out string message)
+    {
+        var timelineId = emote.ActionTimeline[0].RowId;
+        var gPoseLocal = Plugin.ObjectTable[GPoseLocalPlayerIndex];
+        var character = gPoseLocal is null ? null : (Character*)gPoseLocal.Address;
+        if (character == null || timelineId == 0 || timelineId > ushort.MaxValue)
+        {
+            message = "グループポーズ用キャラクターを取得できませんでした。入り直して再試行してください。";
+            Status = message;
             return false;
         }
 
-        var result = manager->ExecuteEmote(emoteId);
-        Status = result ? "エモートを再生しました。" : "エモートの再生に失敗しました。";
-        return result;
+        var timeline = Plugin.DataManager.GetExcelSheet<ActionTimeline>().GetRow(timelineId);
+        if (timeline.Pause)
+        {
+            character->Mode = CharacterModes.EmoteLoop;
+            character->ModeParam = 0;
+        }
+        else if (character->Mode == CharacterModes.EmoteLoop && character->ModeParam == 0)
+        {
+            character->Mode = CharacterModes.Normal;
+        }
+        else if (character->Mode == CharacterModes.AnimLock)
+        {
+            character->Mode = CharacterModes.Normal;
+            character->ModeParam = 0;
+            character->Timeline.BaseOverride = 0;
+        }
+
+        character->Timeline.TimelineSequencer.PlayTimeline((ushort)timelineId);
+        message = "Penumbra Swapを使用できなかったため、GPose内でローカル直接再生しました。";
+        Status = message;
+        return true;
     }
+
+    private void SetStatus(string value) => Status = value;
+
+    public void Dispose() => emoteSwap.Dispose();
 }
 
 public readonly record struct AnimationMod(string Directory, string Name);
