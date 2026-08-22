@@ -875,6 +875,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        Animations.Dispose();
         CustomDeliveries.Dispose();
         RoleBasedFps.Dispose();
         CharacterLink.Dispose();
