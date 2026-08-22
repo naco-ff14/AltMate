@@ -9,7 +9,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace AltMate;
 
@@ -62,6 +65,12 @@ public sealed class EmoteSwapService : IDisposable
 
     public bool TryQueue(Emote source, out string status)
     {
+        if (pending is not null)
+        {
+            status = "前のエモートの適用中です。完了後に再度実行してください。";
+            return true;
+        }
+
         try
         {
             if (!TryBuildAndEnable(source, out var targetId, out status))
@@ -218,9 +227,41 @@ public sealed class EmoteSwapService : IDisposable
         }
 
         var modDirectory = Path.Combine(root, ModDirectoryName);
+        var mutexName = "Local\\AltMateEmoteSwap_" + Convert.ToHexString(
+            SHA256.HashData(Encoding.UTF8.GetBytes(Path.GetFullPath(modDirectory))))[..24];
+        using var mutex = new Mutex(false, mutexName);
+        if (!mutex.WaitOne(TimeSpan.FromSeconds(2)))
+        {
+            status = "別のクライアントがエモートModを更新中です。少し待って再実行してください。";
+            return false;
+        }
+
+        try
+        {
+            return WriteAndEnableModLocked(modDirectory, collection.EffectiveCollection.Id,
+                targetPath, papBytes, out status);
+        }
+        finally
+        {
+            mutex.ReleaseMutex();
+        }
+    }
+
+    private bool WriteAndEnableModLocked(string modDirectory, Guid collectionId,
+        string targetPath, byte[] papBytes, out string status)
+    {
+        if (PapAnimationNames.Read(papBytes).Count == 0)
+        {
+            status = "生成したPAPアニメーションを検証できませんでした。";
+            return false;
+        }
+
         var filesDirectory = Path.Combine(modDirectory, "files");
         Directory.CreateDirectory(filesDirectory);
-        File.WriteAllBytes(Path.Combine(filesDirectory, "active.pap"), papBytes);
+        var papFileName = "active-" + Convert.ToHexString(SHA256.HashData(papBytes))
+            .ToLowerInvariant() + ".pap";
+        WriteFileAtomically(Path.Combine(filesDirectory, papFileName), papBytes,
+            replaceExisting: false);
 
         WriteJson(Path.Combine(modDirectory, "meta.json"), new
         {
@@ -236,7 +277,7 @@ public sealed class EmoteSwapService : IDisposable
         {
             Name = string.Empty,
             Priority = 0,
-            Files = new Dictionary<string, string> { [targetPath] = "files/active.pap" },
+            Files = new Dictionary<string, string> { [targetPath] = $"files/{papFileName}" },
             FileSwaps = new Dictionary<string, string>(),
             Manipulations = Array.Empty<object>(),
         });
@@ -253,7 +294,6 @@ public sealed class EmoteSwapService : IDisposable
             return false;
         }
 
-        var collectionId = collection.EffectiveCollection.Id;
         var enabled = trySetMod.Invoke(collectionId, ModDirectoryName, true);
         if (enabled is not (PenumbraApiEc.Success or PenumbraApiEc.NothingChanged))
         {
@@ -266,8 +306,36 @@ public sealed class EmoteSwapService : IDisposable
     }
 
     private static void WriteJson(string path, object value)
-        => File.WriteAllText(path,
-            JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true }));
+        => WriteFileAtomically(path, Encoding.UTF8.GetBytes(
+            JsonSerializer.Serialize(value, new JsonSerializerOptions { WriteIndented = true })),
+            replaceExisting: true);
+
+    private static void WriteFileAtomically(string path, byte[] content, bool replaceExisting)
+    {
+        if (!replaceExisting && File.Exists(path))
+            return;
+
+        var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
+        {
+            using (var stream = new FileStream(temporaryPath, FileMode.CreateNew,
+                FileAccess.Write, FileShare.None))
+            {
+                stream.Write(content);
+                stream.Flush(flushToDisk: true);
+            }
+
+            if (!replaceExisting && File.Exists(path))
+                return;
+
+            File.Move(temporaryPath, path, overwrite: replaceExisting);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+                File.Delete(temporaryPath);
+        }
+    }
 
     private unsafe void OnFrameworkUpdate(Dalamud.Plugin.Services.IFramework _)
     {
