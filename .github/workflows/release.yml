@@ -101,7 +101,9 @@ jobs:
           if (-not $dll) { throw "AltMate.dll was not produced." }
           $package = Join-Path $PWD "package"
           New-Item -ItemType Directory -Force $package | Out-Null
-          Copy-Item $dll.FullName $package
+          # NuGet依存を含め、ビルド出力に配置されたプラグインDLLをすべて同梱する。
+          # Dalamud本体の参照DLLはCopyLocalされないため、ここには含まれない。
+          Get-ChildItem $dll.DirectoryName -Filter *.dll | Copy-Item -Destination $package
           $deps = [IO.Path]::ChangeExtension($dll.FullName, ".deps.json")
           if (Test-Path $deps) { Copy-Item $deps $package }
           $manifest = [IO.Path]::ChangeExtension($dll.FullName, ".json")
@@ -121,7 +123,13 @@ jobs:
           $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $PWD "latest.zip"))
           try {
             $names = $zip.Entries.FullName
-            foreach ($required in @("AltMate.dll", "AltMate.json", "images/icon.png")) {
+            foreach ($required in @(
+              "AltMate.dll",
+              "NoireLib.dll",
+              "Penumbra.Api.dll",
+              "AltMate.json",
+              "images/icon.png"
+            )) {
               if ($names -notcontains $required) { throw "latest.zip is missing $required" }
             }
             $manifestEntry = $zip.GetEntry("AltMate.json")
