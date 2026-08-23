@@ -200,12 +200,14 @@ internal sealed class SharedConfigurationStore : IDisposable
                 target.FreeCompanyGil[pair.Key] = pair.Value;
                 continue;
             }
-            if (pair.Value.UpdatedAt >= current.UpdatedAt)
+            if (pair.Value.UpdatedAt >= current.UpdatedAt &&
+                (pair.Value.Gil != 0 || current.Gil == 0 || pair.Value.GilConfirmed))
             {
                 current.FreeCompanyId = pair.Value.FreeCompanyId;
                 current.Name = pair.Value.Name;
                 current.WorldName = pair.Value.WorldName;
                 current.Gil = pair.Value.Gil;
+                current.GilConfirmed = pair.Value.GilConfirmed;
                 current.UpdatedAt = pair.Value.UpdatedAt;
                 current.LastCheckedByContentId = pair.Value.LastCheckedByContentId;
                 current.LastCheckedByName = pair.Value.LastCheckedByName;

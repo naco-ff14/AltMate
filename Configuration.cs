@@ -125,6 +125,7 @@ public sealed class FreeCompanyGilRecord
     public string Name { get; set; } = "不明なFC";
     public string WorldName { get; set; } = "不明";
     public uint Gil { get; set; }
+    public bool GilConfirmed { get; set; }
     public DateTime UpdatedAt { get; set; }
     public ulong LastCheckedByContentId { get; set; }
     public string LastCheckedByName { get; set; } = "不明";
