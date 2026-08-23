@@ -1,6 +1,7 @@
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Linq;
 using System.Text;
@@ -11,7 +12,9 @@ public sealed unsafe class GilTracker : IDisposable
 {
     private readonly Plugin plugin;
     private DateTime lastCheckUtc;
-    private bool fcGilWasLoaded;
+    private ulong observedFreeCompanyId;
+    private uint observedFreeCompanyGil;
+    private int observedFreeCompanyGilCount;
 
     public GilTracker(Plugin plugin)
     {
@@ -75,7 +78,9 @@ public sealed unsafe class GilTracker : IDisposable
             }
 
             var fcContainer = inventory->GetInventoryContainer(InventoryType.FreeCompanyGil);
-            if (fcContainer != null && fcContainer->IsLoaded)
+            var fcChest = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("FreeCompanyChest").Address;
+            var fcChestReady = fcChest != null && fcChest->IsVisible && fcChest->IsReady;
+            if (fcChestReady && fcContainer != null && fcContainer->IsLoaded)
             {
                 var agentModule = AgentModule.Instance();
                 var agent = agentModule == null ? null :
@@ -84,27 +89,47 @@ public sealed unsafe class GilTracker : IDisposable
                 if (info != null && info->Id != 0)
                 {
                     var fcGil = inventory->GetFreeCompanyGil();
-                    var fcName = info->NameString;
-                    if (!plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var fc) ||
-                        fc.Gil != fcGil || (!string.IsNullOrWhiteSpace(fcName) && fc.Name != fcName) || !fcGilWasLoaded)
+                    if (observedFreeCompanyId != info->Id || observedFreeCompanyGil != fcGil)
                     {
-                        fc ??= new FreeCompanyGilRecord { FreeCompanyId = info->Id };
-                        if (!string.IsNullOrWhiteSpace(fcName))
-                            fc.Name = fcName;
-                        else if (IsGeneratedFcName(fc.Name))
-                            fc.Name = "不明なFC";
-                        fc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
-                        fc.Gil = fcGil;
-                        fc.UpdatedAt = DateTime.Now;
-                        fc.LastCheckedByContentId = contentId;
-                        fc.LastCheckedByName = Plugin.PlayerState.CharacterName;
-                        plugin.Configuration.FreeCompanyGil[info->Id] = fc;
-                        changed = true;
+                        observedFreeCompanyId = info->Id;
+                        observedFreeCompanyGil = fcGil;
+                        observedFreeCompanyGilCount = 1;
+                    }
+                    else
+                    {
+                        observedFreeCompanyGilCount++;
                     }
 
+                    if (observedFreeCompanyGilCount >= 2)
+                    {
+                        var fcName = info->NameString;
+                        if (!plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var fc) ||
+                            fc.Gil != fcGil || !fc.GilConfirmed ||
+                            (!string.IsNullOrWhiteSpace(fcName) && fc.Name != fcName))
+                        {
+                            fc ??= new FreeCompanyGilRecord { FreeCompanyId = info->Id };
+                            if (!string.IsNullOrWhiteSpace(fcName))
+                                fc.Name = fcName;
+                            else if (IsGeneratedFcName(fc.Name))
+                                fc.Name = "不明なFC";
+                            fc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
+                            fc.Gil = fcGil;
+                            fc.GilConfirmed = true;
+                            fc.UpdatedAt = DateTime.Now;
+                            fc.LastCheckedByContentId = contentId;
+                            fc.LastCheckedByName = Plugin.PlayerState.CharacterName;
+                            plugin.Configuration.FreeCompanyGil[info->Id] = fc;
+                            changed = true;
+                        }
+                    }
                 }
             }
-            fcGilWasLoaded = fcContainer != null && fcContainer->IsLoaded;
+            else
+            {
+                observedFreeCompanyId = 0;
+                observedFreeCompanyGil = 0;
+                observedFreeCompanyGilCount = 0;
+            }
 
             var infoModule = InfoModule.Instance();
             var workshopInfo = infoModule == null ? null : infoModule->GetInfoProxyFreeCompany();
