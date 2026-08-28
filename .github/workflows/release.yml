@@ -85,9 +85,16 @@ jobs:
         run: |
           $project = [xml](Get-Content AltMate.csproj)
           $projectVersion = [string]$project.Project.PropertyGroup.Version
+          # Public release versions use SemVer (major.minor.patch), while the
+          # generated .NET assembly manifest requires a four-part Version.
+          $manifestVersion = if ($projectVersion.Split('.').Count -eq 3) {
+            "$projectVersion.0"
+          } else {
+            $projectVersion
+          }
           $repo = Get-Content repo.json -Raw | ConvertFrom-Json
-          if ($repo[0].AssemblyVersion -ne $projectVersion) {
-            throw "repo.json AssemblyVersion '$($repo[0].AssemblyVersion)' does not match project version '$projectVersion'."
+          if ($repo[0].AssemblyVersion -ne $manifestVersion) {
+            throw "repo.json AssemblyVersion '$($repo[0].AssemblyVersion)' does not match manifest version '$manifestVersion'."
           }
 
       - name: Package Dalamud plugin
