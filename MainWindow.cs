@@ -799,8 +799,6 @@ public sealed partial class MainWindow : Window
 
     private void DrawSubmarineStatus()
     {
-        DrawSubmarineAutomationControls();
-        ImGui.Separator();
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
                     ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable;
         var submarines = plugin.Configuration.FreeCompanyGil.Values
@@ -822,88 +820,6 @@ public sealed partial class MainWindow : Window
                 DrawSubmarineRow(fc, submarine);
             ImGui.EndTable();
         }
-    }
-
-    private void DrawSubmarineAutomationControls()
-    {
-        var autoRetainer = plugin.AutoRetainer;
-        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f),
-            Loc.L("AutoRetainer連携", "AutoRetainer integration"));
-        ImGui.TextWrapped(Loc.L(
-            "対象キャラクター、潜水艦、修理、航路はAutoRetainer側で設定します。Multi Modeは「Submersibles」にしてください。",
-            "Configure characters, vessels, repairs, and routes in AutoRetainer, with Multi Mode set to Submersibles."));
-
-        if (!autoRetainer.IsAvailable)
-        {
-            ImGui.TextColored(new Vector4(1f, 0.45f, 0.35f, 1f),
-                Loc.L("AutoRetainerが読み込まれていません。", "AutoRetainer is not loaded."));
-            return;
-        }
-
-        var running = autoRetainer.IsMultiModeEnabled;
-        var mode = autoRetainer.Mode;
-        var modeText = mode switch
-        {
-            AutoRetainerIntegration.ConfiguredMode.Submersibles => Loc.L("潜水艦", "Submersibles"),
-            AutoRetainerIntegration.ConfiguredMode.Retainers => Loc.L("リテイナー", "Retainers"),
-            AutoRetainerIntegration.ConfiguredMode.Everything => Loc.L("すべて", "Everything"),
-            _ => Loc.L("取得不能", "Unavailable"),
-        };
-        ImGui.TextDisabled(Loc.L($"AutoRetainerモード：{modeText}", $"AutoRetainer mode: {modeText}"));
-        if (!running)
-        {
-            if (Plugin.PlayerState.IsLoaded &&
-                ImGui.Button(Loc.L("現在のキャラだけ処理", "Process current character")))
-                autoRetainer.StartCurrentCharacter();
-            if (Plugin.PlayerState.IsLoaded)
-                ImGui.SameLine();
-            var canStartAll = mode == AutoRetainerIntegration.ConfiguredMode.Submersibles;
-            if (!canStartAll)
-                ImGui.BeginDisabled();
-            if (ImGui.Button(Loc.L("全対象キャラを巡回", "Cycle all configured characters")))
-                autoRetainer.Start();
-            if (!canStartAll)
-                ImGui.EndDisabled();
-        }
-        else if (ImGui.Button(Loc.L("潜水艦巡回を停止", "Stop submersible cycle")))
-        {
-            autoRetainer.Stop();
-        }
-        ImGui.SameLine();
-        ImGui.TextColored(running ? new Vector4(0.3f, 0.9f, 0.45f, 1f) : new Vector4(0.7f, 0.7f, 0.7f, 1f),
-            running ? Loc.L("巡回中", "Running") : Loc.L("停止中", "Stopped"));
-        if (autoRetainer.IsBusy)
-            ImGui.TextDisabled(Loc.L("AutoRetainerが処理を実行しています。", "AutoRetainer is processing a task."));
-        if (!string.IsNullOrEmpty(autoRetainer.TravelStatus))
-            ImGui.TextColored(new Vector4(0.95f, 0.78f, 0.25f, 1f), autoRetainer.TravelStatus);
-
-        var characters = autoRetainer.GetCharacterStatuses();
-        if (characters.Count == 0)
-        {
-            ImGui.TextDisabled(Loc.L("AutoRetainerの登録キャラクターを取得できません。",
-                "Could not read AutoRetainer characters."));
-            return;
-        }
-        if (!ImGui.BeginTable("autoretainer-character-status", 2,
-                ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp))
-            return;
-        ImGui.TableSetupColumn(Loc.L("キャラクター", "Character"));
-        ImGui.TableSetupColumn(Loc.L("潜水艦状態", "Vessel status"), ImGuiTableColumnFlags.WidthFixed,
-            150 * ImGuiHelpers.GlobalScale);
-        ImGui.TableHeadersRow();
-        foreach (var character in characters)
-        {
-            ImGui.TableNextRow();
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(character.Name);
-            ImGui.TableNextColumn();
-            var status = character.HasReadyVessel == true ? Loc.L("帰還対象あり", "Ready") :
-                character.HasIdleVessel == true ? Loc.L("未出航あり", "Not deployed") :
-                character.HasReadyVessel == false && character.HasIdleVessel == false
-                    ? Loc.L("待機中", "Waiting") : Loc.L("未確認", "Unknown");
-            ImGui.TextUnformatted(status);
-        }
-        ImGui.EndTable();
     }
 
     private void DrawSubmarineTreasureRevenue()

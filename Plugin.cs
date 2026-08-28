@@ -68,7 +68,6 @@ public sealed class Plugin : IDalamudPlugin
     internal AnimationService Animations { get; }
     internal RoleBasedFpsController RoleBasedFps { get; }
     internal CustomDeliveryService CustomDeliveries { get; }
-    internal AutoRetainerIntegration AutoRetainer { get; }
     internal string IconPath { get; }
 
     internal Configuration Configuration { get; }
@@ -116,7 +115,6 @@ public sealed class Plugin : IDalamudPlugin
         CharacterLink = new CharacterLinkCoordinator(this);
         RoleBasedFps = new RoleBasedFpsController(this);
         CustomDeliveries = new CustomDeliveryService(this);
-        AutoRetainer = new AutoRetainerIntegration();
         wardObserver = HousingWardObserver.TryCreate(this);
         gilTracker = new GilTracker(this);
         housingDemolitionTracker = new HousingDemolitionTracker(this);
@@ -877,7 +875,6 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Animations.Dispose();
-        AutoRetainer.Dispose();
         CustomDeliveries.Dispose();
         RoleBasedFps.Dispose();
         CharacterLink.Dispose();
