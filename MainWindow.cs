@@ -27,6 +27,7 @@ public sealed partial class MainWindow : Window
     private enum HousingSection
     {
         Lottery,
+        Demolition,
         OpenPlots,
         Characters,
     }
@@ -487,6 +488,9 @@ public sealed partial class MainWindow : Window
         if (DrawSubMenuButton(Loc.L("抽選状態", "Lottery Status"), selectedHousingSection == HousingSection.Lottery))
             SelectHousingSection(HousingSection.Lottery);
         ImGui.SameLine();
+        if (DrawSubMenuButton(Loc.L("保持期限", "Demolition Timer"), selectedHousingSection == HousingSection.Demolition))
+            SelectHousingSection(HousingSection.Demolition);
+        ImGui.SameLine();
         if (DrawSubMenuButton($"{Loc.L("空き土地", "Open Plots")} ({plugin.Configuration.OpenPlots.Count})", selectedHousingSection == HousingSection.OpenPlots))
             SelectHousingSection(HousingSection.OpenPlots);
         ImGui.SameLine();
@@ -500,6 +504,9 @@ public sealed partial class MainWindow : Window
             case HousingSection.Lottery:
                 DrawLotteryStatusTab();
                 break;
+            case HousingSection.Demolition:
+                DrawHousingDemolitionTab();
+                break;
             case HousingSection.OpenPlots:
                 DrawOpenPlotsTab();
                 break;
@@ -507,6 +514,73 @@ public sealed partial class MainWindow : Window
                 DrawDisplaySettingsTab(false);
                 break;
         }
+    }
+
+    private void DrawHousingDemolitionTab()
+    {
+        ImGui.TextDisabled(Loc.L(
+            "所有住宅へ入室すると最終入室日時を記録し、40日後までの残り時間を表示します。",
+            "Entering an owned estate records the visit and shows the time remaining in the 40-day period."));
+        ImGui.TextDisabled(Loc.L(
+            "ゲーム内の自動撤去が停止・延長された場合、実際の期限とは異なることがあります。",
+            "The actual deadline may differ while automatic demolition is suspended or extended."));
+        ImGui.Spacing();
+
+        var flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
+        if (!ImGui.BeginTable("housing-demolition", 5, flags))
+            return;
+        ImGui.TableSetupColumn(Loc.L("管理", "Track"), ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("キャラクター", "Character"));
+        ImGui.TableSetupColumn(Loc.L("住宅", "Estate"), ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("最終入室日", "Last entry"));
+        ImGui.TableSetupColumn(Loc.L("残り時間", "Remaining"));
+        ImGui.TableHeadersRow();
+
+        foreach (var record in plugin.Configuration.HousingDemolition.Values
+                     .OrderBy(x => x.CharacterName, StringComparer.CurrentCultureIgnoreCase)
+                     .ThenBy(x => x.EstateKind))
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn();
+            var enabled = record.EnabledForTracking;
+            if (ImGui.Checkbox($"##track-{record.ContentId}-{record.EstateKind}", ref enabled))
+            {
+                record.EnabledForTracking = enabled;
+                record.UpdatedAt = DateTime.Now;
+                plugin.Configuration.Save();
+            }
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted($"{record.CharacterName}\n{record.WorldName}");
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(record.EstateKind == OwnedEstateKind.Personal
+                ? Loc.L("個人宅", "Personal") : Loc.L("FC宅", "FC"));
+            ImGui.TableNextColumn();
+            if (!record.IsOwned)
+                ImGui.TextDisabled(Loc.L("未保有", "Not owned"));
+            else if (record.LastEnteredAt is null)
+                ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f), Loc.L("未入室", "Not recorded"));
+            else
+                ImGui.TextUnformatted(record.LastEnteredAt.Value.ToString("yyyy/MM/dd HH:mm"));
+            ImGui.TableNextColumn();
+            if (!record.EnabledForTracking || !record.IsOwned)
+                ImGui.TextDisabled("—");
+            else if (record.LastEnteredAt is null)
+                ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f), Loc.L("入室して開始", "Enter to start"));
+            else
+            {
+                var remaining = record.LastEnteredAt.Value.AddDays(40) - DateTime.Now;
+                var text = remaining <= TimeSpan.Zero
+                    ? Loc.L("期限超過", "Overdue")
+                    : Loc.L($"{remaining.Days}日 {remaining.Hours}時間", $"{remaining.Days}d {remaining.Hours}h");
+                var color = remaining <= TimeSpan.FromDays(5)
+                    ? new Vector4(1f, 0.35f, 0.3f, 1f)
+                    : remaining <= TimeSpan.FromDays(10)
+                        ? new Vector4(1f, 0.72f, 0.2f, 1f)
+                        : new Vector4(0.45f, 0.9f, 0.55f, 1f);
+                ImGui.TextColored(color, text);
+            }
+        }
+        ImGui.EndTable();
     }
 
     private static bool DrawSubMenuButton(string label, bool selected)
