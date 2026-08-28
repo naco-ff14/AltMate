@@ -290,10 +290,10 @@ public sealed partial class MainWindow : Window
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(330, 70),
-            MaximumSize = new Vector2(420, 82),
+            MinimumSize = new Vector2(400, 70),
+            MaximumSize = new Vector2(500, 82),
         };
-        Size = new Vector2(350, 74);
+        Size = new Vector2(440, 74);
         SizeCondition = ImGuiCond.Always;
         clearForcedSize = true;
     }
@@ -321,6 +321,22 @@ public sealed partial class MainWindow : Window
             ImGui.Dummy(new Vector2(iconSize, iconSize));
         ImGui.SameLine();
         ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 3 * ImGuiHelpers.GlobalScale);
+        var linkEnabled = plugin.Configuration.LinkEnabled;
+        ImGui.PushStyleColor(ImGuiCol.Button, linkEnabled
+            ? new Vector4(0.72f, 0.14f, 0.12f, 0.95f)
+            : new Vector4(0.12f, 0.52f, 0.28f, 0.95f));
+        if (ImGui.SmallButton(linkEnabled
+                ? Loc.L("連携停止##compact-link", "Stop link##compact-link")
+                : Loc.L("連携開始##compact-link", "Start link##compact-link")))
+        {
+            plugin.Configuration.LinkEnabled = !linkEnabled;
+            plugin.Configuration.Save();
+            if (!linkEnabled && plugin.CharacterLink.RuntimeStopped)
+                plugin.CharacterLink.Resume();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.PopStyleColor();
+        ImGui.SameLine();
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.72f, 0.08f, 0.08f, 0.95f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.12f, 0.12f, 1f));
         if (ImGui.SmallButton($"{Loc.T("EmergencyStop")}##compact-stop"))
@@ -338,10 +354,13 @@ public sealed partial class MainWindow : Window
         ImGui.SetCursorPosY(42 * ImGuiHelpers.GlobalScale);
         ImGui.TextDisabled($"{Loc.T("Status")}：");
         ImGui.SameLine(0, 2 * ImGuiHelpers.GlobalScale);
-        var statusColor = plugin.CharacterLink.RuntimeStopped
+        var statusColor = plugin.CharacterLink.RuntimeStopped || !plugin.Configuration.LinkEnabled
             ? new Vector4(1f, 0.32f, 0.28f, 1f)
             : new Vector4(0.42f, 0.82f, 1f, 1f);
-        ImGui.TextColored(statusColor, Loc.Status(GetDisplayedStatus(plugin.CharacterLink.LastAction, x => x.LastAction)));
+        var status = !plugin.Configuration.LinkEnabled
+            ? Loc.L("連携停止中", "Link stopped")
+            : Loc.Status(GetDisplayedStatus(plugin.CharacterLink.LastAction, x => x.LastAction));
+        ImGui.TextColored(statusColor, status);
     }
 
     private void DrawMenuButton(string label, MainSection section, int badge = 0, string? detail = null)
