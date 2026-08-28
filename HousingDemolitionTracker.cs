@@ -2,6 +2,7 @@ using Dalamud.Plugin.Services;
 using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 
 namespace AltMate;
@@ -67,7 +68,7 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
     private static EstateSnapshot GetOwnedEstate(EstateType type)
     {
         var telepo = Telepo.Instance();
-        if (telepo != null && telepo->TeleportList.Count > 0)
+        if (telepo != null)
         {
             for (var index = 0; index < telepo->TeleportList.Count; index++)
             {
@@ -80,16 +81,19 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
                 var plot = info.Plot > 0 ? info.Plot : (byte)(info.HouseId.PlotIndex + 1);
                 return new EstateSnapshot(info.HouseId.Id, info.HouseId.WorldId, territory, ward, plot, true);
             }
-
-            // A populated teleport list is authoritative: no matching entry means
-            // this character does not currently own an estate of this type.
-            return new EstateSnapshot(0, 0, 0, 0, 0, true);
         }
 
         var owned = HousingManager.GetOwnedHouseId(type);
-        return IsValidHouseId(owned)
-            ? new EstateSnapshot(owned.Id, owned.WorldId, owned.TerritoryTypeId,
-                (byte)(owned.WardIndex + 1), (byte)(owned.PlotIndex + 1), true)
+        if (IsValidHouseId(owned))
+            return new EstateSnapshot(owned.Id, owned.WorldId, owned.TerritoryTypeId,
+                (byte)(owned.WardIndex + 1), (byte)(owned.PlotIndex + 1), true);
+
+        // Normal teleport destinations may already be cached immediately after
+        // login while estate destinations are still unavailable. Only an open
+        // teleport window makes an absent estate entry authoritative.
+        var teleportAddon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("Teleport").Address;
+        return teleportAddon != null && teleportAddon->IsVisible
+            ? new EstateSnapshot(0, 0, 0, 0, 0, true)
             : default;
     }
 
