@@ -1,4 +1,5 @@
 using Dalamud.Plugin.Services;
+using Dalamud.Game.ClientState.Conditions;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using System;
@@ -29,10 +30,15 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         try
         {
             var contentId = Plugin.PlayerState.ContentId;
-            var personal = GetOwnedEstate(EstateType.PersonalEstate);
-            var freeCompany = GetOwnedEstate(EstateType.FreeCompanyEstate);
-            var changed = UpdateOwnership(contentId, OwnedEstateKind.Personal, personal) |
+            var changed = false;
+            // コンテンツ内では所有住宅APIが無効値を返すため、正常取得済みの情報を維持する。
+            if (!IsBoundByDuty())
+            {
+                var personal = GetOwnedEstate(EstateType.PersonalEstate);
+                var freeCompany = GetOwnedEstate(EstateType.FreeCompanyEstate);
+                changed = UpdateOwnership(contentId, OwnedEstateKind.Personal, personal) |
                           UpdateOwnership(contentId, OwnedEstateKind.FreeCompany, freeCompany);
+            }
 
             var manager = HousingManager.Instance();
             var indoor = manager != null && manager->IndoorTerritory != null
@@ -50,6 +56,11 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
             Plugin.Log.Debug(exception, "住宅保持期限の確認に失敗しました。");
         }
     }
+
+    private static bool IsBoundByDuty() =>
+        Plugin.Condition[ConditionFlag.BoundByDuty] ||
+        Plugin.Condition[ConditionFlag.BoundByDuty56] ||
+        Plugin.Condition[ConditionFlag.BoundByDuty95];
 
     private static EstateSnapshot GetOwnedEstate(EstateType type)
     {
