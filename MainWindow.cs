@@ -26,10 +26,10 @@ public sealed partial class MainWindow : Window
 
     private enum HousingSection
     {
-        Lottery,
-        Demolition,
-        OpenPlots,
-        Characters,
+        Lottery = 0,
+        OpenPlots = 1,
+        Characters = 2,
+        Demolition = 3,
     }
 
     private static readonly CultureInfo JapaneseCulture = CultureInfo.GetCultureInfo("ja-JP");
@@ -526,49 +526,72 @@ public sealed partial class MainWindow : Window
             "The actual deadline may differ while automatic demolition is suspended or extended."));
         ImGui.Spacing();
 
+        var selectedContentIds = plugin.Configuration.Characters.Values
+            .Where(x => x.EnabledForDemolitionDisplay)
+            .Select(x => x.ContentId)
+            .ToHashSet();
+        var estates = plugin.Configuration.HousingDemolition.Values
+            .Where(x => x.IsOwned)
+            .GroupBy(x => x.EstateKind == OwnedEstateKind.FreeCompany
+                ? $"fc:{NormalizeHouseId(x.HouseId)}"
+                : $"personal:{x.ContentId}:{NormalizeHouseId(x.HouseId)}")
+            .Where(group => group.Any(x => selectedContentIds.Contains(x.ContentId)))
+            .Select(group => new
+            {
+                Estate = group.OrderByDescending(x => x.LastOwnershipCheckedAt).First(),
+                LastEntry = group.Where(x => x.LastEnteredAt.HasValue)
+                    .OrderByDescending(x => x.LastEnteredAt).FirstOrDefault(),
+            })
+            .OrderBy(x => FormatHouseAddress(x.Estate.HouseId), StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        if (selectedContentIds.Count == 0)
+        {
+            ImGui.TextDisabled(Loc.L(
+                "表示するキャラクターが選択されていません。「表示キャラクター」で保持期限を選択してください。",
+                "No characters are selected. Enable Demolition Timer under Displayed Characters."));
+            return;
+        }
+        if (estates.Count == 0)
+        {
+            ImGui.TextDisabled(Loc.L(
+                "選択したキャラクターの所有住宅はまだ検出されていません。対象キャラクターでログインしてください。",
+                "No owned estates have been detected for the selected characters. Log in with those characters first."));
+            return;
+        }
+
         var flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
         if (!ImGui.BeginTable("housing-demolition", 5, flags))
             return;
-        ImGui.TableSetupColumn(Loc.L("管理", "Track"), ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn(Loc.L("キャラクター", "Character"));
+        ImGui.TableSetupColumn(Loc.L("ハウス住所", "Estate Address"), ImGuiTableColumnFlags.WidthStretch, 1.6f);
         ImGui.TableSetupColumn(Loc.L("住宅", "Estate"), ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("最終入室キャラ", "Last Character"));
         ImGui.TableSetupColumn(Loc.L("最終入室日", "Last entry"));
         ImGui.TableSetupColumn(Loc.L("残り時間", "Remaining"));
         ImGui.TableHeadersRow();
 
-        foreach (var record in plugin.Configuration.HousingDemolition.Values
-                     .OrderBy(x => x.CharacterName, StringComparer.CurrentCultureIgnoreCase)
-                     .ThenBy(x => x.EstateKind))
+        foreach (var estate in estates)
         {
+            var record = estate.Estate;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            var enabled = record.EnabledForTracking;
-            if (ImGui.Checkbox($"##track-{record.ContentId}-{record.EstateKind}", ref enabled))
-            {
-                record.EnabledForTracking = enabled;
-                record.UpdatedAt = DateTime.Now;
-                plugin.Configuration.Save();
-            }
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted($"{record.CharacterName}\n{record.WorldName}");
+            ImGui.TextWrapped(FormatHouseAddress(record.HouseId));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(record.EstateKind == OwnedEstateKind.Personal
                 ? Loc.L("個人宅", "Personal") : Loc.L("FC宅", "FC"));
             ImGui.TableNextColumn();
-            if (!record.IsOwned)
-                ImGui.TextDisabled(Loc.L("未保有", "Not owned"));
-            else if (record.LastEnteredAt is null)
+            ImGui.TextUnformatted(estate.LastEntry?.CharacterName ?? "—");
+            ImGui.TableNextColumn();
+            if (estate.LastEntry?.LastEnteredAt is null)
                 ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f), Loc.L("未入室", "Not recorded"));
             else
-                ImGui.TextUnformatted(record.LastEnteredAt.Value.ToString("yyyy/MM/dd HH:mm"));
+                ImGui.TextUnformatted(estate.LastEntry.LastEnteredAt.Value.ToString("yyyy/MM/dd HH:mm"));
             ImGui.TableNextColumn();
-            if (!record.EnabledForTracking || !record.IsOwned)
-                ImGui.TextDisabled("—");
-            else if (record.LastEnteredAt is null)
+            if (estate.LastEntry?.LastEnteredAt is null)
                 ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f), Loc.L("入室して開始", "Enter to start"));
             else
             {
-                var remaining = record.LastEnteredAt.Value.AddDays(40) - DateTime.Now;
+                var remaining = estate.LastEntry.LastEnteredAt.Value.AddDays(40) - DateTime.Now;
                 var text = remaining <= TimeSpan.Zero
                     ? Loc.L("期限超過", "Overdue")
                     : Loc.L($"{remaining.Days}日 {remaining.Hours}時間", $"{remaining.Days}d {remaining.Hours}h");
@@ -581,6 +604,23 @@ public sealed partial class MainWindow : Window
             }
         }
         ImGui.EndTable();
+    }
+
+    private static ulong NormalizeHouseId(ulong value)
+    {
+        var id = (FFXIVClientStructs.FFXIV.Client.Game.HouseId)value;
+        return ((ulong)id.WorldId << 48) | ((ulong)id.TerritoryTypeId << 32) |
+               ((ulong)id.WardIndex << 8) | id.PlotIndex;
+    }
+
+    private static string FormatHouseAddress(ulong value)
+    {
+        var id = (FFXIVClientStructs.FFXIV.Client.Game.HouseId)value;
+        var world = Plugin.GetWorldName(id.WorldId);
+        var district = Plugin.GetDistrictName(id.TerritoryTypeId);
+        return Loc.IsEnglish
+            ? $"{world} / {district} / Ward {id.WardIndex + 1}, Plot {id.PlotIndex + 1}"
+            : $"{world} / {district} 第{id.WardIndex + 1}区 {id.PlotIndex + 1}番地";
     }
 
     private static bool DrawSubMenuButton(string label, bool selected)
@@ -1581,18 +1621,39 @@ public sealed partial class MainWindow : Window
         if (showPageTitle)
             DrawPageTitle(Loc.L("表示キャラクター", "Displayed Characters"), Loc.L("一覧表示とログイン時の通知に使用するキャラクターを選択します。", "Choose characters used in lists and login notifications."));
         ImGui.TextUnformatted(Loc.L("表示するキャラクター", "Characters to display"));
-        ImGui.TextDisabled(Loc.L("チェックしたキャラクターだけ、一覧表示とログイン時の自動表示の対象になります。", "Only checked characters appear in lists and login notifications."));
+        ImGui.TextDisabled(Loc.L("抽選状態と保持期限で、表示するキャラクターをそれぞれ選択できます。", "Choose displayed characters separately for Lottery Status and Demolition Timer."));
         ImGui.Spacing();
 
-        foreach (var record in OrderedCharacters())
+        var flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
+        if (ImGui.BeginTable("display-characters", 3, flags))
         {
-            var enabled = record.EnabledForDisplay;
-            if (ImGui.Checkbox($"{record.CharacterName} @ {record.WorldName}##display-{record.ContentId}", ref enabled))
+            ImGui.TableSetupColumn(Loc.T("Character"));
+            ImGui.TableSetupColumn(Loc.L("抽選状態", "Lottery Status"), ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("保持期限", "Demolition Timer"), ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
+            ImGui.TableHeadersRow();
+            foreach (var record in OrderedCharacters())
             {
-                record.EnabledForDisplay = enabled;
-                record.LastCheckedAt = DateTime.Now;
-                plugin.Configuration.Save();
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                ImGui.TextUnformatted($"{record.CharacterName} @ {record.WorldName}");
+                ImGui.TableNextColumn();
+                var lottery = record.EnabledForDisplay;
+                if (ImGui.Checkbox($"##lottery-display-{record.ContentId}", ref lottery))
+                {
+                    record.EnabledForDisplay = lottery;
+                    record.LastCheckedAt = DateTime.Now;
+                    plugin.Configuration.Save();
+                }
+                ImGui.TableNextColumn();
+                var demolition = record.EnabledForDemolitionDisplay;
+                if (ImGui.Checkbox($"##demolition-display-{record.ContentId}", ref demolition))
+                {
+                    record.EnabledForDemolitionDisplay = demolition;
+                    record.LastCheckedAt = DateTime.Now;
+                    plugin.Configuration.Save();
+                }
             }
+            ImGui.EndTable();
         }
 
         ImGui.Separator();
