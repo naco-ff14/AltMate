@@ -67,7 +67,7 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
     private static EstateSnapshot GetOwnedEstate(EstateType type)
     {
         var telepo = Telepo.Instance();
-        if (telepo != null)
+        if (telepo != null && telepo->TeleportList.Count > 0)
         {
             for (var index = 0; index < telepo->TeleportList.Count; index++)
             {
@@ -78,14 +78,18 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
                     ? info.HouseId.TerritoryTypeId : info.TerritoryId;
                 var ward = info.Ward > 0 ? info.Ward : (byte)(info.HouseId.WardIndex + 1);
                 var plot = info.Plot > 0 ? info.Plot : (byte)(info.HouseId.PlotIndex + 1);
-                return new EstateSnapshot(info.HouseId.Id, info.HouseId.WorldId, territory, ward, plot);
+                return new EstateSnapshot(info.HouseId.Id, info.HouseId.WorldId, territory, ward, plot, true);
             }
+
+            // A populated teleport list is authoritative: no matching entry means
+            // this character does not currently own an estate of this type.
+            return new EstateSnapshot(0, 0, 0, 0, 0, true);
         }
 
         var owned = HousingManager.GetOwnedHouseId(type);
         return IsValidHouseId(owned)
             ? new EstateSnapshot(owned.Id, owned.WorldId, owned.TerritoryTypeId,
-                (byte)(owned.WardIndex + 1), (byte)(owned.PlotIndex + 1))
+                (byte)(owned.WardIndex + 1), (byte)(owned.PlotIndex + 1), true)
             : default;
     }
 
@@ -97,6 +101,12 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
 
     private bool UpdateOwnership(ulong contentId, OwnedEstateKind kind, EstateSnapshot estate)
     {
+        // Until the teleport list has been loaded, the housing API can return an
+        // invalid value. Keep the last confirmed estate so entry detection can
+        // continue without opening the teleport window on every login.
+        if (!estate.IsKnown)
+            return false;
+
         var key = HousingDemolitionRecord.Key(contentId, kind);
         if (!plugin.Configuration.HousingDemolition.TryGetValue(key, out var record))
         {
@@ -160,7 +170,7 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
     public void Dispose() => Plugin.Framework.Update -= OnFrameworkUpdate;
 
     private readonly record struct EstateSnapshot(
-        ulong HouseId, ushort WorldId, ushort TerritoryTypeId, byte Ward, byte Plot)
+        ulong HouseId, ushort WorldId, ushort TerritoryTypeId, byte Ward, byte Plot, bool IsKnown)
     {
         internal bool IsValid => HouseId != 0 && WorldId != 0 && TerritoryTypeId != 0 &&
                                  Ward is >= 1 and <= 30 && Plot is >= 1 and <= 60;

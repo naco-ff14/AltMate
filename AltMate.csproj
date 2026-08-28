@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.33.0.8</Version>
+    <Version>1.33.0.9</Version>
     <AssemblyName>AltMate</AssemblyName>
     <RootNamespace>AltMate</RootNamespace>
     <Description>Multi-character linking, housing, animation, and gil management for FFXIV.</Description>
