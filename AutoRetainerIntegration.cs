@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Reflection;
+using FFXIVClientStructs.FFXIV.Client.Game;
 
 namespace AltMate;
 
@@ -9,10 +10,22 @@ namespace AltMate;
 /// Keeps AltMate as the coordinator while AutoRetainer owns voyage UI,
 /// repair, redeployment, housing travel, and character switching.
 /// </summary>
-internal sealed class AutoRetainerIntegration
+internal sealed unsafe class AutoRetainerIntegration : IDisposable
 {
+    private enum PendingStart
+    {
+        None,
+        CurrentCharacter,
+        AllCharacters,
+        ResumeAllCharacters,
+    }
+
     private DateTime statusCacheExpiresUtc;
     private IReadOnlyList<AutoRetainerCharacterStatus> statusCache = [];
+    private PendingStart pendingStart;
+    private DateTime pendingDeadlineUtc;
+    private DateTime nextWorkshopRequestUtc;
+    private bool ownsAllCharacterCycle;
 
     internal enum ConfiguredMode
     {
@@ -108,6 +121,11 @@ internal sealed class AutoRetainerIntegration
     {
         if (!IsAvailable || !Plugin.PlayerState.IsLoaded)
             return false;
+        return BeginWorkshopTravel(PendingStart.CurrentCharacter);
+    }
+
+    private bool InvokeSingleCharacterStart()
+    {
         try
         {
             var apiAssembly = AppDomain.CurrentDomain.GetAssemblies()
@@ -136,8 +154,13 @@ internal sealed class AutoRetainerIntegration
 
     internal bool Start()
     {
-        if (!IsAvailable || Mode != ConfiguredMode.Submersibles)
+        if (!IsAvailable || !Plugin.PlayerState.IsLoaded || Mode != ConfiguredMode.Submersibles)
             return false;
+        return BeginWorkshopTravel(PendingStart.AllCharacters);
+    }
+
+    private bool InvokeAllCharacterStart()
+    {
         try
         {
             Plugin.PluginInterface.GetIpcSubscriber<bool, object>("AutoRetainer.SetMultiModeEnabled")
@@ -194,10 +217,13 @@ internal sealed class AutoRetainerIntegration
             return false;
         try
         {
+            pendingStart = PendingStart.None;
+            ownsAllCharacterCycle = false;
             Plugin.PluginInterface.GetIpcSubscriber<bool, object>("AutoRetainer.SetMultiModeEnabled")
                 .InvokeAction(false);
             Plugin.PluginInterface.GetIpcSubscriber<object>("AutoRetainer.PluginState.AbortAllTasks")
                 .InvokeAction();
+            SetAutoRetainerSuppressed(false);
             Plugin.ChatGui.Print(Loc.L(
                 "AltMate：AutoRetainerの潜水艦巡回を停止しました。",
                 "AltMate: Stopped the AutoRetainer submersible cycle."));
@@ -208,6 +234,145 @@ internal sealed class AutoRetainerIntegration
             Plugin.Log.Warning(exception, "AutoRetainerのMulti Modeを停止できませんでした。");
             return false;
         }
+    }
+
+    private bool BeginWorkshopTravel(PendingStart start)
+    {
+        if (!IsLifestreamAvailable())
+        {
+            Plugin.ChatGui.PrintError(Loc.L(
+                "AltMate：FC地下工房への移動にはLifestreamが必要です。",
+                "AltMate: Lifestream is required to travel to the company workshop."));
+            return false;
+        }
+        pendingStart = start;
+        pendingDeadlineUtc = DateTime.UtcNow.AddMinutes(3);
+        nextWorkshopRequestUtc = DateTime.MinValue;
+        if (start == PendingStart.ResumeAllCharacters)
+            SetAutoRetainerSuppressed(true);
+        UpdateWorkshopTravel();
+        return true;
+    }
+
+    private void OnLogin()
+    {
+        if (!ownsAllCharacterCycle || !IsMultiModeEnabled)
+            return;
+        BeginWorkshopTravel(PendingStart.ResumeAllCharacters);
+    }
+
+    private void OnFrameworkUpdate(Dalamud.Plugin.Services.IFramework _)
+    {
+        if (pendingStart == PendingStart.None)
+            return;
+        UpdateWorkshopTravel();
+    }
+
+    private void UpdateWorkshopTravel()
+    {
+        if (pendingStart == PendingStart.None || !Plugin.PlayerState.IsLoaded)
+            return;
+        if (DateTime.UtcNow > pendingDeadlineUtc)
+        {
+            var resume = pendingStart == PendingStart.ResumeAllCharacters;
+            pendingStart = PendingStart.None;
+            if (resume)
+            {
+                ownsAllCharacterCycle = false;
+                SetAutoRetainerSuppressed(false);
+            }
+            Plugin.ChatGui.PrintError(Loc.L(
+                "AltMate：FC地下工房への移動が時間切れになったため停止しました。",
+                "AltMate: Stopped because travel to the company workshop timed out."));
+            return;
+        }
+
+        if (HousingManager.Instance()->WorkshopTerritory != null)
+        {
+            var completed = pendingStart;
+            pendingStart = PendingStart.None;
+            if (completed == PendingStart.CurrentCharacter)
+                InvokeSingleCharacterStart();
+            else if (completed == PendingStart.AllCharacters)
+            {
+                ownsAllCharacterCycle = InvokeAllCharacterStart();
+            }
+            else
+                SetAutoRetainerSuppressed(false);
+            return;
+        }
+
+        if (IsLifestreamBusy() || DateTime.UtcNow < nextWorkshopRequestUtc)
+            return;
+        try
+        {
+            // "ws" targets the FC workshop directly. It never falls back to a
+            // nearby apartment or private-estate entrance.
+            Plugin.PluginInterface.GetIpcSubscriber<string, object>("Lifestream.ExecuteCommand")
+                .InvokeAction("ws");
+            nextWorkshopRequestUtc = DateTime.UtcNow.AddSeconds(15);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "LifestreamでFC地下工房へ移動できませんでした。");
+            nextWorkshopRequestUtc = DateTime.UtcNow.AddSeconds(5);
+        }
+    }
+
+    private static bool IsLifestreamAvailable()
+    {
+        try
+        {
+            Plugin.PluginInterface.GetIpcSubscriber<bool>("Lifestream.IsBusy").InvokeFunc();
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsLifestreamBusy()
+    {
+        try
+        {
+            return Plugin.PluginInterface.GetIpcSubscriber<bool>("Lifestream.IsBusy").InvokeFunc();
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static void SetAutoRetainerSuppressed(bool suppressed)
+    {
+        try
+        {
+            Plugin.PluginInterface.GetIpcSubscriber<bool, object>("AutoRetainer.SetSuppressed")
+                .InvokeAction(suppressed);
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Warning(exception, "AutoRetainerの一時停止状態を変更できませんでした。");
+        }
+    }
+
+    internal string TravelStatus => pendingStart == PendingStart.None
+        ? string.Empty
+        : Loc.L("FC地下工房へ移動中", "Traveling to the company workshop");
+
+    internal AutoRetainerIntegration()
+    {
+        Plugin.Framework.Update += OnFrameworkUpdate;
+        Plugin.ClientState.Login += OnLogin;
+    }
+
+    public void Dispose()
+    {
+        Plugin.Framework.Update -= OnFrameworkUpdate;
+        Plugin.ClientState.Login -= OnLogin;
+        if (pendingStart == PendingStart.ResumeAllCharacters)
+            SetAutoRetainerSuppressed(false);
     }
 }
 

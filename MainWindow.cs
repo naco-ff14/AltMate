@@ -874,6 +874,8 @@ public sealed partial class MainWindow : Window
             running ? Loc.L("巡回中", "Running") : Loc.L("停止中", "Stopped"));
         if (autoRetainer.IsBusy)
             ImGui.TextDisabled(Loc.L("AutoRetainerが処理を実行しています。", "AutoRetainer is processing a task."));
+        if (!string.IsNullOrEmpty(autoRetainer.TravelStatus))
+            ImGui.TextColored(new Vector4(0.95f, 0.78f, 0.25f, 1f), autoRetainer.TravelStatus);
 
         var characters = autoRetainer.GetCharacterStatuses();
         if (characters.Count == 0)
