@@ -63,7 +63,7 @@ public sealed class Plugin : IDalamudPlugin
     private uint viewedPlotPrice;
     private readonly HousingWardObserver? wardObserver;
     private readonly GilTracker gilTracker;
-    private readonly HousingDemolitionTracker housingDemolitionTracker;
+    internal HousingDemolitionTracker HousingDemolition { get; }
     internal CharacterLinkCoordinator CharacterLink { get; }
     internal AnimationService Animations { get; }
     internal RoleBasedFpsController RoleBasedFps { get; }
@@ -107,6 +107,26 @@ public sealed class Plugin : IDalamudPlugin
             Configuration.Version = 5;
             sharedConfiguration.SaveMerged(Configuration, includeSharedSettings: true);
         }
+        if (Configuration.Version < 7)
+        {
+            // Earlier automatic discovery could retain another character's teleport cache.
+            // Start the explicit per-character registration model with trusted data only.
+            var resetAt = DateTime.Now;
+            foreach (var record in Configuration.HousingDemolition.Values)
+            {
+                record.IsOwned = false;
+                record.HouseId = 0;
+                record.HouseWorldId = 0;
+                record.HouseTerritoryTypeId = 0;
+                record.HouseWard = 0;
+                record.HousePlot = 0;
+                record.LastEnteredAt = null;
+                record.LastOwnershipCheckedAt = resetAt;
+                record.UpdatedAt = resetAt;
+            }
+            Configuration.Version = 7;
+            sharedConfiguration.SaveMerged(Configuration, includeSharedSettings: true);
+        }
         if (string.IsNullOrWhiteSpace(Configuration.LocalLinkKey))
         {
             Configuration.LocalLinkKey = Convert.ToHexString(
@@ -123,7 +143,7 @@ public sealed class Plugin : IDalamudPlugin
         CustomDeliveries = new CustomDeliveryService(this);
         wardObserver = HousingWardObserver.TryCreate(this);
         gilTracker = new GilTracker(this);
-        housingDemolitionTracker = new HousingDemolitionTracker(this);
+        HousingDemolition = new HousingDemolitionTracker(this);
         mainWindow = new MainWindow(this);
         windowSystem.AddWindow(mainWindow);
 
@@ -885,7 +905,7 @@ public sealed class Plugin : IDalamudPlugin
         RoleBasedFps.Dispose();
         CharacterLink.Dispose();
         gilTracker.Dispose();
-        housingDemolitionTracker.Dispose();
+        HousingDemolition.Dispose();
         wardObserver?.Dispose();
         ClientState.Login -= OnLogin;
         ChatGui.ChatMessage -= OnChatMessage;

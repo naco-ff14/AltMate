@@ -7,7 +7,7 @@ namespace AltMate;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 6;
+    public int Version { get; set; } = 7;
     public Dictionary<ulong, CharacterLotteryRecord> Characters { get; set; } = new();
     public List<OpenPlotRecord> OpenPlots { get; set; } = new();
     public Dictionary<ulong, CharacterGilRecord> CharacterGil { get; set; } = new();

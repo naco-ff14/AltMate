@@ -543,11 +543,14 @@ public sealed partial class MainWindow : Window
     private void DrawHousingDemolitionTab()
     {
         ImGui.TextDisabled(Loc.L(
-            $"所有住宅へ入室すると最終入室日時を記録し、{HousingDemolitionTracker.DemolitionPeriodDays}日後までの残り時間を表示します。",
-            $"Entering an owned estate records the visit and shows the time remaining in the {HousingDemolitionTracker.DemolitionPeriodDays}-day period."));
+            $"各キャラクターで所有住宅の中に入り、一度だけ個人宅またはFC宅として登録してください。以後の入室日時を自動記録し、{HousingDemolitionTracker.DemolitionPeriodDays}日後までの残り時間を表示します。",
+            $"Enter each character's estate and register it once as a personal or FC estate. Future visits are recorded automatically for the {HousingDemolitionTracker.DemolitionPeriodDays}-day period."));
         ImGui.TextDisabled(Loc.L(
             "ゲーム内の自動撤去が停止・延長された場合、実際の期限とは異なることがあります。",
             "The actual deadline may differ while automatic demolition is suspended or extended."));
+        ImGui.Spacing();
+
+        DrawEstateRegistrationControls();
         ImGui.Spacing();
 
         var selectedContentIds = plugin.Configuration.Characters.Values
@@ -566,8 +569,8 @@ public sealed partial class MainWindow : Window
         if (estates.Count == 0)
         {
             ImGui.TextDisabled(Loc.L(
-                "選択したキャラクターの所有住宅はまだ検出されていません。対象キャラクターでログインしてください。",
-                "No owned estates have been detected for the selected characters. Log in with those characters first."));
+                "選択したキャラクターの所有住宅はまだ登録されていません。対象キャラクターでハウス内に入り、上のボタンから登録してください。",
+                "No estates are registered for the selected characters. Enter the estate with that character and use the buttons above."));
             return;
         }
 
@@ -576,6 +579,49 @@ public sealed partial class MainWindow : Window
         ImGui.Spacing();
         DrawHousingEstateBlock(Loc.L("FC宅", "Free Company Estates"), OwnedEstateKind.FreeCompany,
             estates.Where(x => x.Estate.EstateKind == OwnedEstateKind.FreeCompany).ToList());
+    }
+
+    private void DrawEstateRegistrationControls()
+    {
+        var estate = plugin.HousingDemolition.CurrentIndoorEstate;
+        if (estate.IsValid)
+        {
+            var world = Plugin.GetWorldName(estate.WorldId);
+            var district = Plugin.GetDistrictName(estate.TerritoryTypeId);
+            var address = Loc.IsEnglish
+                ? $"{world} / {district} / Ward {estate.Ward}, Plot {estate.Plot}"
+                : $"{world} / {district} 第{estate.Ward}区 {estate.Plot}番地";
+            ImGui.TextWrapped(Loc.L($"現在のハウス：{address}", $"Current estate: {address}"));
+        }
+        else
+        {
+            ImGui.TextDisabled(Loc.L(
+                "登録するキャラクターで対象ハウスの中に入ってください。",
+                "Enter the estate with the character you want to register."));
+        }
+
+        ImGui.BeginDisabled(!estate.IsValid);
+        if (ImGui.Button(Loc.L("現在地を個人宅として登録", "Register current estate as personal")))
+            plugin.HousingDemolition.RegisterCurrentEstate(OwnedEstateKind.Personal);
+        ImGui.SameLine();
+        if (ImGui.Button(Loc.L("現在地をFC宅として登録", "Register current estate as FC")))
+            plugin.HousingDemolition.RegisterCurrentEstate(OwnedEstateKind.FreeCompany);
+        ImGui.EndDisabled();
+
+        var contentId = Plugin.PlayerState.ContentId;
+        var hasPersonal = plugin.Configuration.HousingDemolition.TryGetValue(
+            HousingDemolitionRecord.Key(contentId, OwnedEstateKind.Personal), out var personal) && personal.IsOwned;
+        var hasFreeCompany = plugin.Configuration.HousingDemolition.TryGetValue(
+            HousingDemolitionRecord.Key(contentId, OwnedEstateKind.FreeCompany), out var freeCompany) && freeCompany.IsOwned;
+        ImGui.BeginDisabled(!hasPersonal);
+        if (ImGui.SmallButton(Loc.L("このキャラの個人宅登録を解除", "Unregister this character's personal estate")))
+            plugin.HousingDemolition.UnregisterCurrentEstate(OwnedEstateKind.Personal);
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!hasFreeCompany);
+        if (ImGui.SmallButton(Loc.L("このキャラのFC宅登録を解除", "Unregister this character's FC estate")))
+            plugin.HousingDemolition.UnregisterCurrentEstate(OwnedEstateKind.FreeCompany);
+        ImGui.EndDisabled();
     }
 
     private static void DrawHousingEstateBlock(string title, OwnedEstateKind kind,
