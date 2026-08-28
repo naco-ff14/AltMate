@@ -7,12 +7,13 @@ namespace AltMate;
 [Serializable]
 public sealed class Configuration : IPluginConfiguration
 {
-    public int Version { get; set; } = 4;
+    public int Version { get; set; } = 6;
     public Dictionary<ulong, CharacterLotteryRecord> Characters { get; set; } = new();
     public List<OpenPlotRecord> OpenPlots { get; set; } = new();
     public Dictionary<ulong, CharacterGilRecord> CharacterGil { get; set; } = new();
     public Dictionary<ulong, CustomDeliveryCharacterRecord> CustomDeliveryCharacters { get; set; } = new();
     public Dictionary<ulong, FreeCompanyGilRecord> FreeCompanyGil { get; set; } = new();
+    public Dictionary<string, HousingDemolitionRecord> HousingDemolition { get; set; } = new();
     public CustomDeliverySettings CustomDeliverySettings { get; set; } = new();
     public DateTime? OpenPlotsCycleStartsAtUtc { get; set; }
     // 2026-08-13 00:00 JST: beginning of an entry period.
@@ -51,6 +52,29 @@ public sealed class Configuration : IPluginConfiguration
     public int LastHousingSection { get; set; }
 
     public void Save() => Plugin.SaveConfiguration(this);
+}
+
+public enum OwnedEstateKind
+{
+    Personal,
+    FreeCompany,
+}
+
+[Serializable]
+public sealed class HousingDemolitionRecord
+{
+    public ulong ContentId { get; set; }
+    public string CharacterName { get; set; } = "不明なキャラクター";
+    public string WorldName { get; set; } = "不明";
+    public OwnedEstateKind EstateKind { get; set; }
+    public bool IsOwned { get; set; }
+    public bool EnabledForTracking { get; set; } = true;
+    public ulong HouseId { get; set; }
+    public DateTime? LastEnteredAt { get; set; }
+    public DateTime LastOwnershipCheckedAt { get; set; }
+    public DateTime UpdatedAt { get; set; }
+
+    public static string Key(ulong contentId, OwnedEstateKind kind) => $"{contentId}:{kind}";
 }
 
 [Serializable]
