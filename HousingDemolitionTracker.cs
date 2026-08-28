@@ -13,6 +13,7 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
 
     private readonly Plugin plugin;
     private DateTime nextCheckUtc;
+    private DateTime? teleportWindowVisibleSinceUtc;
     private ulong lastIndoorHouseId;
 
     internal HousingDemolitionTracker(Plugin plugin)
@@ -34,11 +35,18 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         {
             var contentId = Plugin.PlayerState.ContentId;
             var changed = false;
+            var teleportWindowVisible = IsTeleportWindowVisible();
+            if (teleportWindowVisible)
+                teleportWindowVisibleSinceUtc ??= nowUtc;
+            else
+                teleportWindowVisibleSinceUtc = null;
+            var canReadTeleportEstates = teleportWindowVisibleSinceUtc is { } visibleSince &&
+                                         nowUtc - visibleSince >= TimeSpan.FromSeconds(1);
             // コンテンツ内では所有住宅APIが無効値を返すため、正常取得済みの情報を維持する。
             if (!IsBoundByDuty())
             {
-                var personal = GetOwnedEstate(EstateType.PersonalEstate);
-                var freeCompany = GetOwnedEstate(EstateType.FreeCompanyEstate);
+                var personal = GetOwnedEstate(EstateType.PersonalEstate, canReadTeleportEstates);
+                var freeCompany = GetOwnedEstate(EstateType.FreeCompanyEstate, canReadTeleportEstates);
                 changed = UpdateOwnership(contentId, OwnedEstateKind.Personal, personal) |
                           UpdateOwnership(contentId, OwnedEstateKind.FreeCompany, freeCompany);
             }
@@ -65,8 +73,14 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         Plugin.Condition[ConditionFlag.BoundByDuty56] ||
         Plugin.Condition[ConditionFlag.BoundByDuty95];
 
-    private static EstateSnapshot GetOwnedEstate(EstateType type)
+    private static EstateSnapshot GetOwnedEstate(EstateType type, bool canReadTeleportEstates)
     {
+        // Telepo retains the previous character's list across relogs. The cache
+        // is valid for ownership discovery only after the current character has
+        // visibly opened and refreshed the teleport window.
+        if (!canReadTeleportEstates)
+            return default;
+
         var telepo = Telepo.Instance();
         if (telepo != null)
         {
@@ -83,15 +97,13 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
             }
         }
 
-        // HousingManager.GetOwnedHouseId can retain the previous character's
-        // estate across relogs. Never use it for ownership discovery. Normal
-        // teleport destinations may also be cached while estate destinations
-        // are unavailable, so absence is authoritative only while this window
-        // is visibly open.
-        var teleportAddon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("Teleport").Address;
-        return teleportAddon != null && teleportAddon->IsVisible
-            ? new EstateSnapshot(0, 0, 0, 0, 0, true)
-            : default;
+        return new EstateSnapshot(0, 0, 0, 0, 0, true);
+    }
+
+    private static bool IsTeleportWindowVisible()
+    {
+        var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("Teleport").Address;
+        return addon != null && addon->IsVisible && addon->IsReady;
     }
 
     private static bool IsValidHouseId(HouseId id) =>
