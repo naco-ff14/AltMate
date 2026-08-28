@@ -52,7 +52,7 @@ internal sealed unsafe class CustomDeliveryAutomation
         currentStep = 0;
         IsRunning = true;
         BeginStep();
-        Plugin.ChatGui.Print(Loc.L("AltMate：お得意様取引の自動処理を開始しました。",
+        Plugin.PrintChat(Loc.L("AltMate：お得意様取引の自動処理を開始しました。",
             "AltMate: Started automatic custom deliveries."));
         return true;
     }
@@ -534,7 +534,7 @@ internal sealed unsafe class CustomDeliveryAutomation
         {
             IsRunning = false;
             Status = Loc.L("お得意様取引が完了しました。", "Custom deliveries completed.");
-            Plugin.ChatGui.Print($"AltMate：{Status}");
+            Plugin.PrintChat($"AltMate：{Status}");
             deliveries.Refresh();
             return;
         }

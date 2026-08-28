@@ -73,6 +73,12 @@ public sealed class Plugin : IDalamudPlugin
     internal Configuration Configuration { get; }
     internal static Configuration? CurrentConfiguration => current?.Configuration;
 
+    internal static void PrintChat(string message)
+    {
+        if (CurrentConfiguration?.ShowChatMessages == true)
+            ChatGui.Print(message);
+    }
+
     public Plugin()
     {
         current = this;
@@ -395,7 +401,7 @@ public sealed class Plugin : IDalamudPlugin
         }
 
         Configuration.Save();
-        ChatGui.Print(Loc.L(
+        PrintChat(Loc.L(
             $"AltMate：{districtName} {wardNumber}区の空き土地 {Configuration.OpenPlots.Count(x => x.WorldId == worldId && x.TerritoryTypeId == territoryTypeId && x.WardNumber == wardNumber)}件を更新しました。",
             $"AltMate: Updated {districtName} Ward {wardNumber} open plots."));
     }
@@ -483,12 +489,12 @@ public sealed class Plugin : IDalamudPlugin
             case "停止":
                 CharacterLink.EmergencyStop();
                 CustomDeliveries.Automation.Stop();
-                ChatGui.Print(Loc.L("AltMate：連携操作を停止しました。", "AltMate: linked controls stopped."));
+                PrintChat(Loc.L("AltMate：連携操作を停止しました。", "AltMate: linked controls stopped."));
                 break;
             case "resume":
             case "再開":
                 CharacterLink.Resume();
-                ChatGui.Print(Loc.L("AltMate：連携操作を再開しました。", "AltMate: linked controls resumed."));
+                PrintChat(Loc.L("AltMate：連携操作を再開しました。", "AltMate: linked controls resumed."));
                 break;
             case "animation":
             case "animations":
@@ -519,7 +525,7 @@ public sealed class Plugin : IDalamudPlugin
                 TravelToUncheckedLotteryEntry();
                 break;
             default:
-                ChatGui.Print(Loc.L(
+                PrintChat(Loc.L(
                     "AltMate：不明なコマンドです。open / min / max / stop / resume / animation / housing / gil / submarine / delivery / lottery",
                     "AltMate: Unknown command. open / min / max / stop / resume / animation / housing / gil / submarine / delivery / lottery"));
                 break;
@@ -530,42 +536,42 @@ public sealed class Plugin : IDalamudPlugin
     {
         if (!PlayerState.IsLoaded || PlayerState.ContentId == 0)
         {
-            ChatGui.Print(Loc.L("AltMate：キャラクターにログインしていません。", "AltMate: No character is logged in."));
+            PrintChat(Loc.L("AltMate：キャラクターにログインしていません。", "AltMate: No character is logged in."));
             return;
         }
         if (!Configuration.Characters.TryGetValue(PlayerState.ContentId, out var record))
         {
-            ChatGui.Print(Loc.L("AltMate：このキャラクターの抽選応募情報がありません。", "AltMate: No lottery entry is recorded for this character."));
+            PrintChat(Loc.L("AltMate：このキャラクターの抽選応募情報がありません。", "AltMate: No lottery entry is recorded for this character."));
             return;
         }
 
         var cycle = GetCurrentCycle();
         if (cycle.Phase != LotteryPhase.Results)
         {
-            ChatGui.Print(Loc.L("AltMate：現在は結果発表期間ではありません。", "AltMate: It is not currently the results period."));
+            PrintChat(Loc.L("AltMate：現在は結果発表期間ではありません。", "AltMate: It is not currently the results period."));
             return;
         }
         if (!cycle.HasEntry(record))
         {
-            ChatGui.Print(Loc.L("AltMate：今回の抽選への応募記録がありません。", "AltMate: No entry is recorded for the current lottery cycle."));
+            PrintChat(Loc.L("AltMate：今回の抽選への応募記録がありません。", "AltMate: No entry is recorded for the current lottery cycle."));
             return;
         }
         if (record.ResultChecked)
         {
-            ChatGui.Print(Loc.L("AltMate：このキャラクターは結果確認済みです。", "AltMate: This character has already checked the result."));
+            PrintChat(Loc.L("AltMate：このキャラクターは結果確認済みです。", "AltMate: This character has already checked the result."));
             return;
         }
         if (!IsLifestreamAvailable())
         {
-            ChatGui.Print(Loc.L("AltMate：Lifestreamが読み込まれていません。", "AltMate: Lifestream is not loaded."));
+            PrintChat(Loc.L("AltMate：Lifestreamが読み込まれていません。", "AltMate: Lifestream is not loaded."));
             return;
         }
         if (!TravelToLotteryPlot(record))
         {
-            ChatGui.Print(Loc.L("AltMate：応募先の住所を取得できませんでした。", "AltMate: The entered plot address is unavailable."));
+            PrintChat(Loc.L("AltMate：応募先の住所を取得できませんでした。", "AltMate: The entered plot address is unavailable."));
             return;
         }
-        ChatGui.Print(Loc.L(
+        PrintChat(Loc.L(
             $"AltMate：応募先へ移動を開始しました（{record.PlotAddress ?? "応募した土地"}）。",
             $"AltMate: Travelling to the entered plot ({record.PlotAddress ?? "entered plot"})."));
     }

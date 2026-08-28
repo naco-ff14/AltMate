@@ -46,6 +46,7 @@ public sealed class Configuration : IPluginConfiguration
     public int LeaderFpsLimit { get; set; } = 60;
     public int FollowerFpsLimit { get; set; } = 30;
     public string Language { get; set; } = "ja";
+    public bool ShowChatMessages { get; set; }
     public string LocalLinkKey { get; set; } = string.Empty;
     public bool WindowCompactMode { get; set; }
     public int LastMainSection { get; set; }

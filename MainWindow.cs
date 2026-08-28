@@ -1015,6 +1015,17 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         ImGui.TextDisabled(Loc.T("RestartNotRequired"));
         ImGui.Spacing();
+        var showChatMessages = plugin.Configuration.ShowChatMessages;
+        if (ImGui.Checkbox(Loc.L("チャット欄にAltMateの通知を表示する", "Show AltMate notifications in chat"),
+                ref showChatMessages))
+        {
+            plugin.Configuration.ShowChatMessages = showChatMessages;
+            plugin.SaveSharedSettings();
+        }
+        ImGui.TextDisabled(Loc.L(
+            "無効時もAltMateのログファイルへの記録と画面内ステータスは継続します。",
+            "Disabling this does not affect AltMate log files or in-window status messages."));
+        ImGui.Spacing();
         ImGui.TextUnformatted(Loc.T("Command"));
         ImGui.TextDisabled("/altmate");
         ImGui.Spacing();

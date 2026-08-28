@@ -265,6 +265,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.FollowerFpsLimit = incoming.FollowerFpsLimit;
         target.CustomDeliverySettings = incoming.CustomDeliverySettings ?? new CustomDeliverySettings();
         target.Language = incoming.Language;
+        target.ShowChatMessages = incoming.ShowChatMessages;
         if (!string.IsNullOrWhiteSpace(incoming.LocalLinkKey)) target.LocalLinkKey = incoming.LocalLinkKey;
     }
 
@@ -301,6 +302,7 @@ internal sealed class SharedConfigurationStore : IDisposable
             JsonSerializer.Serialize(baseline.CustomDeliverySettings))
             target.CustomDeliverySettings = current.CustomDeliverySettings;
         if (current.Language != baseline.Language) target.Language = current.Language;
+        if (current.ShowChatMessages != baseline.ShowChatMessages) target.ShowChatMessages = current.ShowChatMessages;
         if (current.LocalLinkKey != baseline.LocalLinkKey) target.LocalLinkKey = current.LocalLinkKey;
     }
 

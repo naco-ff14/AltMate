@@ -153,7 +153,7 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
                 continue;
             record.LastEnteredAt = DateTime.Now;
             record.UpdatedAt = record.LastEnteredAt.Value;
-            Plugin.ChatGui.Print($"AltMate：{(kind == OwnedEstateKind.Personal ? "個人宅" : "FC宅")}の入室を記録しました。保持期限を{DemolitionPeriodDays}日に更新します。");
+            Plugin.PrintChat($"AltMate：{(kind == OwnedEstateKind.Personal ? "個人宅" : "FC宅")}の入室を記録しました。保持期限を{DemolitionPeriodDays}日に更新します。");
             return true;
         }
         return false;
