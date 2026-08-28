@@ -1,5 +1,6 @@
 using Dalamud.Plugin.Services;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using System;
 
 namespace AltMate;
@@ -28,10 +29,10 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         try
         {
             var contentId = Plugin.PlayerState.ContentId;
-            var personal = HousingManager.GetOwnedHouseId(EstateType.PersonalEstate);
-            var freeCompany = HousingManager.GetOwnedHouseId(EstateType.FreeCompanyEstate);
-            var changed = UpdateOwnership(contentId, OwnedEstateKind.Personal, personal.Id) |
-                          UpdateOwnership(contentId, OwnedEstateKind.FreeCompany, freeCompany.Id);
+            var personal = GetOwnedEstate(EstateType.PersonalEstate);
+            var freeCompany = GetOwnedEstate(EstateType.FreeCompanyEstate);
+            var changed = UpdateOwnership(contentId, OwnedEstateKind.Personal, personal) |
+                          UpdateOwnership(contentId, OwnedEstateKind.FreeCompany, freeCompany);
 
             var manager = HousingManager.Instance();
             var indoor = manager != null && manager->IndoorTerritory != null
@@ -50,7 +51,38 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         }
     }
 
-    private bool UpdateOwnership(ulong contentId, OwnedEstateKind kind, ulong houseId)
+    private static EstateSnapshot GetOwnedEstate(EstateType type)
+    {
+        var telepo = Telepo.Instance();
+        if (telepo != null)
+        {
+            for (var index = 0; index < telepo->TeleportList.Count; index++)
+            {
+                var info = telepo->TeleportList[index];
+                if (info.EstateType != type || !IsValidHouseId(info.HouseId))
+                    continue;
+                var territory = info.HouseId.TerritoryTypeId is 339 or 340 or 341 or 641 or 979
+                    ? info.HouseId.TerritoryTypeId : info.TerritoryId;
+                var ward = info.Ward > 0 ? info.Ward : (byte)(info.HouseId.WardIndex + 1);
+                var plot = info.Plot > 0 ? info.Plot : (byte)(info.HouseId.PlotIndex + 1);
+                return new EstateSnapshot(info.HouseId.Id, info.HouseId.WorldId, territory, ward, plot);
+            }
+        }
+
+        var owned = HousingManager.GetOwnedHouseId(type);
+        return IsValidHouseId(owned)
+            ? new EstateSnapshot(owned.Id, owned.WorldId, owned.TerritoryTypeId,
+                (byte)(owned.WardIndex + 1), (byte)(owned.PlotIndex + 1))
+            : default;
+    }
+
+    private static bool IsValidHouseId(HouseId id) =>
+        id.Id is not (0 or ulong.MaxValue) &&
+        id.WorldId is not (0 or ushort.MaxValue) &&
+        id.TerritoryTypeId is 339 or 340 or 341 or 641 or 979 &&
+        id.WardIndex < 30 && id.PlotIndex < 60;
+
+    private bool UpdateOwnership(ulong contentId, OwnedEstateKind kind, EstateSnapshot estate)
     {
         var key = HousingDemolitionRecord.Key(contentId, kind);
         if (!plugin.Configuration.HousingDemolition.TryGetValue(key, out var record))
@@ -61,14 +93,22 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         var now = DateTime.Now;
         var name = Plugin.PlayerState.CharacterName;
         var world = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
-        var owned = houseId != 0;
+        var houseId = estate.HouseId;
+        var owned = estate.IsValid;
         var previousHouseId = record.HouseId;
         var changed = record.CharacterName != name || record.WorldName != world ||
-                      record.IsOwned != owned || record.HouseId != houseId;
+                      record.IsOwned != owned || record.HouseId != houseId ||
+                      record.HouseWorldId != estate.WorldId ||
+                      record.HouseTerritoryTypeId != estate.TerritoryTypeId ||
+                      record.HouseWard != estate.Ward || record.HousePlot != estate.Plot;
         record.CharacterName = name;
         record.WorldName = world;
         record.IsOwned = owned;
         record.HouseId = houseId;
+        record.HouseWorldId = estate.WorldId;
+        record.HouseTerritoryTypeId = estate.TerritoryTypeId;
+        record.HouseWard = estate.Ward;
+        record.HousePlot = estate.Plot;
         record.LastOwnershipCheckedAt = now;
         if (changed)
         {
@@ -105,4 +145,11 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
     }
 
     public void Dispose() => Plugin.Framework.Update -= OnFrameworkUpdate;
+
+    private readonly record struct EstateSnapshot(
+        ulong HouseId, ushort WorldId, ushort TerritoryTypeId, byte Ward, byte Plot)
+    {
+        internal bool IsValid => HouseId != 0 && WorldId != 0 && TerritoryTypeId != 0 &&
+                                 Ward is >= 1 and <= 30 && Plot is >= 1 and <= 60;
+    }
 }

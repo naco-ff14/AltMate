@@ -533,8 +533,8 @@ public sealed partial class MainWindow : Window
         var estates = plugin.Configuration.HousingDemolition.Values
             .Where(x => x.IsOwned)
             .GroupBy(x => x.EstateKind == OwnedEstateKind.FreeCompany
-                ? $"fc:{NormalizeHouseId(x.HouseId)}"
-                : $"personal:{x.ContentId}:{NormalizeHouseId(x.HouseId)}")
+                ? $"fc:{AddressKey(x)}"
+                : $"personal:{x.ContentId}:{AddressKey(x)}")
             .Where(group => group.Any(x => selectedContentIds.Contains(x.ContentId)))
             .Select(group => new
             {
@@ -542,7 +542,7 @@ public sealed partial class MainWindow : Window
                 LastEntry = group.Where(x => x.LastEnteredAt.HasValue)
                     .OrderByDescending(x => x.LastEnteredAt).FirstOrDefault(),
             })
-            .OrderBy(x => FormatHouseAddress(x.Estate.HouseId), StringComparer.CurrentCultureIgnoreCase)
+            .OrderBy(x => FormatHouseAddress(x.Estate), StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
         if (selectedContentIds.Count == 0)
@@ -575,7 +575,7 @@ public sealed partial class MainWindow : Window
             var record = estate.Estate;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextWrapped(FormatHouseAddress(record.HouseId));
+            ImGui.TextWrapped(FormatHouseAddress(record));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(record.EstateKind == OwnedEstateKind.Personal
                 ? Loc.L("個人宅", "Personal") : Loc.L("FC宅", "FC"));
@@ -606,21 +606,16 @@ public sealed partial class MainWindow : Window
         ImGui.EndTable();
     }
 
-    private static ulong NormalizeHouseId(ulong value)
-    {
-        var id = (FFXIVClientStructs.FFXIV.Client.Game.HouseId)value;
-        return ((ulong)id.WorldId << 48) | ((ulong)id.TerritoryTypeId << 32) |
-               ((ulong)id.WardIndex << 8) | id.PlotIndex;
-    }
+    private static string AddressKey(HousingDemolitionRecord record) =>
+        $"{record.HouseWorldId}:{record.HouseTerritoryTypeId}:{record.HouseWard}:{record.HousePlot}";
 
-    private static string FormatHouseAddress(ulong value)
+    private static string FormatHouseAddress(HousingDemolitionRecord record)
     {
-        var id = (FFXIVClientStructs.FFXIV.Client.Game.HouseId)value;
-        var world = Plugin.GetWorldName(id.WorldId);
-        var district = Plugin.GetDistrictName(id.TerritoryTypeId);
+        var world = Plugin.GetWorldName(record.HouseWorldId);
+        var district = Plugin.GetDistrictName(record.HouseTerritoryTypeId);
         return Loc.IsEnglish
-            ? $"{world} / {district} / Ward {id.WardIndex + 1}, Plot {id.PlotIndex + 1}"
-            : $"{world} / {district} 第{id.WardIndex + 1}区 {id.PlotIndex + 1}番地";
+            ? $"{world} / {district} / Ward {record.HouseWard}, Plot {record.HousePlot}"
+            : $"{world} / {district} 第{record.HouseWard}区 {record.HousePlot}番地";
     }
 
     private static bool DrawSubMenuButton(string label, bool selected)
