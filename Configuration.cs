@@ -203,6 +203,7 @@ public sealed class CharacterLotteryRecord
     public bool ResultChecked { get; set; }
     public DateTime LastCheckedAt { get; set; }
     public bool EnabledForDisplay { get; set; }
+    public bool EnabledForDemolitionDisplay { get; set; }
     public ushort BidWorldId { get; set; }
     public ushort BidTerritoryTypeId { get; set; }
     public int BidWardNumber { get; set; }
