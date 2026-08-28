@@ -403,7 +403,7 @@ public sealed class Plugin : IDalamudPlugin
             $"AltMate: Updated {districtName} Ward {wardNumber} open plots."));
     }
 
-    private static string GetDistrictName(ushort territoryTypeId)
+    internal static string GetDistrictName(ushort territoryTypeId)
     {
         try
         {
@@ -413,7 +413,7 @@ public sealed class Plugin : IDalamudPlugin
         catch { return $"エリアID {territoryTypeId}"; }
     }
 
-    private static string GetWorldName(ushort worldId)
+    internal static string GetWorldName(ushort worldId)
     {
         try { return DataManager.GetExcelSheet<World>().GetRow(worldId).Name.ToString(); }
         catch { return $"World {worldId}"; }
