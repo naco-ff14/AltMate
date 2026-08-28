@@ -98,8 +98,6 @@ https://raw.githubusercontent.com/naco-ff14/AltMate/main/repo.json
 | `/altmate submarine` | 潜水艦管理画面を開く |
 | `/altmate lottery` | 結果発表期間に未確認の応募先へ移動 |
 
-旧コマンド `/hlt` もAltMateを開く用途で使用できます。
-
 ## 連携プラグイン
 
 | プラグイン | 用途 | 必須 |

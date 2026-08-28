@@ -1,5 +1,4 @@
 Animation
-AnimationDescription
 AnimationEmpty
 AreaContentHelp
 AreaContentSync
@@ -36,7 +35,6 @@ Japanese
 Job
 Language
 Leader
-LegacyCommand
 Link
 LinkCombatStart
 LinkDescription

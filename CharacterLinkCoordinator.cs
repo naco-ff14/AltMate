@@ -4,7 +4,6 @@ using Dalamud.Hooking;
 using Dalamud.Game.Addon.Events;
 using Dalamud.Game.Addon.Events.EventDataTypes;
 using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
-using FFXIVClientStructs.FFXIV.Client.System.String;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
 using FFXIVClientStructs.FFXIV.Client.Game.Character;
@@ -52,8 +51,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private int pillionAttemptCount;
     private bool mountedByRouletteFallback;
     private bool runtimeStopped;
-    private bool stopFollowRequested;
-    private bool followCommandActive;
     private bool vnavRecoveryActive;
     private Vector3 followProgressSamplePosition;
     private Vector3 lastVnavDestination;
@@ -75,12 +72,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private DateTime linkedInteractionConfirmationExpiresUtc;
     private bool localCharacterUnavailable;
     private DateTime localCharacterReadySinceUtc;
-    private DateTime followCommandStartedUtc;
-    private string? pendingGameCommand;
-    private string? pendingTargetName;
-    private int pendingCommandTicks;
-    private bool pendingTargetApplied;
-    private int pendingTargetConfirmAttempts;
     private bool combatAutomationActive;
     private DateTime? leaderCombatEndedUtc;
     private uint lastLeaderOccultAetheryteId;
@@ -201,7 +192,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         followController.Reset();
         smoothFollow.Stop();
         StopVnavRecovery();
-        stopFollowRequested = true;
         LastAction = "緊急停止中";
         StopCombatAutomation();
         BroadcastControl("stop");
@@ -305,7 +295,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         var currentWorld = Plugin.PlayerState.CurrentWorld.Value.Name.ToString();
         var destinationAetheryteId = GetTerritoryAetheryteId(leader.TerritoryType);
         var destinationName = destinationAetheryteId == 0 ? string.Empty : GetAetheryteName(destinationAetheryteId);
-        stopFollowRequested = true;
         if (!currentWorld.Equals(leader.WorldName, StringComparison.OrdinalIgnoreCase))
         {
             var command = string.IsNullOrWhiteSpace(destinationName)
@@ -486,84 +475,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         FlushOutboundTeleport();
         FlushOutboundHousingTravel();
 
-        // 移動停止は予約済み追従コマンドより先に処理する。
-        if (stopFollowRequested)
-        {
-            pendingGameCommand = null;
-            pendingTargetName = null;
-            pendingTargetApplied = false;
-            if (followCommandActive)
-                ExecuteGameCommand("/automove off");
-            followCommandActive = false;
-            stopFollowRequested = false;
-        }
-
-        if (pendingGameCommand is not null)
-        {
-            if (--pendingCommandTicks <= 0)
-            {
-                if (pendingTargetName is not null)
-                {
-                    var targetName = pendingTargetName;
-                    var target = Plugin.ObjectTable.PlayerObjects.FirstOrDefault(x =>
-                        x.IsValid() && x.IsTargetable && x.Name.TextValue.Equals(targetName,
-                            StringComparison.OrdinalIgnoreCase));
-                    if (target is null)
-                    {
-                        pendingGameCommand = null;
-                        pendingTargetName = null;
-                        pendingTargetApplied = false;
-                        DiagnosticMessage = $"送信中止：{targetName}が表示範囲外です";
-                        LastAction = "リーダーが表示範囲外です";
-                        return;
-                    }
-
-                    if (!pendingTargetApplied)
-                    {
-                        Plugin.TargetManager.Target = target;
-                        pendingTargetApplied = true;
-                        pendingTargetConfirmAttempts = 0;
-                        pendingCommandTicks = 2;
-                        return;
-                    }
-
-                    var actualTarget = Plugin.TargetManager.Target;
-                    if (actualTarget is null || !actualTarget.IsValid() ||
-                        !actualTarget.Name.TextValue.Equals(targetName, StringComparison.OrdinalIgnoreCase))
-                    {
-                        if (++pendingTargetConfirmAttempts < 10)
-                        {
-                            Plugin.TargetManager.Target = target;
-                            pendingCommandTicks = 2;
-                            return;
-                        }
-                        pendingGameCommand = null;
-                        pendingTargetName = null;
-                        pendingTargetApplied = false;
-                        DiagnosticMessage = $"送信中止：{targetName}をターゲット確認できません";
-                        LastAction = "リーダーをターゲットできません";
-                        return;
-                    }
-                }
-                // /follow は確認済みの現在ターゲットに対して引数なしで実行する。
-                // キャラクター名を引数へ付けると、名前に空白がある場合にゲーム側で
-                // 「1番目のターゲット名の指定が正しくありません」が発生する。
-                var command = pendingGameCommand;
-                pendingGameCommand = null;
-                pendingTargetName = null;
-                pendingTargetApplied = false;
-                var sent = ExecuteGameCommand(command);
-                if (sent && command.StartsWith("/follow", StringComparison.OrdinalIgnoreCase))
-                {
-                    followCommandActive = true;
-                    followCommandStartedUtc = DateTime.UtcNow;
-                }
-                DiagnosticMessage = sent ? $"送信済み：{command}" : $"送信失敗：{command}";
-            }
-            return;
-        }
         plugin.CheckSharedConfiguration();
-        UpdateFollowState(now);
         UpdateTravelInterlock(now);
         if (now - lastFastStateBroadcastUtc >= TimeSpan.FromMilliseconds(100))
         {
@@ -622,7 +534,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 case "stop":
                     runtimeStopped = true;
-                    stopFollowRequested = true;
+                    followController.Reset();
+                    smoothFollow.Stop();
+                    StopVnavRecovery();
                     LastAction = "別クライアントから緊急停止";
                     continue;
                 case "resume":
@@ -788,9 +702,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
             now - lastReturnAttemptUtc >= TimeSpan.FromSeconds(1))
         {
             lastReturnAttemptUtc = now;
-            pendingGameCommand = null;
-            pendingTargetName = null;
-            stopFollowRequested = true;
             if (Plugin.Condition[ConditionFlag.Mounted])
             {
                 ExecuteGeneralAction(23);
@@ -1280,7 +1191,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 GeneralTravelStatus = $"フォロワーもテレポ開始：{GetAetheryteName(pendingGeneralAetheryteId)}";
                 pendingGeneralAetheryteId = 0;
-                stopFollowRequested = true;
             }
             else
                 GeneralTravelStatus = "Lifestreamの受付待ち（自動再試行）";
@@ -1359,7 +1269,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 : $"{kind}移動の受付待ち（自動再試行）";
             if (accepted)
             {
-                stopFollowRequested = true;
                 smoothFollow.Stop();
                 LastAction = $"{kind}エーテライト移動中";
             }
@@ -1436,13 +1345,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 return;
             }
 
-            stopFollowRequested = true;
             Plugin.CommandManager.ProcessCommand(
                 $"/li {world} {district} {pendingHousingWard} {pendingHousingPlot}");
             HousingTravelStatus = "LifestreamでFC住宅の住所へ移動開始";
             StartHousingMovement(now);
             ClearPendingHousingTravel();
-            stopFollowRequested = true;
         }
         catch (Exception exception)
         {
@@ -1465,9 +1372,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         housingMovementObservedBusy = false;
         housingMovementStartedUtc = now;
         housingMovementResumeUtc = DateTime.MinValue;
-        pendingGameCommand = null;
-        pendingTargetName = null;
-        pendingTargetApplied = false;
     }
 
     private void UpdateTravelInterlock(DateTime now)
@@ -1686,7 +1590,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 OccultTravelStatus = IsAethernetMenuOpen()
                     ? $"転送網で目的地を選択中：{GetPlaceName(pendingOccultDestinationId)}"
                     : $"フォロワーも移動処理中：{GetPlaceName(pendingOccultDestinationId)}";
-                stopFollowRequested = true;
                 smoothFollow.Stop();
             }
             else
@@ -2259,8 +2162,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             }
 
             // 相乗り待ちでは通常の追従開始距離に関係なく、確実に相乗り可能距離まで近づく。
-            if (distance > 4f && !followCommandActive &&
-                now - lastFollowUtc > TimeSpan.FromSeconds(2))
+            if (distance > 4f && now - lastFollowUtc > TimeSpan.FromSeconds(2))
             {
                 smoothFollow.Follow(leaderObject.Position - local.Position);
                 lastFollowUtc = now;
@@ -2600,13 +2502,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         peers.Clear();
         lastReceivedSequences.Clear();
         travelCoordinator.Reset();
-        pendingGameCommand = null;
-        pendingTargetName = null;
-        pendingTargetApplied = false;
-        pendingTargetConfirmAttempts = 0;
-        pendingCommandTicks = 0;
-        stopFollowRequested = false;
-        followCommandActive = false;
         followController.Reset();
         smoothFollow.Stop();
         StopVnavRecovery();
@@ -2648,9 +2543,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private void ClearCrossWorldAutomation()
     {
         travelCoordinator.Reset();
-        pendingGameCommand = null;
-        pendingTargetName = null;
-        followCommandActive = false;
         followController.Reset();
         smoothFollow.Stop();
         StopVnavRecovery();
@@ -2695,52 +2587,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         catch (Exception exception)
         {
             Plugin.Log.Error(exception, "相乗り要求を実行できませんでした。");
-            return false;
-        }
-    }
-
-    private void UpdateFollowState(DateTime now)
-    {
-        if (!followCommandActive ||
-            now - followCommandStartedUtc < TimeSpan.FromSeconds(1))
-            return;
-        if (IsGameAutoRunning())
-            return;
-
-        followCommandActive = false;
-        LastAction = "追従キャンセルを検出・再開待ち";
-    }
-
-    private void QueueTargetCommand(
-        Dalamud.Game.ClientState.Objects.Types.IGameObject target, string command)
-    {
-        Plugin.TargetManager.Target = target;
-        var targetName = target.Name.TextValue.Replace("\"", string.Empty);
-        // ProcessChatBoxEntryでは<t>が展開されないため、先に対象を現在ターゲットへ
-        // 設定してから、/follow は引数なしで実行する。
-        pendingGameCommand = command.StartsWith("/follow ", StringComparison.OrdinalIgnoreCase)
-            ? "/follow"
-            : command.Replace("<t>", $"\"{targetName}\"", StringComparison.Ordinal);
-        pendingTargetName = targetName;
-        pendingTargetApplied = false;
-        pendingTargetConfirmAttempts = 0;
-        pendingCommandTicks = 2;
-    }
-
-    private static unsafe bool ExecuteGameCommand(string command)
-    {
-        try
-        {
-            var uiModule = UIModule.Instance();
-            if (uiModule is null)
-                return false;
-            using var message = new Utf8String(command);
-            uiModule->ProcessChatBoxEntry(&message);
-            return true;
-        }
-        catch (Exception exception)
-        {
-            Plugin.Log.Error(exception, "ゲームコマンドを実行できませんでした: {Command}", command);
             return false;
         }
     }

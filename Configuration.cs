@@ -68,7 +68,6 @@ public sealed class HousingDemolitionRecord
     public string WorldName { get; set; } = "不明";
     public OwnedEstateKind EstateKind { get; set; }
     public bool IsOwned { get; set; }
-    public bool EnabledForTracking { get; set; } = true;
     public ulong HouseId { get; set; }
     public ushort HouseWorldId { get; set; }
     public ushort HouseTerritoryTypeId { get; set; }

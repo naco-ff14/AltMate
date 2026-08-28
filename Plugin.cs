@@ -53,7 +53,6 @@ public sealed class Plugin : IDalamudPlugin
     [PluginService] internal static ISigScanner SigScanner { get; private set; } = null!;
 
     private const string Command = "/altmate";
-    private const string LegacyCommand = "/hlt";
     private readonly WindowSystem windowSystem = new("AltMate");
     private readonly MainWindow mainWindow;
     private IAddonEventHandle? confirmHandle;
@@ -148,8 +147,6 @@ public sealed class Plugin : IDalamudPlugin
                 "/altmate delivery → Open Custom Deliveries\n" +
                 "/altmate lottery → Travel to an unchecked lottery entry")
         });
-        CommandManager.AddHandler(LegacyCommand, new CommandInfo((_, _) => mainWindow.OpenPreviousState())
-        { HelpMessage = "AltMateを開く（旧コマンド）", ShowInHelp = false });
         // アニメーション操作を継続できるよう、グループポーズ中もAltMateのUIを表示する。
         PluginInterface.UiBuilder.DisableGposeUiHide = true;
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
@@ -890,7 +887,6 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenMainUi -= mainWindow.Toggle;
         PluginInterface.UiBuilder.OpenConfigUi -= mainWindow.OpenSettings;
         CommandManager.RemoveHandler(Command);
-        CommandManager.RemoveHandler(LegacyCommand);
         RemoveHandle(ref confirmHandle);
         RemoveHandle(ref resultHandle);
         AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "HousingSignBoard", OnPlacardOpen);

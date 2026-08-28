@@ -686,13 +686,6 @@ public sealed partial class MainWindow : Window
         ImGui.Spacing();
     }
 
-    private static void DrawComingSoon(string title, string description)
-    {
-        DrawPageTitle(title, description);
-        ImGui.Spacing();
-        ImGui.TextDisabled("COMING SOON");
-    }
-
     private void DrawGil()
     {
         DrawPageTitle(Loc.T("Gil"), Loc.T("GilDescription"));
@@ -1021,7 +1014,7 @@ public sealed partial class MainWindow : Window
         ImGui.TextDisabled(Loc.T("RestartNotRequired"));
         ImGui.Spacing();
         ImGui.TextUnformatted(Loc.T("Command"));
-        ImGui.TextDisabled(Loc.T("LegacyCommand"));
+        ImGui.TextDisabled("/altmate");
         ImGui.Spacing();
         ImGui.TextUnformatted(Loc.T("DataStorage"));
         ImGui.TextWrapped(Loc.T("DataStorageDescription"));
