@@ -193,6 +193,12 @@ internal sealed class SharedConfigurationStore : IDisposable
                 pair.Value.UpdatedAt >= existing.UpdatedAt)
                 target.CustomDeliveryCharacters[pair.Key] = pair.Value;
         }
+        foreach (var pair in incoming.HousingDemolition)
+        {
+            if (!target.HousingDemolition.TryGetValue(pair.Key, out var existing) ||
+                pair.Value.UpdatedAt >= existing.UpdatedAt)
+                target.HousingDemolition[pair.Key] = pair.Value;
+        }
         foreach (var pair in incoming.FreeCompanyGil)
         {
             if (!target.FreeCompanyGil.TryGetValue(pair.Key, out var current))
