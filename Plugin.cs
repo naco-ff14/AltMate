@@ -127,6 +127,13 @@ public sealed class Plugin : IDalamudPlugin
             Configuration.Version = 7;
             sharedConfiguration.SaveMerged(Configuration, includeSharedSettings: true);
         }
+        // Linked control is an explicit per-session action. Never resume it merely
+        // because the previous game session ended while it was enabled.
+        if (Configuration.LinkEnabled)
+        {
+            Configuration.LinkEnabled = false;
+            sharedConfiguration.SaveMerged(Configuration, includeSharedSettings: true);
+        }
         if (string.IsNullOrWhiteSpace(Configuration.LocalLinkKey))
         {
             Configuration.LocalLinkKey = Convert.ToHexString(
@@ -617,6 +624,16 @@ public sealed class Plugin : IDalamudPlugin
             $"/li {plot.WorldName} {district} {plot.WardNumber} {plot.PlotNumber}");
         return true;
     }
+
+    internal static bool TravelToHousingEstate(HousingDemolitionRecord record) =>
+        record.IsOwned && TravelToOpenPlot(new OpenPlotRecord
+        {
+            WorldId = record.HouseWorldId,
+            WorldName = GetWorldName(record.HouseWorldId),
+            TerritoryTypeId = record.HouseTerritoryTypeId,
+            WardNumber = record.HouseWard,
+            PlotNumber = record.HousePlot,
+        });
 
     internal static bool TravelToLotteryPlot(CharacterLotteryRecord record)
     {

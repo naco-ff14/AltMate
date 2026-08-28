@@ -649,6 +649,20 @@ public sealed partial class MainWindow : Window
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.TextWrapped(FormatHouseAddress(record));
+            if (ImGui.BeginPopupContextItem($"##housing-estate-menu-{kind}-{AddressKey(record)}",
+                    ImGuiPopupFlags.MouseButtonRight))
+            {
+                ImGui.TextUnformatted(FormatHouseAddress(record));
+                ImGui.Separator();
+                var canTravel = Plugin.IsLifestreamAvailable();
+                ImGui.BeginDisabled(!canTravel);
+                if (ImGui.MenuItem(Loc.L("Lifestreamでこの住所へ移動", "Travel to this address with Lifestream")))
+                    Plugin.TravelToHousingEstate(record);
+                ImGui.EndDisabled();
+                if (!canTravel && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+                    ImGui.SetTooltip(Loc.L("Lifestreamが読み込まれていません。", "Lifestream is not loaded."));
+                ImGui.EndPopup();
+            }
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(estate.LastEntry?.CharacterName ?? "—");
             ImGui.TableNextColumn();
