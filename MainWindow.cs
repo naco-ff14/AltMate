@@ -1299,12 +1299,29 @@ public sealed partial class MainWindow : Window
 
         ImGui.Spacing();
         var linkEnabled = plugin.Configuration.LinkEnabled;
-        if (ImGui.Checkbox(Loc.T("EnableLink"), ref linkEnabled))
+        ImGui.PushStyleColor(ImGuiCol.Button, linkEnabled
+            ? new Vector4(0.72f, 0.14f, 0.12f, 0.95f)
+            : new Vector4(0.12f, 0.52f, 0.28f, 0.95f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, linkEnabled
+            ? new Vector4(0.86f, 0.2f, 0.16f, 1f)
+            : new Vector4(0.16f, 0.66f, 0.36f, 1f));
+        if (ImGui.Button(linkEnabled
+                ? Loc.L("連携操作を停止", "Stop linked controls")
+                : Loc.L("連携操作を開始", "Start linked controls"),
+                new Vector2(220 * ImGuiHelpers.GlobalScale, 42 * ImGuiHelpers.GlobalScale)))
         {
-            plugin.Configuration.LinkEnabled = linkEnabled;
+            plugin.Configuration.LinkEnabled = !linkEnabled;
             plugin.Configuration.Save();
+            if (!linkEnabled && plugin.CharacterLink.RuntimeStopped)
+                plugin.CharacterLink.Resume();
             plugin.CharacterLink.SettingsChanged();
         }
+        ImGui.PopStyleColor(2);
+        ImGui.SameLine();
+        ImGui.TextColored(linkEnabled
+                ? new Vector4(0.45f, 0.9f, 0.55f, 1f)
+                : new Vector4(0.72f, 0.72f, 0.76f, 1f),
+            linkEnabled ? Loc.L("連携中", "Linked") : Loc.L("停止中", "Stopped"));
 
         var connectedLeader = plugin.CharacterLink.Peers.FirstOrDefault(x =>
             x.ContentId == plugin.Configuration.LinkLeaderContentId);
