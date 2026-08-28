@@ -83,14 +83,11 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
             }
         }
 
-        var owned = HousingManager.GetOwnedHouseId(type);
-        if (IsValidHouseId(owned))
-            return new EstateSnapshot(owned.Id, owned.WorldId, owned.TerritoryTypeId,
-                (byte)(owned.WardIndex + 1), (byte)(owned.PlotIndex + 1), true);
-
-        // Normal teleport destinations may already be cached immediately after
-        // login while estate destinations are still unavailable. Only an open
-        // teleport window makes an absent estate entry authoritative.
+        // HousingManager.GetOwnedHouseId can retain the previous character's
+        // estate across relogs. Never use it for ownership discovery. Normal
+        // teleport destinations may also be cached while estate destinations
+        // are unavailable, so absence is authoritative only while this window
+        // is visibly open.
         var teleportAddon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("Teleport").Address;
         return teleportAddon != null && teleportAddon->IsVisible
             ? new EstateSnapshot(0, 0, 0, 0, 0, true)
@@ -123,6 +120,9 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         var houseId = estate.HouseId;
         var owned = estate.IsValid;
         var previousHouseId = record.HouseId;
+        var sameAddress = record.HouseWorldId == estate.WorldId &&
+                          record.HouseTerritoryTypeId == estate.TerritoryTypeId &&
+                          record.HouseWard == estate.Ward && record.HousePlot == estate.Plot;
         var changed = record.CharacterName != name || record.WorldName != world ||
                       record.IsOwned != owned || record.HouseId != houseId ||
                       record.HouseWorldId != estate.WorldId ||
@@ -139,8 +139,10 @@ internal sealed unsafe class HousingDemolitionTracker : IDisposable
         record.LastOwnershipCheckedAt = now;
         if (changed)
         {
-            // A newly acquired/different estate must be entered before its timer starts.
-            if (previousHouseId != houseId || !owned)
+            // HouseId contains representation bits that can differ depending on
+            // whether it came from the teleport list or HousingManager. Reset the
+            // visit only when the confirmed address actually changes.
+            if (!owned || (previousHouseId != 0 && !sameAddress))
                 record.LastEnteredAt = null;
             record.UpdatedAt = now;
         }
