@@ -403,6 +403,28 @@ public sealed partial class MainWindow : Window
             attention > 0 ? new Vector4(1f, 0.45f, 0.3f, 1f) : new Vector4(0.35f, 0.9f, 0.5f, 1f),
             MainSection.Housing);
 
+        var demolitionWarnings = GetHousingDisplayEntries()
+            .Where(x => x.LastEntry?.LastEnteredAt is { } entered &&
+                        entered.AddDays(40) - DateTime.Now <= TimeSpan.FromDays(10))
+            .OrderBy(x => x.LastEntry!.LastEnteredAt)
+            .ToList();
+        if (demolitionWarnings.Count > 0)
+        {
+            var nearest = demolitionWarnings[0];
+            var remaining = nearest.LastEntry!.LastEnteredAt!.Value.AddDays(40) - DateTime.Now;
+            var remainingText = remaining <= TimeSpan.Zero
+                ? Loc.L("期限超過", "Overdue")
+                : Loc.L($"残り{Math.Max(0, remaining.Days)}日{Math.Max(0, remaining.Hours)}時間",
+                    $"{Math.Max(0, remaining.Days)}d {Math.Max(0, remaining.Hours)}h remaining");
+            DrawHomeCard(Loc.L("住宅保持期限の警告", "Estate Demolition Warning"),
+                Loc.L($"期限接近 {demolitionWarnings.Count}件", $"{demolitionWarnings.Count} estate(s) near deadline"),
+                $"{FormatHouseAddress(nearest.Estate)} / {remainingText}",
+                remaining <= TimeSpan.FromDays(5)
+                    ? new Vector4(1f, 0.3f, 0.25f, 1f)
+                    : new Vector4(1f, 0.72f, 0.2f, 1f),
+                MainSection.Housing, "demolition-warning");
+        }
+
         var peers = plugin.CharacterLink.Peers;
         var linkTitle = plugin.CharacterLink.RuntimeStopped ? Loc.T("EmergencyStopped") :
             Loc.Status(GetDisplayedStatus(plugin.CharacterLink.LastAction, x => x.LastAction));
@@ -463,13 +485,14 @@ public sealed partial class MainWindow : Window
                 new Vector4(0.35f, 0.9f, 0.5f, 1f), MainSection.CustomDeliveries);
     }
 
-    private void DrawHomeCard(string title, string mainText, string detail, Vector4 accent, MainSection destination)
+    private void DrawHomeCard(string title, string mainText, string detail, Vector4 accent,
+        MainSection destination, string idSuffix = "")
     {
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.09f, 0.105f, 0.14f, 0.88f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.13f, 0.16f, 0.21f, 0.96f));
         var position = ImGui.GetCursorScreenPos();
         var height = 88 * ImGuiHelpers.GlobalScale;
-        if (ImGui.Button($"##home-card-{destination}", new Vector2(-1, height)))
+        if (ImGui.Button($"##home-card-{destination}-{idSuffix}", new Vector2(-1, height)))
             SelectSection(destination);
         ImGui.PopStyleColor(2);
 
@@ -530,20 +553,7 @@ public sealed partial class MainWindow : Window
             .Where(x => x.EnabledForDemolitionDisplay)
             .Select(x => x.ContentId)
             .ToHashSet();
-        var estates = plugin.Configuration.HousingDemolition.Values
-            .Where(x => x.IsOwned)
-            .GroupBy(x => x.EstateKind == OwnedEstateKind.FreeCompany
-                ? $"fc:{AddressKey(x)}"
-                : $"personal:{x.ContentId}:{AddressKey(x)}")
-            .Where(group => group.Any(x => selectedContentIds.Contains(x.ContentId)))
-            .Select(group => new
-            {
-                Estate = group.OrderByDescending(x => x.LastOwnershipCheckedAt).First(),
-                LastEntry = group.Where(x => x.LastEnteredAt.HasValue)
-                    .OrderByDescending(x => x.LastEnteredAt).FirstOrDefault(),
-            })
-            .OrderBy(x => FormatHouseAddress(x.Estate), StringComparer.CurrentCultureIgnoreCase)
-            .ToList();
+        var estates = GetHousingDisplayEntries();
 
         if (selectedContentIds.Count == 0)
         {
@@ -560,25 +570,38 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        DrawHousingEstateBlock(Loc.L("個人宅", "Personal Estates"), OwnedEstateKind.Personal,
+            estates.Where(x => x.Estate.EstateKind == OwnedEstateKind.Personal).ToList());
+        ImGui.Spacing();
+        DrawHousingEstateBlock(Loc.L("FC宅", "Free Company Estates"), OwnedEstateKind.FreeCompany,
+            estates.Where(x => x.Estate.EstateKind == OwnedEstateKind.FreeCompany).ToList());
+    }
+
+    private static void DrawHousingEstateBlock(string title, OwnedEstateKind kind,
+        System.Collections.Generic.List<HousingDisplayEntry> estates)
+    {
+        ImGui.TextColored(kind == OwnedEstateKind.Personal
+                ? new Vector4(0.42f, 0.82f, 1f, 1f)
+                : new Vector4(0.72f, 0.58f, 1f, 1f), title);
+        if (estates.Count == 0)
+        {
+            ImGui.TextDisabled(Loc.L("表示対象なし", "No estates to display"));
+            return;
+        }
         var flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
-        if (!ImGui.BeginTable("housing-demolition", 5, flags))
+        if (!ImGui.BeginTable($"housing-demolition-{kind}", 4, flags))
             return;
         ImGui.TableSetupColumn(Loc.L("ハウス住所", "Estate Address"), ImGuiTableColumnFlags.WidthStretch, 1.6f);
-        ImGui.TableSetupColumn(Loc.L("住宅", "Estate"), ImGuiTableColumnFlags.WidthFixed, 95 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("最終入室キャラ", "Last Character"));
         ImGui.TableSetupColumn(Loc.L("最終入室日", "Last entry"));
         ImGui.TableSetupColumn(Loc.L("残り時間", "Remaining"));
         ImGui.TableHeadersRow();
-
         foreach (var estate in estates)
         {
             var record = estate.Estate;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             ImGui.TextWrapped(FormatHouseAddress(record));
-            ImGui.TableNextColumn();
-            ImGui.TextUnformatted(record.EstateKind == OwnedEstateKind.Personal
-                ? Loc.L("個人宅", "Personal") : Loc.L("FC宅", "FC"));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(estate.LastEntry?.CharacterName ?? "—");
             ImGui.TableNextColumn();
@@ -605,6 +628,33 @@ public sealed partial class MainWindow : Window
         }
         ImGui.EndTable();
     }
+
+    private System.Collections.Generic.List<HousingDisplayEntry> GetHousingDisplayEntries()
+    {
+        var selectedContentIds = plugin.Configuration.Characters.Values
+            .Where(x => x.EnabledForDemolitionDisplay).Select(x => x.ContentId).ToHashSet();
+        return plugin.Configuration.HousingDemolition.Values
+            .Where(x => x.IsOwned && IsValidStoredAddress(x) &&
+                        x.EstateKind is OwnedEstateKind.Personal or OwnedEstateKind.FreeCompany)
+            .GroupBy(x => x.EstateKind == OwnedEstateKind.FreeCompany
+                ? $"fc:{AddressKey(x)}" : $"personal:{x.ContentId}:{AddressKey(x)}")
+            .Where(group => group.Any(x => selectedContentIds.Contains(x.ContentId)))
+            .Select(group => new HousingDisplayEntry(
+                group.OrderByDescending(x => x.LastOwnershipCheckedAt).First(),
+                group.Where(x => x.LastEnteredAt.HasValue)
+                    .OrderByDescending(x => x.LastEnteredAt).FirstOrDefault()))
+            .OrderBy(x => x.Estate.EstateKind)
+            .ThenBy(x => FormatHouseAddress(x.Estate), StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+    }
+
+    private static bool IsValidStoredAddress(HousingDemolitionRecord record) =>
+        record.HouseWorldId is not (0 or ushort.MaxValue) &&
+        record.HouseTerritoryTypeId is 339 or 340 or 341 or 641 or 979 &&
+        record.HouseWard is >= 1 and <= 30 && record.HousePlot is >= 1 and <= 60;
+
+    private sealed record HousingDisplayEntry(
+        HousingDemolitionRecord Estate, HousingDemolitionRecord? LastEntry);
 
     private static string AddressKey(HousingDemolitionRecord record) =>
         $"{record.HouseWorldId}:{record.HouseTerritoryTypeId}:{record.HouseWard}:{record.HousePlot}";
