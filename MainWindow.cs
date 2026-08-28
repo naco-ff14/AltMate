@@ -405,13 +405,14 @@ public sealed partial class MainWindow : Window
 
         var demolitionWarnings = GetHousingDisplayEntries()
             .Where(x => x.LastEntry?.LastEnteredAt is { } entered &&
-                        entered.AddDays(40) - DateTime.Now <= TimeSpan.FromDays(10))
+                        entered.AddDays(HousingDemolitionTracker.DemolitionPeriodDays) - DateTime.Now <= TimeSpan.FromDays(10))
             .OrderBy(x => x.LastEntry!.LastEnteredAt)
             .ToList();
         if (demolitionWarnings.Count > 0)
         {
             var nearest = demolitionWarnings[0];
-            var remaining = nearest.LastEntry!.LastEnteredAt!.Value.AddDays(40) - DateTime.Now;
+            var remaining = nearest.LastEntry!.LastEnteredAt!.Value
+                .AddDays(HousingDemolitionTracker.DemolitionPeriodDays) - DateTime.Now;
             var remainingText = remaining <= TimeSpan.Zero
                 ? Loc.L("期限超過", "Overdue")
                 : Loc.L($"残り{Math.Max(0, remaining.Days)}日{Math.Max(0, remaining.Hours)}時間",
@@ -542,8 +543,8 @@ public sealed partial class MainWindow : Window
     private void DrawHousingDemolitionTab()
     {
         ImGui.TextDisabled(Loc.L(
-            "所有住宅へ入室すると最終入室日時を記録し、40日後までの残り時間を表示します。",
-            "Entering an owned estate records the visit and shows the time remaining in the 40-day period."));
+            $"所有住宅へ入室すると最終入室日時を記録し、{HousingDemolitionTracker.DemolitionPeriodDays}日後までの残り時間を表示します。",
+            $"Entering an owned estate records the visit and shows the time remaining in the {HousingDemolitionTracker.DemolitionPeriodDays}-day period."));
         ImGui.TextDisabled(Loc.L(
             "ゲーム内の自動撤去が停止・延長された場合、実際の期限とは異なることがあります。",
             "The actual deadline may differ while automatic demolition is suspended or extended."));
@@ -614,7 +615,8 @@ public sealed partial class MainWindow : Window
                 ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f), Loc.L("入室して開始", "Enter to start"));
             else
             {
-                var remaining = estate.LastEntry.LastEnteredAt.Value.AddDays(40) - DateTime.Now;
+                var remaining = estate.LastEntry.LastEnteredAt.Value
+                    .AddDays(HousingDemolitionTracker.DemolitionPeriodDays) - DateTime.Now;
                 var text = remaining <= TimeSpan.Zero
                     ? Loc.L("期限超過", "Overdue")
                     : Loc.L($"{remaining.Days}日 {remaining.Hours}時間", $"{remaining.Days}d {remaining.Hours}h");
