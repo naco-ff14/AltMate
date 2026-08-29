@@ -29,10 +29,10 @@ public sealed partial class MainWindow
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.09f, 0.12f, 0.17f, 0.9f));
         ImGui.BeginChild("crafter-phase-status", new Vector2(0, 64 * ImGuiHelpers.GlobalScale), true);
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f),
-            Loc.L("Phase 1：準備リスト・Preset基盤", "Phase 1: Preparation list and preset foundation"));
+            Loc.L("Phase 3：取得・返却計画", "Phase 3: Withdrawal and return planning"));
         ImGui.TextWrapped(Loc.L(
-            "自動操作はまだ無効です。実Recipe IDと装備Item IDを登録して準備内容を検証してから、次Phaseでリテイナー・Artisan連携を有効化します。",
-            "Automation is disabled until real recipe and gear IDs are validated; retainer and Artisan integration follows in the next phases."));
+            "必要数・プレイヤー所持数・リテイナー在庫から安全な移動計画を作成します。実際のアイテム移動は計画検証後に有効化します。",
+            "Builds a safe transfer plan from requirements, player inventory, and retainer caches. Item movement remains disabled until validation is complete."));
         ImGui.EndChild();
         ImGui.PopStyleColor();
         ImGui.Spacing();
@@ -81,6 +81,10 @@ public sealed partial class MainWindow
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPreparationList(settings);
 
+        if (ImGui.CollapsingHeader(Loc.L("取得・返却計画", "Transfer plan"),
+                ImGuiTreeNodeFlags.DefaultOpen))
+            DrawCrafterTransferPlan(settings);
+
         if (ImGui.CollapsingHeader(Loc.L("実行状態", "Progress")))
         {
             ImGui.TextUnformatted($"{Loc.L("状態", "State")}：{settings.Progress.State}");
@@ -90,6 +94,69 @@ public sealed partial class MainWindow
             ImGui.Button(Loc.L("自動レベリング開始（Phase 4以降）", "Start auto-leveling (Phase 4+)"));
             ImGui.EndDisabled();
         }
+    }
+
+    private void DrawCrafterTransferPlan(CrafterLevelingSettings settings)
+    {
+        var bellReady = settings.Bell.IsRegistered &&
+                        settings.Bell.TerritoryId == Plugin.ClientState.TerritoryType &&
+                        Plugin.ObjectTable.LocalPlayer is { } local &&
+                        Vector3.Distance(local.Position,
+                            new Vector3(settings.Bell.X, settings.Bell.Y, settings.Bell.Z)) <= 6f;
+        ImGui.TextColored(settings.Bell.IsRegistered
+                ? new Vector4(0.35f, 0.9f, 0.5f, 1f)
+                : new Vector4(1f, 0.35f, 0.3f, 1f),
+            settings.Bell.IsRegistered ? Loc.L("✓ ベル登録済み", "✓ Bell registered") :
+                Loc.L("✕ ベル未登録", "✕ Bell not registered"));
+        ImGui.SameLine();
+        ImGui.TextColored(bellReady ? new Vector4(0.35f, 0.9f, 0.5f, 1f) :
+                new Vector4(1f, 0.72f, 0.2f, 1f),
+            bellReady ? Loc.L("現在ベル付近", "Near the bell") : Loc.L("現在ベルから離れています", "Not near the bell"));
+
+        ImGui.BeginDisabled(crafterPreparationItems.Count == 0 || settings.SelectedRetainerIds.Count == 0);
+        if (ImGui.Button(Loc.L("取得・返却計画を生成", "Build transfer plan")))
+        {
+            settings.TransferPlan = CrafterTransferPlanner.Build(settings, crafterPreparationItems);
+            settings.Progress.State = CrafterLevelingState.Preparing;
+            settings.Progress.UpdatedAt = DateTime.Now;
+            plugin.Configuration.Save();
+        }
+        ImGui.EndDisabled();
+        if (crafterPreparationItems.Count == 0)
+            ImGui.TextDisabled(Loc.L("先に準備リストを生成してください。", "Build the preparation list first."));
+
+        var plan = settings.TransferPlan;
+        if (plan.CreatedAt == default) return;
+        ImGui.TextUnformatted(Loc.L($"計画作成：{plan.CreatedAt:MM/dd HH:mm:ss}",
+            $"Created: {plan.CreatedAt:MM/dd HH:mm:ss}"));
+        ImGui.TextColored(plan.IsReady ? new Vector4(0.35f, 0.9f, 0.5f, 1f) :
+                new Vector4(1f, 0.35f, 0.3f, 1f),
+            plan.IsReady ? Loc.L("取得可能", "Ready") :
+                Loc.L($"在庫不足 {plan.UnavailableItems.Count}種類", $"Unavailable items: {plan.UnavailableItems.Count}"));
+
+        if (ImGui.BeginTable("crafter-transfer-plan", 5,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
+                new Vector2(0, 220 * ImGuiHelpers.GlobalScale)))
+        {
+            foreach (var heading in new[] { Loc.L("処理", "Action"), Loc.L("リテイナー", "Retainer"),
+                         Loc.L("アイテム", "Item"), "ID", Loc.L("数量", "Qty") })
+                ImGui.TableSetupColumn(heading);
+            ImGui.TableHeadersRow();
+            foreach (var line in plan.Returns.Concat(plan.Withdrawals))
+            {
+                var returning = plan.Returns.Contains(line);
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(returning ? Loc.L("返却", "Return") : Loc.L("取得", "Withdraw"));
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.RetainerName);
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.ItemName);
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.ItemId.ToString());
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.Quantity.ToString("N0"));
+            }
+            ImGui.EndTable();
+        }
+        ImGui.BeginDisabled();
+        ImGui.Button(Loc.L("計画どおり移動開始（検証中）", "Execute transfer plan (validation pending)"));
+        ImGui.EndDisabled();
     }
 
     private void DrawCrafterStorageSettings(CrafterLevelingSettings settings)

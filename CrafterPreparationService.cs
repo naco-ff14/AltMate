@@ -48,7 +48,8 @@ internal sealed class CrafterPreparationService
         return required.Select(pair =>
             {
                 var name = itemSheet.TryGetRow(pair.Key, out var item) ? item.Name.ToString() : $"Item #{pair.Key}";
-                settings.KnownOwnedItems.TryGetValue(pair.Key, out var owned);
+                settings.KnownOwnedItems.TryGetValue(pair.Key, out var retainerOwned);
+                var owned = checked(retainerOwned + CrafterTransferPlanner.PlayerInventoryCount(pair.Key));
                 return new CrafterPreparationItem(pair.Key, name, pair.Value.Count, owned,
                     pair.Value.Crystal, pair.Value.Gear);
             })
