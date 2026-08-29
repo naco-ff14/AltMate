@@ -211,8 +211,12 @@ internal static unsafe class CrafterBellAutomation
         if (addon->AtkValues == null || addon->AtkValuesCount < 7 || addon->AtkValues[3].Type != AtkValueType.Int) return -1;
         var count = Math.Clamp(addon->AtkValues[3].Int, 0, 20);
         for (var index = 0; index < count && 7 + index < addon->AtkValuesCount; index++)
-            if (string.Equals(ReadString(addon->AtkValues + 7 + index).Trim(), expected.Trim(),
-                    StringComparison.CurrentCultureIgnoreCase)) return index;
+        {
+            var actual = ReadString(addon->AtkValues + 7 + index).Trim();
+            var baseText = expected.Trim();
+            if (string.Equals(actual, baseText, StringComparison.CurrentCultureIgnoreCase) ||
+                actual.StartsWith(baseText, StringComparison.CurrentCultureIgnoreCase)) return index;
+        }
         return -1;
     }
 
