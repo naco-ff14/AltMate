@@ -193,6 +193,12 @@ internal sealed class SharedConfigurationStore : IDisposable
                 pair.Value.UpdatedAt >= existing.UpdatedAt)
                 target.CustomDeliveryCharacters[pair.Key] = pair.Value;
         }
+        foreach (var pair in incoming.CrafterLevelingCharacters)
+        {
+            if (!target.CrafterLevelingCharacters.TryGetValue(pair.Key, out var existing) ||
+                pair.Value.Progress.UpdatedAt >= existing.Progress.UpdatedAt)
+                target.CrafterLevelingCharacters[pair.Key] = pair.Value;
+        }
         foreach (var pair in incoming.HousingDemolition)
         {
             if (!target.HousingDemolition.TryGetValue(pair.Key, out var existing) ||
@@ -264,7 +270,6 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.LeaderFpsLimit = incoming.LeaderFpsLimit;
         target.FollowerFpsLimit = incoming.FollowerFpsLimit;
         target.CustomDeliverySettings = incoming.CustomDeliverySettings ?? new CustomDeliverySettings();
-        target.CrafterLeveling = incoming.CrafterLeveling ?? new CrafterLevelingSettings();
         target.Language = incoming.Language;
         target.ShowChatMessages = incoming.ShowChatMessages;
         target.WindowBackgroundOpacity = incoming.WindowBackgroundOpacity;
@@ -308,9 +313,6 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (JsonSerializer.Serialize(current.CustomDeliverySettings) !=
             JsonSerializer.Serialize(baseline.CustomDeliverySettings))
             target.CustomDeliverySettings = current.CustomDeliverySettings;
-        if (JsonSerializer.Serialize(current.CrafterLeveling) !=
-            JsonSerializer.Serialize(baseline.CrafterLeveling))
-            target.CrafterLeveling = current.CrafterLeveling;
         if (current.Language != baseline.Language) target.Language = current.Language;
         if (current.ShowChatMessages != baseline.ShowChatMessages) target.ShowChatMessages = current.ShowChatMessages;
         if (Math.Abs(current.WindowBackgroundOpacity - baseline.WindowBackgroundOpacity) > 0.001f)

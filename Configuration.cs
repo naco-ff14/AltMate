@@ -16,6 +16,7 @@ public sealed class Configuration : IPluginConfiguration
     public Dictionary<string, HousingDemolitionRecord> HousingDemolition { get; set; } = new();
     public CustomDeliverySettings CustomDeliverySettings { get; set; } = new();
     public CrafterLevelingSettings CrafterLeveling { get; set; } = new();
+    public Dictionary<ulong, CrafterLevelingSettings> CrafterLevelingCharacters { get; set; } = new();
     public DateTime? OpenPlotsCycleStartsAtUtc { get; set; }
     // 2026-08-13 00:00 JST: beginning of an entry period.
     public DateTime CycleAnchorUtc { get; set; } = new(2026, 8, 12, 15, 0, 0, DateTimeKind.Utc);

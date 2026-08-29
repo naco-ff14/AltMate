@@ -24,7 +24,7 @@ public sealed partial class MainWindow
         DrawPageTitle(Loc.L("クラフター自動レベリング", "Crafter Auto-Leveling"),
             Loc.L("8職を装備Tierごとに揃えて育成するための準備と進捗を管理します。",
                 "Prepare and track tier-based leveling for all eight crafting jobs."));
-        var settings = plugin.Configuration.CrafterLeveling;
+        var settings = plugin.GetCrafterLevelingSettings();
 
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.09f, 0.12f, 0.17f, 0.9f));
         ImGui.BeginChild("crafter-phase-status", new Vector2(0, 64 * ImGuiHelpers.GlobalScale), true);
@@ -111,6 +111,7 @@ public sealed partial class MainWindow
             var target = Plugin.TargetManager.Target;
             var name = target?.Name.ToString() ?? string.Empty;
             if (target is null || (!name.Contains("ベル", StringComparison.OrdinalIgnoreCase) &&
+                                   !name.Contains("呼び鈴", StringComparison.OrdinalIgnoreCase) &&
                                    !name.Contains("bell", StringComparison.OrdinalIgnoreCase)))
             {
                 crafterStorageMessage = Loc.L("リテイナーベルをターゲットしてから登録してください。",
@@ -149,8 +150,11 @@ public sealed partial class MainWindow
         ImGui.TextDisabled(Loc.L(
             "一度ずつリテイナーを開くと所持品を自動スキャンします。チェックしたリテイナーだけ準備数へ合算します。",
             "Open each retainer once to scan automatically. Only checked retainers count toward preparation totals."));
-        var knownRetainers = plugin.Configuration.CharacterGil.Values
-            .SelectMany(character => character.Retainers.Values)
+        var currentContentId = Plugin.PlayerState.ContentId;
+        var characterRetainers = plugin.Configuration.CharacterGil.TryGetValue(currentContentId, out var character)
+            ? character.Retainers.Values
+            : Enumerable.Empty<RetainerGilRecord>();
+        var knownRetainers = characterRetainers
             .Select(retainer => (RetainerId: retainer.RetainerId, Name: retainer.Name))
             .Concat(settings.RetainerInventories.Values.Select(cache =>
                 (RetainerId: cache.RetainerId, Name: cache.RetainerName)))
@@ -325,8 +329,9 @@ public sealed partial class MainWindow
 
     private void SaveCrafterSettings()
     {
-        plugin.Configuration.CrafterLeveling.Progress.UpdatedAt = DateTime.Now;
-        plugin.SaveSharedSettings();
+        var settings = plugin.GetCrafterLevelingSettings();
+        settings.Progress.UpdatedAt = DateTime.Now;
+        plugin.Configuration.Save();
         crafterPreparationItems = [];
         crafterPreparationErrors = [];
     }

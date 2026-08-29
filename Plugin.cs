@@ -74,6 +74,24 @@ public sealed class Plugin : IDalamudPlugin
     internal Configuration Configuration { get; }
     internal static Configuration? CurrentConfiguration => current?.Configuration;
 
+    internal CrafterLevelingSettings GetCrafterLevelingSettings()
+    {
+        var contentId = PlayerState.ContentId;
+        if (contentId == 0)
+            return Configuration.CrafterLeveling;
+        if (Configuration.CrafterLevelingCharacters.TryGetValue(contentId, out var settings))
+            return settings;
+
+        // Preserve the single-profile data created by v1.36-v1.37 for the
+        // first character that opens this page, then isolate all later data.
+        settings = Configuration.CrafterLevelingCharacters.Count == 0
+            ? Configuration.CrafterLeveling
+            : new CrafterLevelingSettings();
+        Configuration.CrafterLevelingCharacters[contentId] = settings;
+        Configuration.Save();
+        return settings;
+    }
+
     internal static void PrintChat(string message)
     {
         if (CurrentConfiguration?.ShowChatMessages == true)

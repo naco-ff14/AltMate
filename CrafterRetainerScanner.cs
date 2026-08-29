@@ -70,7 +70,7 @@ internal sealed unsafe class CrafterRetainerScanner : IDisposable
                 }
             }
 
-            var settings = plugin.Configuration.CrafterLeveling;
+            var settings = plugin.GetCrafterLevelingSettings();
             var name = active->NameString;
             if (settings.RetainerInventories.TryGetValue(active->RetainerId, out var previous) &&
                 DictionariesEqual(previous.Items, items) && now - previous.ScannedAt.ToUniversalTime() < TimeSpan.FromMinutes(1))
@@ -83,7 +83,8 @@ internal sealed unsafe class CrafterRetainerScanner : IDisposable
                 ScannedAt = DateTime.Now,
             };
             RefreshOwnedTotals(settings);
-            plugin.SaveSharedSettings();
+            settings.Progress.UpdatedAt = DateTime.Now;
+            plugin.Configuration.Save();
         }
         catch (Exception exception)
         {
