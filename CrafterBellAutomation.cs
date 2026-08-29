@@ -2,6 +2,7 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Memory;
 using FFXIVClientStructs.FFXIV.Client.Game.Object;
 using FFXIVClientStructs.FFXIV.Client.Game.Control;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
@@ -208,20 +209,27 @@ internal static unsafe class CrafterBellAutomation
 
     private static int FindSelectStringIndex(AtkUnitBase* addon, string expected)
     {
-        if (addon->AtkValues == null || addon->AtkValuesCount < 7 || addon->AtkValues[3].Type != AtkValueType.Int) return -1;
-        var count = Math.Clamp(addon->AtkValues[3].Int, 0, 20);
-        for (var index = 0; index < count && 7 + index < addon->AtkValuesCount; index++)
+        var selectString = (AddonSelectString*)addon;
+        var count = Math.Clamp(selectString->PopupMenu.PopupMenu.EntryCount, 0, 20);
+        var baseText = NormalizeMenuText(expected);
+        for (var index = 0; index < count; index++)
         {
-            var actual = ReadString(addon->AtkValues + 7 + index).Trim();
-            var baseText = expected.Trim();
+            var pointer = selectString->PopupMenu.PopupMenu.EntryNames[index].Value;
+            if (pointer == null) continue;
+            var actual = NormalizeMenuText(MemoryHelper.ReadSeStringNullTerminated((nint)pointer).TextValue);
             if (string.Equals(actual, baseText, StringComparison.CurrentCultureIgnoreCase) ||
-                actual.StartsWith(baseText, StringComparison.CurrentCultureIgnoreCase)) return index;
+                actual.StartsWith(baseText, StringComparison.CurrentCultureIgnoreCase) ||
+                actual.Contains(baseText, StringComparison.CurrentCultureIgnoreCase)) return index;
         }
         return -1;
     }
 
+    private static string NormalizeMenuText(string text) =>
+        text.Replace("　", " ").Trim();
+
     private static string ReadString(AtkValue* value) =>
-        value->Type is AtkValueType.String or AtkValueType.ConstString or AtkValueType.ManagedString
+        value->Type is AtkValueType.String or AtkValueType.ConstString or AtkValueType.WideString or
+            AtkValueType.ManagedString
             ? MemoryHelper.ReadSeStringNullTerminated((nint)value->String.Value).TextValue : string.Empty;
 
     private static AtkUnitBase* GetAddon(string name)
