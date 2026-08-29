@@ -292,7 +292,8 @@ public sealed partial class MainWindow
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
         var visiblePresets = settings.RecipePresets.Select((preset, index) => (Preset: preset, Index: index))
-            .Where(x => settings.EnabledJobIds.Contains(x.Preset.JobId)).ToArray();
+            .Where(x => settings.EnabledJobIds.Contains(x.Preset.JobId) &&
+                        x.Preset.MinLevel < settings.TargetLevel).ToArray();
         if (visiblePresets.Length > 0 && ImGui.BeginTable("crafter-leveling-recipes", 6,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {

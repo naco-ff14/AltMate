@@ -82,7 +82,9 @@ internal static class CrafterLevelingCatalog
                     continue;
                 }
                 var recipe = matches[0];
-                resolved.Add((entry, recipe, recipe.RecipeLevelTable.Value.ClassJobLevel));
+                var recipeLevel = recipe.RecipeLevelTable.Value.ClassJobLevel;
+                if (recipeLevel < settings.TargetLevel)
+                    resolved.Add((entry, recipe, recipeLevel));
             }
 
             resolved.Sort((left, right) => left.RecipeLevel.CompareTo(right.RecipeLevel));
@@ -95,12 +97,14 @@ internal static class CrafterLevelingCatalog
                     continue;
                 }
 
-                var nextLevel = index + 1 < resolved.Count ? resolved[index + 1].RecipeLevel : 21;
+                var nextLevel = index + 1 < resolved.Count
+                    ? resolved[index + 1].RecipeLevel
+                    : Math.Min(21, settings.TargetLevel + 1);
                 settings.RecipePresets.Add(new CrafterRecipePreset
                 {
                     JobId = entry.JobId,
                     MinLevel = Math.Clamp(recipeLevel, 1, 20),
-                    MaxLevel = Math.Clamp(nextLevel - 1, 1, 20),
+                    MaxLevel = Math.Clamp(nextLevel - 1, 1, Math.Min(20, settings.TargetLevel)),
                     RecipeId = recipe.RowId,
                     MaxCraftCount = entry.MaxCraftCount,
                     Route = CrafterLevelingRoute.Normal,

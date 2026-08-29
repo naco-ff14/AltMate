@@ -49,7 +49,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
         var level = Plugin.PlayerState.Level;
         queue = settings.RecipePresets
-            .Where(x => x.JobId == jobId && x.MinLevel <= settings.TargetLevel && x.MaxLevel >= level)
+            .Where(x => x.JobId == jobId && x.MinLevel < settings.TargetLevel && x.MaxLevel >= level)
             .OrderBy(x => x.MinLevel)
             .ThenBy(x => x.RecipeId)
             .Select(Clone)
@@ -143,13 +143,12 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                         "Artisan could not start. Check materials, gear, and recipe unlocks."));
                 return;
             }
-            index++;
             requestSent = false;
             artisanBecameBusy = false;
         }
 
         var currentLevel = Plugin.PlayerState.Level;
-        while (index < queue.Count && queue[index].MaxLevel < currentLevel)
+        while (index + 1 < queue.Count && currentLevel >= queue[index + 1].MinLevel)
             index++;
         if (index >= queue.Count || currentLevel >= plugin.GetCrafterLevelingSettings().TargetLevel)
         {
@@ -194,7 +193,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         try
         {
             Plugin.PluginInterface.GetIpcSubscriber<ushort, int, object>("Artisan.CraftItem")
-                .InvokeAction((ushort)preset.RecipeId, Math.Max(1, preset.MaxCraftCount));
+                .InvokeAction((ushort)preset.RecipeId, 1);
             requestSent = true;
             requestAtUtc = DateTime.UtcNow;
             Status = Loc.L($"Artisanへ依頼中 [{index + 1}/{queue.Count}]：{RecipeName(preset.RecipeId)}",
