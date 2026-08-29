@@ -402,10 +402,11 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L("該当項目なし", "No items"));
             return;
         }
-        if (!ImGui.BeginTable(id, 7,
+        if (!ImGui.BeginTable(id, 8,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, Math.Min(220, 30 + rows.Count * 24) * ImGuiHelpers.GlobalScale))) return;
         foreach (var heading in new[] { Loc.L("アイテム", "Item"), Loc.L("コピー", "Copy"), Loc.L("分類", "Type"),
+                     Loc.L("装備Lv", "Equip Lv"),
                      Loc.L("必要", "Required"), Loc.L("所持", "Owned"), Loc.L("不足", "Missing"),
                      Loc.L("所在", "Location") })
             ImGui.TableSetupColumn(heading);
@@ -420,6 +421,7 @@ public sealed partial class MainWindow
                 ImGui.SetClipboardText(item.Name);
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.IsGear ? Loc.L("装備", "Gear") :
                 item.IsCrystal ? Loc.L("クリスタル", "Crystal") : Loc.L("素材", "Material"));
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(item.IsGear ? $"Lv{item.EquipLevel}" : "—");
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.RequiredCount.ToString("N0"));
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.OwnedCount.ToString("N0"));
             ImGui.TableNextColumn();

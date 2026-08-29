@@ -90,7 +90,7 @@ public sealed class CrafterLevelingProgress
 }
 
 public sealed record CrafterPreparationItem(uint ItemId, string Name, int RequiredCount, int OwnedCount,
-    bool IsCrystal, bool IsGear)
+    bool IsCrystal, bool IsGear, int EquipLevel)
 {
     public int MissingCount => Math.Max(0, RequiredCount - OwnedCount);
 }

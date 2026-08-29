@@ -50,8 +50,11 @@ internal sealed class CrafterPreparationService
                 var name = itemSheet.TryGetRow(pair.Key, out var item) ? item.Name.ToString() : $"Item #{pair.Key}";
                 settings.KnownOwnedItems.TryGetValue(pair.Key, out var retainerOwned);
                 var owned = checked(retainerOwned + CrafterInventoryLocator.PlayerInventoryCount(pair.Key));
+                var equipLevel = pair.Value.Gear && itemSheet.TryGetRow(pair.Key, out var gearItem)
+                    ? gearItem.LevelEquip
+                    : 0;
                 return new CrafterPreparationItem(pair.Key, name, pair.Value.Count, owned,
-                    pair.Value.Crystal, pair.Value.Gear);
+                    pair.Value.Crystal, pair.Value.Gear, equipLevel);
             })
             .OrderByDescending(x => x.MissingCount > 0)
             .ThenBy(x => x.IsGear)
