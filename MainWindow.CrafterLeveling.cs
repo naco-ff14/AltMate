@@ -20,9 +20,6 @@ public sealed partial class MainWindow
     private string crafterRecipeSearch = string.Empty;
     private IReadOnlyList<(uint RecipeId, string ProductName)> crafterRecipeSearchResults = [];
     private string crafterCatalogMessage = string.Empty;
-    private string crafterStorageMessage = string.Empty;
-    private string crafterTransferMessage = string.Empty;
-    private bool crafterTransferMessageIsError;
     private string crafterGearMessage = string.Empty;
 
     private void DrawCrafterLeveling()
@@ -35,10 +32,10 @@ public sealed partial class MainWindow
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.09f, 0.12f, 0.17f, 0.9f));
         ImGui.BeginChild("crafter-phase-status", new Vector2(0, 64 * ImGuiHelpers.GlobalScale), true);
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f),
-            Loc.L("Phase 3：取得・返却計画", "Phase 3: Withdrawal and return planning"));
+            Loc.L("素材・装備の準備", "Material and gear preparation"));
         ImGui.TextWrapped(Loc.L(
-            "必要数・プレイヤー所持数・リテイナー在庫から安全な移動計画を作成します。実際のアイテム移動は計画検証後に有効化します。",
-            "Builds a safe transfer plan from requirements, player inventory, and retainer caches. Item movement remains disabled until validation is complete."));
+            "必要数と、手持ちバッグ・選択したリテイナーごとの所在を一覧化します。アイテムの取り出しはゲーム内で手動操作してください。",
+            "Lists requirements and locations across your inventory and selected retainers. Withdraw items manually in game."));
         ImGui.EndChild();
         ImGui.PopStyleColor();
         ImGui.Spacing();
@@ -75,10 +72,6 @@ public sealed partial class MainWindow
             }
         }
 
-        if (ImGui.CollapsingHeader(Loc.L("最初に設定：リテイナーベル", "First: Summoning bell"),
-                ImGuiTreeNodeFlags.DefaultOpen))
-            DrawCrafterBellRegistration(settings);
-
         if (ImGui.CollapsingHeader(Loc.L("レベリング製作品", "Leveling recipes"),
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPresetEditor(settings);
@@ -94,10 +87,6 @@ public sealed partial class MainWindow
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPreparationList(settings);
 
-        if (ImGui.CollapsingHeader(Loc.L("取得・返却計画", "Transfer plan"),
-                ImGuiTreeNodeFlags.DefaultOpen))
-            DrawCrafterTransferPlan(settings);
-
         if (ImGui.CollapsingHeader(Loc.L("実行状態", "Progress")))
         {
             ImGui.TextUnformatted($"{Loc.L("状態", "State")}：{settings.Progress.State}");
@@ -106,124 +95,6 @@ public sealed partial class MainWindow
             ImGui.BeginDisabled();
             ImGui.Button(Loc.L("自動レベリング開始（Phase 4以降）", "Start auto-leveling (Phase 4+)"));
             ImGui.EndDisabled();
-        }
-    }
-
-    private void DrawCrafterTransferPlan(CrafterLevelingSettings settings)
-    {
-        var bellReady = settings.Bell.IsRegistered &&
-                        settings.Bell.TerritoryId == Plugin.ClientState.TerritoryType &&
-                        Plugin.ObjectTable.LocalPlayer is { } local &&
-                        Vector3.Distance(local.Position,
-                            new Vector3(settings.Bell.X, settings.Bell.Y, settings.Bell.Z)) <= 6f;
-        ImGui.TextColored(settings.Bell.IsRegistered
-                ? new Vector4(0.35f, 0.9f, 0.5f, 1f)
-                : new Vector4(1f, 0.35f, 0.3f, 1f),
-            settings.Bell.IsRegistered ? Loc.L("✓ ベル登録済み", "✓ Bell registered") :
-                Loc.L("✕ ベル未登録", "✕ Bell not registered"));
-        ImGui.SameLine();
-        ImGui.TextColored(bellReady ? new Vector4(0.35f, 0.9f, 0.5f, 1f) :
-                new Vector4(1f, 0.72f, 0.2f, 1f),
-            bellReady ? Loc.L("現在ベル付近", "Near the bell") : Loc.L("現在ベルから離れています", "Not near the bell"));
-
-        ImGui.BeginDisabled(crafterPreparationItems.Count == 0 || settings.SelectedRetainerIds.Count == 0);
-        if (ImGui.Button(Loc.L("取得・返却計画を生成", "Build transfer plan")))
-        {
-            settings.TransferPlan = CrafterTransferPlanner.Build(settings, crafterPreparationItems);
-            settings.Progress.State = CrafterLevelingState.Preparing;
-            settings.Progress.UpdatedAt = DateTime.Now;
-            plugin.Configuration.Save();
-        }
-        ImGui.EndDisabled();
-        if (crafterPreparationItems.Count == 0)
-            ImGui.TextDisabled(Loc.L("先に準備リストを生成してください。", "Build the preparation list first."));
-
-        var plan = settings.TransferPlan;
-        if (!string.IsNullOrWhiteSpace(CrafterTransferExecutor.StatusJapanese))
-            ImGui.TextColored(CrafterTransferExecutor.StatusIsError
-                    ? new Vector4(1f, 0.35f, 0.3f, 1f)
-                    : new Vector4(0.35f, 0.9f, 0.5f, 1f),
-                Loc.L(CrafterTransferExecutor.StatusJapanese, CrafterTransferExecutor.StatusEnglish));
-        if (!string.IsNullOrWhiteSpace(CrafterBellAutomation.StatusJapanese))
-            ImGui.TextColored(CrafterBellAutomation.StatusIsError
-                    ? new Vector4(1f, 0.35f, 0.3f, 1f)
-                    : new Vector4(0.35f, 0.9f, 0.5f, 1f),
-                Loc.L(CrafterBellAutomation.StatusJapanese, CrafterBellAutomation.StatusEnglish));
-        if (plan.CreatedAt == default)
-        {
-            ImGui.TextDisabled(Loc.L(
-                "計画未生成。現在の準備リストとリテイナー在庫を確認してから生成してください。",
-                "No plan generated. Verify the current preparation list and retainer inventory first."));
-            return;
-        }
-        ImGui.TextUnformatted(Loc.L($"計画作成：{plan.CreatedAt:MM/dd HH:mm:ss}",
-            $"Created: {plan.CreatedAt:MM/dd HH:mm:ss}"));
-        ImGui.TextColored(plan.IsReady ? new Vector4(0.35f, 0.9f, 0.5f, 1f) :
-                new Vector4(1f, 0.35f, 0.3f, 1f),
-            plan.IsReady ? Loc.L("取得可能", "Ready") :
-                Loc.L($"在庫不足 {plan.UnavailableItems.Count}種類", $"Unavailable items: {plan.UnavailableItems.Count}"));
-
-        ImGui.BeginDisabled(plan.Withdrawals.Count == 0 || CrafterTransferExecutor.IsRunning ||
-                            CrafterBellAutomation.IsRunning);
-        if (ImGui.Button(Loc.L("ベルから全リテイナー分を自動取得", "Auto-withdraw from all retainers")))
-        {
-            var result = CrafterBellAutomation.Begin(settings, plan.Withdrawals);
-            crafterTransferMessage = Loc.L(result.JapaneseMessage, result.EnglishMessage);
-            crafterTransferMessageIsError = !result.Success;
-        }
-        ImGui.EndDisabled();
-        ImGui.SameLine();
-        ImGui.TextDisabled(Loc.L("登録ベル付近から、計画順にリテイナーを呼び出します。",
-            "Calls retainers in plan order while near the registered bell."));
-        if (plan.Withdrawals.Count == 0)
-        {
-            var unscanned = settings.SelectedRetainerIds.Count(id =>
-                !settings.RetainerInventories.ContainsKey(id));
-            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f), unscanned > 0
-                ? Loc.L($"自動取得できません：選択中のリテイナー{unscanned}人の所持品が未確認です。一度ずつ開いて再スキャンしてください。",
-                    $"Cannot auto-withdraw: {unscanned} selected retainers have not been scanned. Open each once and rebuild the plan.")
-                : plan.UnavailableItems.Count > 0
-                    ? Loc.L("自動取得できません：選択したリテイナーに取得可能な不足品がありません。在庫・選択リテイナー・準備リストを確認してください。",
-                        "Cannot auto-withdraw: no missing items are available from selected retainers. Check inventory, selection, and preparation list.")
-                    : Loc.L("自動取得するアイテムがありません。", "There are no items to withdraw."));
-        }
-
-        ImGui.BeginDisabled(plan.Withdrawals.Count == 0 || CrafterTransferExecutor.IsRunning ||
-                            CrafterBellAutomation.IsRunning);
-        if (ImGui.Button(Loc.L("現在のリテイナー分を連続取得", "Withdraw all from current retainer")))
-        {
-            var result = CrafterTransferExecutor.BeginBatch(plan.Withdrawals);
-            crafterTransferMessage = Loc.L(result.JapaneseMessage, result.EnglishMessage);
-            crafterTransferMessageIsError = !result.Success;
-        }
-        ImGui.EndDisabled();
-        ImGui.SameLine();
-        ImGui.TextDisabled(Loc.L("対象リテイナーの所持品画面を開いてから実行してください。",
-            "Open the target retainer inventory before running."));
-        if (!string.IsNullOrWhiteSpace(crafterTransferMessage))
-            ImGui.TextColored(crafterTransferMessageIsError
-                ? new Vector4(1f, 0.35f, 0.3f, 1f)
-                : new Vector4(0.35f, 0.9f, 0.5f, 1f), crafterTransferMessage);
-
-        if (ImGui.BeginTable("crafter-transfer-plan", 5,
-                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
-                new Vector2(0, 220 * ImGuiHelpers.GlobalScale)))
-        {
-            foreach (var heading in new[] { Loc.L("処理", "Action"), Loc.L("リテイナー", "Retainer"),
-                         Loc.L("アイテム", "Item"), "ID", Loc.L("数量", "Qty") })
-                ImGui.TableSetupColumn(heading);
-            ImGui.TableHeadersRow();
-            foreach (var line in plan.Returns.Concat(plan.Withdrawals))
-            {
-                var returning = plan.Returns.Contains(line);
-                ImGui.TableNextRow();
-                ImGui.TableNextColumn(); ImGui.TextUnformatted(returning ? Loc.L("返却", "Return") : Loc.L("取得", "Withdraw"));
-                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.RetainerName);
-                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.ItemName);
-                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.ItemId.ToString());
-                ImGui.TableNextColumn(); ImGui.TextUnformatted(line.Quantity.ToString("N0"));
-            }
-            ImGui.EndTable();
         }
     }
 
@@ -291,64 +162,6 @@ public sealed partial class MainWindow
             }
             ImGui.EndDisabled();
         }
-    }
-
-    private void DrawCrafterBellRegistration(CrafterLevelingSettings settings)
-    {
-        ImGui.TextDisabled(Loc.L(
-            "自動取得で使うベルです。ゲーム内でベルをターゲットしてから一度だけ登録してください。",
-            "This bell is used for automatic withdrawals. Target it in game and register it once."));
-        ImGui.TextUnformatted(Loc.L("使用するリテイナーベル", "Summoning bell"));
-        if (settings.Bell.IsRegistered)
-        {
-            ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f),
-                $"{settings.Bell.ObjectName} / Territory {settings.Bell.TerritoryId} / " +
-                $"({settings.Bell.X:F1}, {settings.Bell.Y:F1}, {settings.Bell.Z:F1})");
-        }
-        else
-        {
-            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
-                Loc.L("未登録", "Not registered"));
-        }
-        if (ImGui.Button(Loc.L("ターゲット中のベルを登録", "Register targeted bell")))
-        {
-            var target = Plugin.TargetManager.Target;
-            var name = target?.Name.ToString() ?? string.Empty;
-            if (target is null || (!name.Contains("ベル", StringComparison.OrdinalIgnoreCase) &&
-                                   !name.Contains("呼び鈴", StringComparison.OrdinalIgnoreCase) &&
-                                   !name.Contains("bell", StringComparison.OrdinalIgnoreCase)))
-            {
-                crafterStorageMessage = Loc.L("リテイナーベルをターゲットしてから登録してください。",
-                    "Target a summoning bell before registering it.");
-            }
-            else
-            {
-                settings.Bell = new CrafterBellRegistration
-                {
-                    IsRegistered = true,
-                    TerritoryId = Plugin.ClientState.TerritoryType,
-                    ObjectId = target.BaseId,
-                    ObjectName = name,
-                    X = target.Position.X,
-                    Y = target.Position.Y,
-                    Z = target.Position.Z,
-                };
-                crafterStorageMessage = Loc.L("ベルを登録しました。", "Bell registered.");
-                SaveCrafterSettings();
-            }
-        }
-        if (settings.Bell.IsRegistered)
-        {
-            ImGui.SameLine();
-            if (ImGui.Button(Loc.L("登録解除", "Clear registration")))
-            {
-                settings.Bell = new CrafterBellRegistration();
-                SaveCrafterSettings();
-            }
-        }
-        if (!string.IsNullOrWhiteSpace(crafterStorageMessage))
-            ImGui.TextWrapped(crafterStorageMessage);
-
     }
 
     private void DrawCrafterGearTiers(CrafterLevelingSettings settings)
@@ -571,7 +384,6 @@ public sealed partial class MainWindow
     {
         if (ImGui.Button(Loc.L("準備リスト生成", "Build preparation list")))
         {
-            InvalidateCrafterTransferPlan(settings);
             var service = new CrafterPreparationService();
             crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
             plugin.Configuration.Save();
@@ -587,7 +399,12 @@ public sealed partial class MainWindow
         if (ImGui.Button(Loc.L("不足している素材・装備をコピー", "Copy missing materials and gear")))
         {
             var lines = crafterPreparationItems.Where(x => x.MissingCount > 0)
-                .Select(x => $"{x.Name} ×{x.MissingCount}");
+                .Select(x =>
+                {
+                    var locations = CrafterInventoryLocator.GetLocations(settings, x.ItemId);
+                    var locationText = locations.Count > 0 ? $"（所在：{string.Join(" / ", locations)}）" : string.Empty;
+                    return $"{x.Name} ×{x.MissingCount}{locationText}";
+                });
             ImGui.SetClipboardText($"【AltMate クラフター育成 不足品】\n\n{string.Join("\n", lines)}");
         }
 
@@ -602,13 +419,15 @@ public sealed partial class MainWindow
         var rows = settings.ShowMissingOnly
             ? crafterPreparationItems.Where(x => x.MissingCount > 0).ToArray()
             : crafterPreparationItems.ToArray();
-        DrawCrafterPreparationTable("crafter-preparation-materials", Loc.L("製作用の素材・クリスタル", "Crafting materials and crystals"),
+        DrawCrafterPreparationTable(settings, "crafter-preparation-materials",
+            Loc.L("製作用の素材・クリスタル", "Crafting materials and crystals"),
             rows.Where(x => !x.IsGear).ToArray());
-        DrawCrafterPreparationTable("crafter-preparation-gear", Loc.L("育成途中で使用する装備", "Gear used while leveling"),
+        DrawCrafterPreparationTable(settings, "crafter-preparation-gear",
+            Loc.L("育成途中で使用する装備", "Gear used while leveling"),
             rows.Where(x => x.IsGear).ToArray());
     }
 
-    private static void DrawCrafterPreparationTable(string id, string title,
+    private static void DrawCrafterPreparationTable(CrafterLevelingSettings settings, string id, string title,
         IReadOnlyList<CrafterPreparationItem> rows)
     {
         ImGui.Separator();
@@ -618,11 +437,12 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L("該当項目なし", "No items"));
             return;
         }
-        if (!ImGui.BeginTable(id, 5,
+        if (!ImGui.BeginTable(id, 6,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, Math.Min(220, 30 + rows.Count * 24) * ImGuiHelpers.GlobalScale))) return;
         foreach (var heading in new[] { Loc.L("アイテム", "Item"), Loc.L("分類", "Type"),
-                     Loc.L("必要", "Required"), Loc.L("所持", "Owned"), Loc.L("不足", "Missing") })
+                     Loc.L("必要", "Required"), Loc.L("所持", "Owned"), Loc.L("不足", "Missing"),
+                     Loc.L("所在", "Location") })
             ImGui.TableSetupColumn(heading);
         ImGui.TableHeadersRow();
         foreach (var item in rows)
@@ -637,6 +457,11 @@ public sealed partial class MainWindow
             ImGui.TableNextColumn();
             ImGui.TextColored(item.MissingCount > 0 ? new Vector4(1f, 0.35f, 0.3f, 1f) :
                 new Vector4(0.35f, 0.9f, 0.5f, 1f), item.MissingCount.ToString("N0"));
+            ImGui.TableNextColumn();
+            var locations = CrafterInventoryLocator.GetLocations(settings, item.ItemId);
+            ImGui.TextWrapped(locations.Count > 0
+                ? string.Join(" / ", locations)
+                : Loc.L("所持なし", "Not owned"));
         }
         ImGui.EndTable();
     }
@@ -644,18 +469,10 @@ public sealed partial class MainWindow
     private void SaveCrafterSettings()
     {
         var settings = plugin.GetCrafterLevelingSettings();
-        InvalidateCrafterTransferPlan(settings);
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
         crafterPreparationItems = [];
         crafterPreparationErrors = [];
     }
 
-    private static void InvalidateCrafterTransferPlan(CrafterLevelingSettings settings)
-    {
-        settings.TransferPlan = new CrafterTransferPlan();
-        if (settings.Progress.State is CrafterLevelingState.Preparing or
-            CrafterLevelingState.WithdrawingItems or CrafterLevelingState.ReturningOldGear)
-            settings.Progress.State = CrafterLevelingState.Idle;
-    }
 }

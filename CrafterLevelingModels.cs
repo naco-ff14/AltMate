@@ -42,44 +42,9 @@ public sealed class CrafterLevelingSettings
     public List<CrafterRecipePreset> RecipePresets { get; set; } = new();
     public List<CrafterGearPreset> GearPresets { get; set; } = new();
     public Dictionary<uint, int> KnownOwnedItems { get; set; } = new();
-    public CrafterBellRegistration Bell { get; set; } = new();
     public List<ulong> SelectedRetainerIds { get; set; } = new();
     public Dictionary<ulong, CrafterRetainerInventoryCache> RetainerInventories { get; set; } = new();
     public CrafterLevelingProgress Progress { get; set; } = new();
-    public CrafterTransferPlan TransferPlan { get; set; } = new();
-}
-
-[Serializable]
-public sealed class CrafterTransferPlan
-{
-    public List<CrafterTransferLine> Withdrawals { get; set; } = new();
-    public List<CrafterTransferLine> Returns { get; set; } = new();
-    public Dictionary<uint, int> UnavailableItems { get; set; } = new();
-    public DateTime CreatedAt { get; set; }
-    public bool IsReady => CreatedAt != default && UnavailableItems.Count == 0;
-}
-
-[Serializable]
-public sealed class CrafterTransferLine
-{
-    public ulong RetainerId { get; set; }
-    public string RetainerName { get; set; } = string.Empty;
-    public uint ItemId { get; set; }
-    public string ItemName { get; set; } = string.Empty;
-    public int Quantity { get; set; }
-    public bool IsGear { get; set; }
-}
-
-[Serializable]
-public sealed class CrafterBellRegistration
-{
-    public bool IsRegistered { get; set; }
-    public uint TerritoryId { get; set; }
-    public uint ObjectId { get; set; }
-    public string ObjectName { get; set; } = string.Empty;
-    public float X { get; set; }
-    public float Y { get; set; }
-    public float Z { get; set; }
 }
 
 [Serializable]

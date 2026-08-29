@@ -207,7 +207,6 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += mainWindow.OpenSettings;
         ClientState.Login += OnLogin;
         ChatGui.ChatMessage += OnChatMessage;
-        Framework.Update += OnCrafterTransferUpdate;
 
         AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "HousingSignBoard", OnPlacardOpen);
         AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "HousingSignBoard", OnPlacardUpdate);
@@ -218,8 +217,6 @@ public sealed class Plugin : IDalamudPlugin
         AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SelectYesno", OnResultClose);
         AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnLinkedSelectYesnoOpen);
         AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SelectYesno", OnLinkedSelectYesnoClose);
-        AddonLifecycle.RegisterListener(AddonEvent.PreSetup, "InputNumeric", OnCrafterQuantityInput);
-        AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "InputNumeric", OnCrafterQuantityConfirm);
 
         if (ClientState.IsLoggedIn)
         {
@@ -714,18 +711,6 @@ public sealed class Plugin : IDalamudPlugin
 
     private unsafe void OnPlacardOpen(AddonEvent _, AddonArgs __) => placardOpen = true;
 
-    private static void OnCrafterQuantityInput(AddonEvent _, AddonArgs args) =>
-        CrafterTransferExecutor.ApplyPendingQuantity(args.Addon.Address);
-
-    private static void OnCrafterQuantityConfirm(AddonEvent _, AddonArgs args) =>
-        CrafterTransferExecutor.ConfirmPendingQuantity(args.Addon.Address);
-
-    private static void OnCrafterTransferUpdate(IFramework _)
-    {
-        CrafterTransferExecutor.Update();
-        CrafterBellAutomation.Update();
-    }
-
     private unsafe void OnPlacardUpdate(AddonEvent _, AddonArgs args)
     {
         if (!ClientState.IsLoggedIn || !PlayerState.IsLoaded || args.Addon.Address == nint.Zero)
@@ -962,7 +947,6 @@ public sealed class Plugin : IDalamudPlugin
         wardObserver?.Dispose();
         ClientState.Login -= OnLogin;
         ChatGui.ChatMessage -= OnChatMessage;
-        Framework.Update -= OnCrafterTransferUpdate;
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= mainWindow.Toggle;
         PluginInterface.UiBuilder.OpenConfigUi -= mainWindow.OpenSettings;
@@ -978,8 +962,6 @@ public sealed class Plugin : IDalamudPlugin
         AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, "SelectYesno", OnResultClose);
         AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "SelectYesno", OnLinkedSelectYesnoOpen);
         AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, "SelectYesno", OnLinkedSelectYesnoClose);
-        AddonLifecycle.UnregisterListener(AddonEvent.PreSetup, "InputNumeric", OnCrafterQuantityInput);
-        AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "InputNumeric", OnCrafterQuantityConfirm);
         windowSystem.RemoveAllWindows();
         sharedConfiguration?.Dispose();
         sharedConfiguration = null;

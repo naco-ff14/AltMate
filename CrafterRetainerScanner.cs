@@ -86,7 +86,6 @@ internal sealed unsafe class CrafterRetainerScanner : IDisposable
             RefreshOwnedTotals(settings);
             if (inventoryChanged && settings.SelectedRetainerIds.Contains(active->RetainerId))
             {
-                settings.TransferPlan = new CrafterTransferPlan();
                 if (settings.Progress.State is CrafterLevelingState.Preparing or
                     CrafterLevelingState.WithdrawingItems or CrafterLevelingState.ReturningOldGear)
                     settings.Progress.State = CrafterLevelingState.Idle;
