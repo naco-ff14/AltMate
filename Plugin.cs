@@ -720,7 +720,11 @@ public sealed class Plugin : IDalamudPlugin
     private static void OnCrafterQuantityConfirm(AddonEvent _, AddonArgs args) =>
         CrafterTransferExecutor.ConfirmPendingQuantity(args.Addon.Address);
 
-    private static void OnCrafterTransferUpdate(IFramework _) => CrafterTransferExecutor.Update();
+    private static void OnCrafterTransferUpdate(IFramework _)
+    {
+        CrafterTransferExecutor.Update();
+        CrafterBellAutomation.Update();
+    }
 
     private unsafe void OnPlacardUpdate(AddonEvent _, AddonArgs args)
     {

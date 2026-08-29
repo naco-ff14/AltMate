@@ -14,7 +14,8 @@ internal static class CrafterGearCatalog
     {
         var items = Plugin.DataManager.GetExcelSheet<Item>()
             .Where(x => x.LevelEquip > 0 && x.EquipSlotCategory.RowId != 0 &&
-                        !string.IsNullOrWhiteSpace(x.Name.ToString()))
+                        !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
+                        !IsLegacyItem(x))
             .ToArray();
         var missing = new List<string>();
         foreach (var tier in TierLevels.Where(x => x <= settings.TargetLevel))
@@ -55,6 +56,9 @@ internal static class CrafterGearCatalog
         .ThenByDescending(x => x.LevelItem.RowId)
         .ThenByDescending(x => x.RowId)
         .FirstOrDefault();
+
+    private static bool IsLegacyItem(Item item) =>
+        item.Name.ToString().TrimStart().StartsWith('†');
 
     private static bool IsToolSlot(Item item, bool offHand)
     {

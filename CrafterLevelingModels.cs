@@ -102,6 +102,7 @@ public sealed class CrafterRecipePreset
     public int MaxCraftCount { get; set; }
     public int GearTier { get; set; }
     public string RequiredUnlock { get; set; } = string.Empty;
+    public bool IsCatalogGenerated { get; set; }
 }
 
 [Serializable]

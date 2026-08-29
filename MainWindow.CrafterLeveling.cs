@@ -140,6 +140,11 @@ public sealed partial class MainWindow
                     ? new Vector4(1f, 0.35f, 0.3f, 1f)
                     : new Vector4(0.35f, 0.9f, 0.5f, 1f),
                 Loc.L(CrafterTransferExecutor.StatusJapanese, CrafterTransferExecutor.StatusEnglish));
+        if (!string.IsNullOrWhiteSpace(CrafterBellAutomation.StatusJapanese))
+            ImGui.TextColored(CrafterBellAutomation.StatusIsError
+                    ? new Vector4(1f, 0.35f, 0.3f, 1f)
+                    : new Vector4(0.35f, 0.9f, 0.5f, 1f),
+                Loc.L(CrafterBellAutomation.StatusJapanese, CrafterBellAutomation.StatusEnglish));
         if (plan.CreatedAt == default)
         {
             ImGui.TextDisabled(Loc.L(
@@ -154,7 +159,21 @@ public sealed partial class MainWindow
             plan.IsReady ? Loc.L("取得可能", "Ready") :
                 Loc.L($"在庫不足 {plan.UnavailableItems.Count}種類", $"Unavailable items: {plan.UnavailableItems.Count}"));
 
-        ImGui.BeginDisabled(plan.Withdrawals.Count == 0 || CrafterTransferExecutor.IsRunning);
+        ImGui.BeginDisabled(plan.Withdrawals.Count == 0 || CrafterTransferExecutor.IsRunning ||
+                            CrafterBellAutomation.IsRunning);
+        if (ImGui.Button(Loc.L("ベルから全リテイナー分を自動取得", "Auto-withdraw from all retainers")))
+        {
+            var result = CrafterBellAutomation.Begin(settings, plan.Withdrawals);
+            crafterTransferMessage = Loc.L(result.JapaneseMessage, result.EnglishMessage);
+            crafterTransferMessageIsError = !result.Success;
+        }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextDisabled(Loc.L("登録ベル付近から、計画順にリテイナーを呼び出します。",
+            "Calls retainers in plan order while near the registered bell."));
+
+        ImGui.BeginDisabled(plan.Withdrawals.Count == 0 || CrafterTransferExecutor.IsRunning ||
+                            CrafterBellAutomation.IsRunning);
         if (ImGui.Button(Loc.L("現在のリテイナー分を連続取得", "Withdraw all from current retainer")))
         {
             var result = CrafterTransferExecutor.BeginBatch(plan.Withdrawals);
@@ -371,9 +390,11 @@ public sealed partial class MainWindow
             "製作品を名前で検索して登録します。必要素材はゲームデータから自動集計します。",
             "Search and register a crafted item by name. Required materials are calculated from game data."));
 
-        if (ImGui.Button(Loc.L("標準Lv1～20リストを作成", "Create standard Lv1-20 list")))
+        var standardUpperLevel = Math.Min(settings.TargetLevel, 50);
+        if (ImGui.Button(Loc.L($"標準Lv1～{standardUpperLevel}リストを作成",
+                $"Create standard Lv1-{standardUpperLevel} list")))
         {
-            var result = CrafterLevelingCatalog.ApplyLevel1To20(settings);
+            var result = CrafterLevelingCatalog.ApplyStandard(settings);
             crafterCatalogMessage = result.Unresolved.Count == 0
                 ? Loc.L($"{result.Added}件追加、{result.Skipped}件登録済み。",
                     $"Added {result.Added}; {result.Skipped} already registered.")
@@ -384,8 +405,9 @@ public sealed partial class MainWindow
             crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
         }
         ImGui.SameLine();
-        ImGui.TextDisabled(Loc.L("各製作品20個の初期案。数量は後から調整できます。",
-            "Initial draft: 20 of each product. Quantities can be adjusted later."));
+        ImGui.TextDisabled(Loc.L(
+            "Lv20までは既定リスト、Lv21～50は5レベル帯ごとにゲームデータから選定します。数量は後から調整できます。",
+            "Uses the curated list through Lv20, then game data in five-level bands through Lv50. Quantities remain editable."));
         if (!string.IsNullOrWhiteSpace(crafterCatalogMessage))
             ImGui.TextWrapped(crafterCatalogMessage);
 

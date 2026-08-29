@@ -54,7 +54,7 @@ internal static class CrafterLevelingCatalog
         new(15, 1, 20, "ドライプルーン", "Dried Plums", 20),
     ];
 
-    internal static ApplyResult ApplyLevel1To20(CrafterLevelingSettings settings)
+    internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
     {
         var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
         var byName = recipes.Where(x => x.ItemResult.RowId != 0)
@@ -64,12 +64,16 @@ internal static class CrafterLevelingCatalog
         var added = 0;
         var skipped = 0;
 
+        // Replace only presets created by this catalog. User-created presets remain untouched.
+        settings.RecipePresets.RemoveAll(x => x.IsCatalogGenerated);
+
         foreach (var jobEntries in Level1To20.GroupBy(x => x.JobId))
         {
             var resolved = new List<(Entry Entry, Recipe Recipe, int RecipeLevel)>();
             foreach (var entry in jobEntries)
             {
                 var matches = Find(byName, entry.JapaneseName).Concat(Find(byName, entry.EnglishName))
+                    .Where(x => x.CraftType.RowId + 8 == entry.JobId)
                     .DistinctBy(x => x.RowId).ToArray();
                 if (matches.Length == 0)
                 {
@@ -99,10 +103,60 @@ internal static class CrafterLevelingCatalog
                     RecipeId = recipe.RowId,
                     MaxCraftCount = entry.MaxCraftCount,
                     Route = CrafterLevelingRoute.Normal,
+                    IsCatalogGenerated = true,
                 });
                 added++;
             }
         }
+
+        var upperLevel = Math.Min(settings.TargetLevel, 50);
+        for (var minLevel = 21; minLevel <= upperLevel; minLevel += 5)
+        {
+            var maxLevel = Math.Min(minLevel + 4, upperLevel);
+            for (uint jobId = 8; jobId <= 15; jobId++)
+            {
+                var candidate = recipes
+                    .Where(x => x.ItemResult.RowId != 0 && x.CraftType.RowId + 8 == jobId)
+                    .Where(x =>
+                    {
+                        var level = x.RecipeLevelTable.Value.ClassJobLevel;
+                        var name = x.ItemResult.Value.Name.ToString().TrimStart();
+                        return level <= minLevel && level >= Math.Max(1, minLevel - 4) &&
+                               !name.StartsWith('†');
+                    })
+                    .OrderByDescending(x => x.RecipeLevelTable.Value.ClassJobLevel)
+                    .ThenBy(x => x.Ingredient.Count(ingredient => ingredient.RowId != 0))
+                    .ThenBy(x => x.RowId)
+                    .FirstOrDefault();
+                if (candidate.RowId == 0)
+                {
+                    unresolved.Add($"Job {jobId} Lv{minLevel}-{maxLevel}");
+                    continue;
+                }
+                if (settings.RecipePresets.Any(x => x.RecipeId == candidate.RowId && x.JobId == jobId))
+                {
+                    skipped++;
+                    continue;
+                }
+                settings.RecipePresets.Add(new CrafterRecipePreset
+                {
+                    JobId = jobId,
+                    MinLevel = minLevel,
+                    MaxLevel = maxLevel,
+                    RecipeId = candidate.RowId,
+                    MaxCraftCount = 20,
+                    Route = CrafterLevelingRoute.Normal,
+                    IsCatalogGenerated = true,
+                });
+                added++;
+            }
+        }
+
+        settings.RecipePresets.Sort((left, right) =>
+        {
+            var job = left.JobId.CompareTo(right.JobId);
+            return job != 0 ? job : left.MinLevel.CompareTo(right.MinLevel);
+        });
 
         return new ApplyResult(added, skipped, unresolved);
     }

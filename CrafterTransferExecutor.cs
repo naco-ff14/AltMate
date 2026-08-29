@@ -17,6 +17,7 @@ internal static unsafe class CrafterTransferExecutor
     private static DateTime waitingDeadlineUtc;
     private static DateTime nextActionUtc;
     internal static bool IsRunning { get; private set; }
+    internal static bool LastRunSucceeded { get; private set; }
     internal static string StatusJapanese { get; private set; } = string.Empty;
     internal static string StatusEnglish { get; private set; } = string.Empty;
     internal static bool StatusIsError { get; private set; }
@@ -62,6 +63,7 @@ internal static unsafe class CrafterTransferExecutor
         waitingItemId = 0;
         nextActionUtc = DateTime.UtcNow;
         IsRunning = true;
+        LastRunSucceeded = false;
         SetStatus(false, $"{active->NameString}から{batch.Count}種類の取得を開始します。",
             $"Starting {batch.Count} withdrawals from {active->NameString}.");
         return new Result(true, StatusJapanese, StatusEnglish);
@@ -227,6 +229,7 @@ internal static unsafe class CrafterTransferExecutor
     private static void Stop(bool error, string japanese, string english)
     {
         IsRunning = false;
+        LastRunSucceeded = !error;
         pendingQuantity = 0;
         waitingItemId = 0;
         batch.Clear();
