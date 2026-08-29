@@ -217,6 +217,7 @@ public sealed class Plugin : IDalamudPlugin
         AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SelectYesno", OnResultClose);
         AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnLinkedSelectYesnoOpen);
         AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SelectYesno", OnLinkedSelectYesnoClose);
+        AddonLifecycle.RegisterListener(AddonEvent.PreSetup, "InputNumeric", OnCrafterQuantityInput);
 
         if (ClientState.IsLoggedIn)
         {
@@ -711,6 +712,9 @@ public sealed class Plugin : IDalamudPlugin
 
     private unsafe void OnPlacardOpen(AddonEvent _, AddonArgs __) => placardOpen = true;
 
+    private static void OnCrafterQuantityInput(AddonEvent _, AddonArgs args) =>
+        CrafterTransferExecutor.ApplyPendingQuantity(args.Addon.Address);
+
     private unsafe void OnPlacardUpdate(AddonEvent _, AddonArgs args)
     {
         if (!ClientState.IsLoggedIn || !PlayerState.IsLoaded || args.Addon.Address == nint.Zero)
@@ -962,6 +966,7 @@ public sealed class Plugin : IDalamudPlugin
         AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, "SelectYesno", OnResultClose);
         AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "SelectYesno", OnLinkedSelectYesnoOpen);
         AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, "SelectYesno", OnLinkedSelectYesnoClose);
+        AddonLifecycle.UnregisterListener(AddonEvent.PreSetup, "InputNumeric", OnCrafterQuantityInput);
         windowSystem.RemoveAllWindows();
         sharedConfiguration?.Dispose();
         sharedConfiguration = null;

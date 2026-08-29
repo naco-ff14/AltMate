@@ -145,6 +145,24 @@ public sealed partial class MainWindow
             plan.IsReady ? Loc.L("取得可能", "Ready") :
                 Loc.L($"在庫不足 {plan.UnavailableItems.Count}種類", $"Unavailable items: {plan.UnavailableItems.Count}"));
 
+        var firstWithdrawal = plan.Withdrawals.FirstOrDefault();
+        ImGui.BeginDisabled(firstWithdrawal is null);
+        if (ImGui.Button(Loc.L("先頭素材を取得（試験）", "Withdraw first material (test)")) &&
+            firstWithdrawal is not null)
+        {
+            var result = CrafterTransferExecutor.WithdrawOneStack(firstWithdrawal);
+            crafterTransferMessage = Loc.L(result.JapaneseMessage, result.EnglishMessage);
+            crafterTransferMessageIsError = !result.Success;
+        }
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextDisabled(Loc.L("対象リテイナーの所持品画面を開いてから実行してください。",
+            "Open the target retainer inventory before running."));
+        if (!string.IsNullOrWhiteSpace(crafterTransferMessage))
+            ImGui.TextColored(crafterTransferMessageIsError
+                ? new Vector4(1f, 0.35f, 0.3f, 1f)
+                : new Vector4(0.35f, 0.9f, 0.5f, 1f), crafterTransferMessage);
+
         if (ImGui.BeginTable("crafter-transfer-plan", 5,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, 220 * ImGuiHelpers.GlobalScale)))
@@ -165,30 +183,6 @@ public sealed partial class MainWindow
             }
             ImGui.EndTable();
         }
-        var firstWithdrawal = plan.Withdrawals.FirstOrDefault();
-        ImGui.BeginDisabled(firstWithdrawal is null);
-        if (ImGui.Button(Loc.L("先頭1スタックを取得（試験）", "Withdraw first stack (test)")) &&
-            firstWithdrawal is not null)
-        {
-            var result = CrafterTransferExecutor.WithdrawOneStack(firstWithdrawal);
-            crafterTransferMessage = Loc.L(result.JapaneseMessage, result.EnglishMessage);
-            crafterTransferMessageIsError = !result.Success;
-            if (result.Success)
-            {
-                settings.TransferPlan = new CrafterTransferPlan();
-                settings.Progress.State = CrafterLevelingState.Idle;
-                settings.Progress.UpdatedAt = DateTime.Now;
-                plugin.Configuration.Save();
-            }
-        }
-        ImGui.EndDisabled();
-        ImGui.SameLine();
-        ImGui.TextDisabled(Loc.L("対象リテイナーの所持品画面を開いてから実行してください。",
-            "Open the target retainer inventory before running."));
-        if (!string.IsNullOrWhiteSpace(crafterTransferMessage))
-            ImGui.TextColored(crafterTransferMessageIsError
-                ? new Vector4(1f, 0.35f, 0.3f, 1f)
-                : new Vector4(0.35f, 0.9f, 0.5f, 1f), crafterTransferMessage);
     }
 
     private void DrawCrafterStorageSettings(CrafterLevelingSettings settings)

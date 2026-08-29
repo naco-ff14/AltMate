@@ -72,8 +72,9 @@ internal sealed unsafe class CrafterRetainerScanner : IDisposable
 
             var settings = plugin.GetCrafterLevelingSettings();
             var name = active->NameString;
-            if (settings.RetainerInventories.TryGetValue(active->RetainerId, out var previous) &&
-                DictionariesEqual(previous.Items, items) && now - previous.ScannedAt.ToUniversalTime() < TimeSpan.FromMinutes(1))
+            var hadPrevious = settings.RetainerInventories.TryGetValue(active->RetainerId, out var previous);
+            var inventoryChanged = !hadPrevious || !DictionariesEqual(previous!.Items, items);
+            if (!inventoryChanged && now - previous!.ScannedAt.ToUniversalTime() < TimeSpan.FromMinutes(1))
                 return;
             settings.RetainerInventories[active->RetainerId] = new CrafterRetainerInventoryCache
             {
@@ -83,7 +84,7 @@ internal sealed unsafe class CrafterRetainerScanner : IDisposable
                 ScannedAt = DateTime.Now,
             };
             RefreshOwnedTotals(settings);
-            if (settings.SelectedRetainerIds.Contains(active->RetainerId))
+            if (inventoryChanged && settings.SelectedRetainerIds.Contains(active->RetainerId))
             {
                 settings.TransferPlan = new CrafterTransferPlan();
                 if (settings.Progress.State is CrafterLevelingState.Preparing or

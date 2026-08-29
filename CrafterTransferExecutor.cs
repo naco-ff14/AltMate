@@ -1,10 +1,13 @@
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using FFXIVClientStructs.FFXIV.Component.GUI;
+using System;
 
 namespace AltMate;
 
 internal static unsafe class CrafterTransferExecutor
 {
+    private static uint pendingQuantity;
     private static readonly InventoryType[] RetainerContainers =
     [
         InventoryType.RetainerPage1, InventoryType.RetainerPage2, InventoryType.RetainerPage3,
@@ -42,13 +45,18 @@ internal static unsafe class CrafterTransferExecutor
             {
                 var slot = container->GetInventorySlot(slotIndex);
                 if (slot == null || slot->ItemId != line.ItemId || slot->Quantity == 0) continue;
-                if (slot->Quantity > line.Quantity)
-                    continue; // Never exceed the reviewed plan in the one-stack test.
-
                 var agent = AgentRetainer.Instance();
                 if (agent == null || !agent->IsAgentActive())
                     return Fail("リテイナー所持品画面を開いてください。", "Open the retainer inventory window.");
                 var quantity = (int)slot->Quantity;
+                if (quantity > line.Quantity)
+                {
+                    pendingQuantity = (uint)line.Quantity;
+                    agent->HandleCallback((uint)slotIndex, type, 0, 3); // Open Retrieve Quantity.
+                    return new Result(true,
+                        $"{line.ItemName}の数量入力を{line.Quantity}個で開きました。内容を確認して決定してください。",
+                        $"Opened quantity entry for {line.Quantity} {line.ItemName}. Verify and confirm it.");
+                }
                 agent->HandleCallback((uint)slotIndex, type, 0, 0); // Retrieve the selected full stack.
                 return new Result(true,
                     $"{line.ItemName}を{quantity}個取得する操作を送信しました。",
@@ -56,8 +64,22 @@ internal static unsafe class CrafterTransferExecutor
             }
         }
 
-        return Fail($"計画数量以下の{line.ItemName}スタックが見つかりません。部分取得は次段階で対応します。",
-            $"No {line.ItemName} stack within the planned quantity was found. Partial withdrawal is not enabled yet.");
+        return Fail($"{line.ItemName}が現在のリテイナー所持品に見つかりません。",
+            $"{line.ItemName} was not found in the current retainer inventory.");
+    }
+
+    internal static void ApplyPendingQuantity(nint addonAddress)
+    {
+        if (pendingQuantity == 0 || addonAddress == nint.Zero) return;
+        var addon = (AtkUnitBase*)addonAddress;
+        if (addon->AtkValuesCount < 5 || addon->AtkValues == null) return;
+        var minimum = addon->AtkValues + 2;
+        var maximum = addon->AtkValues + 3;
+        var defaultValue = addon->AtkValues + 4;
+        if (minimum->Type != AtkValueType.UInt || maximum->Type != AtkValueType.UInt ||
+            defaultValue->Type != AtkValueType.UInt) return;
+        defaultValue->UInt = Math.Clamp(pendingQuantity, minimum->UInt, maximum->UInt);
+        pendingQuantity = 0;
     }
 
     private static bool HasFreePlayerSlot(InventoryManager* manager)
