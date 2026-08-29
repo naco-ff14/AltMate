@@ -1867,6 +1867,18 @@ public sealed partial class MainWindow : Window
                 : (false, false, string.Empty);
         }
 
+        if (section == MainSection.Submarines)
+        {
+            var nowUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+            var returned = plugin.Configuration.FreeCompanyGil.Values
+                .SelectMany(fc => fc.Submarines.Values)
+                .Count(submarine => submarine.ReturnTimeUnix > 0 && submarine.ReturnTimeUnix <= nowUnix);
+            return returned > 0
+                ? (true, false, Loc.L($"帰還時刻を過ぎた潜水艦：{returned}隻",
+                    $"Submersibles ready: {returned}"))
+                : (false, false, string.Empty);
+        }
+
         if (section != MainSection.Housing)
             return (false, false, string.Empty);
 
