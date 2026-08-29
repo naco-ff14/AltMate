@@ -1,4 +1,5 @@
 using FFXIVClientStructs.FFXIV.Client.Game;
+using System;
 using System.Collections.Generic;
 
 namespace AltMate;
@@ -11,14 +12,25 @@ internal static unsafe class CrafterInventoryLocator
         if (inventory == null) return 0;
         var normal = inventory->GetInventoryItemCount(itemId, false, false, false);
         var highQuality = inventory->GetInventoryItemCount(itemId, true, false, false);
-        return checked(normal + highQuality);
+        var equipped = 0;
+        var equippedContainer = inventory->GetInventoryContainer(InventoryType.EquippedItems);
+        if (equippedContainer != null && equippedContainer->IsLoaded)
+        {
+            for (var slotIndex = 0; slotIndex < equippedContainer->Size; slotIndex++)
+            {
+                var slot = equippedContainer->GetInventorySlot(slotIndex);
+                if (slot != null && slot->ItemId == itemId)
+                    equipped = checked(equipped + Math.Max(1, (int)slot->Quantity));
+            }
+        }
+        return checked(normal + highQuality + equipped);
     }
 
     internal static IReadOnlyList<string> GetLocations(CrafterLevelingSettings settings, uint itemId)
     {
         var locations = new List<string>();
         var playerCount = PlayerInventoryCount(itemId);
-        if (playerCount > 0) locations.Add(Loc.L($"手持ちバッグ ×{playerCount:N0}", $"Inventory ×{playerCount:N0}"));
+        if (playerCount > 0) locations.Add(Loc.L($"手持ち・装備中 ×{playerCount:N0}", $"Inventory/equipped ×{playerCount:N0}"));
         foreach (var retainerId in settings.SelectedRetainerIds)
         {
             if (!settings.RetainerInventories.TryGetValue(retainerId, out var cache) ||
