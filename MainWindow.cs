@@ -22,6 +22,7 @@ public sealed partial class MainWindow : Window
         Settings,
         Submarines,
         CustomDeliveries,
+        CrafterLeveling,
     }
 
     private enum HousingSection
@@ -195,6 +196,7 @@ public sealed partial class MainWindow : Window
     internal void OpenGil() => OpenSection(MainSection.Gil);
     internal void OpenSubmarines() => OpenSection(MainSection.Submarines);
     internal void OpenCustomDeliveries() => OpenSection(MainSection.CustomDeliveries);
+    internal void OpenCrafterLeveling() => OpenSection(MainSection.CrafterLeveling);
 
     private void OpenSection(MainSection section)
     {
@@ -251,6 +253,9 @@ public sealed partial class MainWindow : Window
             case MainSection.CustomDeliveries:
                 DrawCustomDeliveries();
                 break;
+            case MainSection.CrafterLeveling:
+                DrawCrafterLeveling();
+                break;
             case MainSection.Settings:
                 DrawSettings();
                 break;
@@ -304,6 +309,8 @@ public sealed partial class MainWindow : Window
             MainSection.CustomDeliveries);
         DrawMenuButton(narrow ? Loc.L("潜水艦", "Subs") : Loc.L("潜水艦管理", "Submersibles"),
             MainSection.Submarines);
+        DrawMenuButton(narrow ? Loc.L("製作育成", "Craft") : Loc.L("クラフター育成", "Crafter Leveling"),
+            MainSection.CrafterLeveling);
         var bottomY = ImGui.GetWindowHeight() - 62 * ImGuiHelpers.GlobalScale;
         if (ImGui.GetCursorPosY() < bottomY)
             ImGui.SetCursorPosY(bottomY);
@@ -477,6 +484,7 @@ public sealed partial class MainWindow : Window
             (Loc.L("ギル", "Gil"), MainSection.Gil),
             (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
+            (Loc.L("製作育成", "Craft"), MainSection.CrafterLeveling),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         }.Where(item => !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section)).ToArray();
 
@@ -1323,6 +1331,7 @@ public sealed partial class MainWindow : Window
             (Loc.L("ギル", "Gil"), MainSection.Gil),
             (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
+            (Loc.L("製作育成", "Craft"), MainSection.CrafterLeveling),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         };
         for (var index = 0; index < compactMenuItems.Length; index++)
