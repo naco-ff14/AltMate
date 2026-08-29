@@ -17,6 +17,10 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private DateTime requestAtUtc;
     private int lastStylistTier = -1;
     private DateTime waitUntilUtc;
+    private int requestedCraftCount;
+    private int requestProductCount;
+    private int creditedCraftCount;
+    private bool stopRequested;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -62,6 +66,10 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         requestSent = false;
         artisanBecameBusy = false;
         lastStylistTier = -1;
+        requestedCraftCount = 0;
+        requestProductCount = 0;
+        creditedCraftCount = 0;
+        stopRequested = false;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -129,6 +137,25 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (artisanBusy)
         {
             artisanBecameBusy = true;
+            CreditCompletedCrafts();
+            var switchLevel = NextSwitchLevel();
+            if (!stopRequested && Plugin.PlayerState.Level >= switchLevel)
+            {
+                try
+                {
+                    Plugin.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetEnduranceStatus")
+                        .InvokeAction(false);
+                    stopRequested = true;
+                    Status = Loc.L($"Lv{switchLevel}到達：現在の製作完了後に停止します。",
+                        $"Reached Lv{switchLevel}; stopping after the current craft.");
+                }
+                catch (Exception ex)
+                {
+                    Stop(Loc.L($"Artisanの連続製作を停止できませんでした：{ex.Message}",
+                        $"Could not stop Artisan endurance crafting: {ex.Message}"));
+                }
+                return;
+            }
             Status = Loc.L(
                 $"製作中：{RecipeName(queue[index].RecipeId)}（レシピ段階 {index + 1}/{queue.Count}・{NextSwitchLabel()}）",
                 $"Crafting: {RecipeName(queue[index].RecipeId)} (recipe stage {index + 1}/{queue.Count}; {NextSwitchLabel(false)})");
@@ -144,14 +171,13 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                         "Artisan could not start. Check materials, gear, and recipe unlocks."));
                 return;
             }
+            CreditCompletedCrafts();
             var settings = plugin.GetCrafterLevelingSettings();
-            var completedRecipeId = queue[index].RecipeId;
-            settings.CompletedCraftCounts.TryGetValue(completedRecipeId, out var completedCrafts);
-            settings.CompletedCraftCounts[completedRecipeId] = checked(completedCrafts + 1);
             settings.Progress.UpdatedAt = DateTime.Now;
             plugin.Configuration.Save();
             requestSent = false;
             artisanBecameBusy = false;
+            stopRequested = false;
         }
 
         var currentLevel = Plugin.PlayerState.Level;
@@ -206,13 +232,25 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         }
         try
         {
+            var settings = plugin.GetCrafterLevelingSettings();
+            settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var plannedCrafts);
+            settings.CompletedCraftCounts.TryGetValue(preset.RecipeId, out var completedCrafts);
+            requestedCraftCount = Math.Max(1, plannedCrafts - completedCrafts);
+            if (requestedCraftCount == 1 && plannedCrafts <= completedCrafts)
+            {
+                requestedCraftCount = Math.Max(1, preset.MaxCraftCount);
+                settings.PlannedCraftCounts[preset.RecipeId] = checked(plannedCrafts + requestedCraftCount);
+            }
+            requestProductCount = CrafterInventoryLocator.PlayerInventoryCount(RecipeProductId(preset.RecipeId));
+            creditedCraftCount = 0;
+            stopRequested = false;
             Plugin.PluginInterface.GetIpcSubscriber<ushort, int, object>("Artisan.CraftItem")
-                .InvokeAction((ushort)preset.RecipeId, 1);
+                .InvokeAction((ushort)preset.RecipeId, requestedCraftCount);
             requestSent = true;
             requestAtUtc = DateTime.UtcNow;
             Status = Loc.L(
-                $"Artisanへ1個ずつ依頼中：{RecipeName(preset.RecipeId)}（レシピ段階 {index + 1}/{queue.Count}・{NextSwitchLabel()}）",
-                $"Sending one craft at a time to Artisan: {RecipeName(preset.RecipeId)} (recipe stage {index + 1}/{queue.Count}; {NextSwitchLabel(false)})");
+                $"Artisanへ連続製作を依頼中：{RecipeName(preset.RecipeId)} ×{requestedCraftCount}（レシピ段階 {index + 1}/{queue.Count}・{NextSwitchLabel()}）",
+                $"Sending an endurance craft to Artisan: {RecipeName(preset.RecipeId)} ×{requestedCraftCount} (recipe stage {index + 1}/{queue.Count}; {NextSwitchLabel(false)})");
         }
         catch (Exception ex)
         {
@@ -269,6 +307,45 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             ? queue[index + 1].MinLevel
             : plugin.GetCrafterLevelingSettings().TargetLevel;
         return japanese ? $"次の切替 Lv{targetLevel}" : $"next change at Lv{targetLevel}";
+    }
+
+    private int NextSwitchLevel() => index + 1 < queue.Count
+        ? queue[index + 1].MinLevel
+        : plugin.GetCrafterLevelingSettings().TargetLevel;
+
+    private void CreditCompletedCrafts()
+    {
+        if (!requestSent || index >= queue.Count)
+            return;
+        var productId = RecipeProductId(queue[index].RecipeId);
+        if (productId == 0)
+            return;
+        var producedItems = Math.Max(0,
+            CrafterInventoryLocator.PlayerInventoryCount(productId) - requestProductCount);
+        var amountPerCraft = RecipeResultAmount(queue[index].RecipeId);
+        var completedNow = Math.Min(requestedCraftCount, producedItems / amountPerCraft);
+        if (completedNow <= creditedCraftCount)
+            return;
+        var increment = completedNow - creditedCraftCount;
+        var settings = plugin.GetCrafterLevelingSettings();
+        var recipeId = queue[index].RecipeId;
+        settings.CompletedCraftCounts.TryGetValue(recipeId, out var completedCrafts);
+        settings.CompletedCraftCounts[recipeId] = checked(completedCrafts + increment);
+        settings.Progress.UpdatedAt = DateTime.Now;
+        plugin.Configuration.Save();
+        creditedCraftCount = completedNow;
+    }
+
+    private static uint RecipeProductId(uint recipeId)
+    {
+        var sheet = Plugin.DataManager.GetExcelSheet<Recipe>();
+        return sheet.TryGetRow(recipeId, out var recipe) ? recipe.ItemResult.RowId : 0;
+    }
+
+    private static int RecipeResultAmount(uint recipeId)
+    {
+        var sheet = Plugin.DataManager.GetExcelSheet<Recipe>();
+        return sheet.TryGetRow(recipeId, out var recipe) ? Math.Max(1, (int)recipe.AmountResult) : 1;
     }
 
     private static IReadOnlyList<string> MissingIngredients(uint recipeId)
