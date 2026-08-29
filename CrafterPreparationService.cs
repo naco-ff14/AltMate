@@ -27,7 +27,13 @@ internal sealed class CrafterPreparationService
                 continue;
             }
 
-            var craftCount = RemainingCraftCount(preset, currentJobId, currentLevel);
+            if (!settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var plannedCrafts))
+            {
+                plannedCrafts = RemainingCraftCount(preset, currentJobId, currentLevel);
+                settings.PlannedCraftCounts[preset.RecipeId] = plannedCrafts;
+            }
+            settings.CompletedCraftCounts.TryGetValue(preset.RecipeId, out var completedCrafts);
+            var craftCount = Math.Max(0, plannedCrafts - completedCrafts);
             for (var index = 0; index < recipe.Ingredient.Count; index++)
             {
                 var itemId = recipe.Ingredient[index].RowId;

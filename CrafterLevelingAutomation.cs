@@ -129,8 +129,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (artisanBusy)
         {
             artisanBecameBusy = true;
-            Status = Loc.L($"製作中 [{index + 1}/{queue.Count}]：{RecipeName(queue[index].RecipeId)}",
-                $"Crafting [{index + 1}/{queue.Count}]: {RecipeName(queue[index].RecipeId)}");
+            Status = Loc.L(
+                $"製作中：{RecipeName(queue[index].RecipeId)}（レシピ段階 {index + 1}/{queue.Count}・{NextSwitchLabel()}）",
+                $"Crafting: {RecipeName(queue[index].RecipeId)} (recipe stage {index + 1}/{queue.Count}; {NextSwitchLabel(false)})");
             return;
         }
 
@@ -143,6 +144,12 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                         "Artisan could not start. Check materials, gear, and recipe unlocks."));
                 return;
             }
+            var settings = plugin.GetCrafterLevelingSettings();
+            var completedRecipeId = queue[index].RecipeId;
+            settings.CompletedCraftCounts.TryGetValue(completedRecipeId, out var completedCrafts);
+            settings.CompletedCraftCounts[completedRecipeId] = checked(completedCrafts + 1);
+            settings.Progress.UpdatedAt = DateTime.Now;
+            plugin.Configuration.Save();
             requestSent = false;
             artisanBecameBusy = false;
         }
@@ -203,8 +210,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 .InvokeAction((ushort)preset.RecipeId, 1);
             requestSent = true;
             requestAtUtc = DateTime.UtcNow;
-            Status = Loc.L($"Artisanへ依頼中 [{index + 1}/{queue.Count}]：{RecipeName(preset.RecipeId)}",
-                $"Sending to Artisan [{index + 1}/{queue.Count}]: {RecipeName(preset.RecipeId)}");
+            Status = Loc.L(
+                $"Artisanへ1個ずつ依頼中：{RecipeName(preset.RecipeId)}（レシピ段階 {index + 1}/{queue.Count}・{NextSwitchLabel()}）",
+                $"Sending one craft at a time to Artisan: {RecipeName(preset.RecipeId)} (recipe stage {index + 1}/{queue.Count}; {NextSwitchLabel(false)})");
         }
         catch (Exception ex)
         {
@@ -253,6 +261,14 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         return sheet.TryGetRow(recipeId, out var recipe)
             ? recipe.ItemResult.Value.Name.ToString()
             : $"Recipe #{recipeId}";
+    }
+
+    private string NextSwitchLabel(bool japanese = true)
+    {
+        var targetLevel = index + 1 < queue.Count
+            ? queue[index + 1].MinLevel
+            : plugin.GetCrafterLevelingSettings().TargetLevel;
+        return japanese ? $"次の切替 Lv{targetLevel}" : $"next change at Lv{targetLevel}";
     }
 
     private static IReadOnlyList<string> MissingIngredients(uint recipeId)

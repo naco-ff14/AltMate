@@ -20,6 +20,7 @@ public sealed partial class MainWindow
     private string crafterRecipeSearch = string.Empty;
     private IReadOnlyList<(uint RecipeId, string ProductName)> crafterRecipeSearchResults = [];
     private string crafterListMessage = string.Empty;
+    private DateTime nextCrafterInventoryRefreshUtc;
 
     private void DrawCrafterLeveling()
     {
@@ -106,9 +107,12 @@ public sealed partial class MainWindow
     {
         var catalog = CrafterLevelingCatalog.ApplyStandard(settings);
         var gear = CrafterGearCatalog.BuildStandard(settings);
+        settings.CompletedCraftCounts.Clear();
+        settings.PlannedCraftCounts.Clear();
         CrafterRetainerScanner.RefreshOwnedTotals(settings);
         var service = new CrafterPreparationService();
         crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+        nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
         crafterListMessage = catalog.Unresolved.Count == 0 && gear.Missing.Count == 0
             ? Loc.L($"リストを更新しました（製作品{settings.RecipePresets.Count}件）。不足数と所在を下で確認してください。",
                 $"List updated ({settings.RecipePresets.Count} recipes). Review missing counts and locations below.")
@@ -349,6 +353,16 @@ public sealed partial class MainWindow
 
     private void DrawCrafterPreparationList(CrafterLevelingSettings settings)
     {
+        // Locations are read live from the player inventory. Refresh the calculated owned and
+        // missing counts on the same cadence so those columns never disagree with the location.
+        if (crafterPreparationItems.Count > 0 && DateTime.UtcNow >= nextCrafterInventoryRefreshUtc)
+        {
+            CrafterRetainerScanner.RefreshOwnedTotals(settings);
+            var service = new CrafterPreparationService();
+            crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+            nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
+        }
+
         var missingOnly = settings.ShowMissingOnly;
         if (ImGui.Checkbox(Loc.L("不足のみ表示", "Missing only"), ref missingOnly))
         {
@@ -400,7 +414,7 @@ public sealed partial class MainWindow
         ImGui.TextColored(automation.IsRunning
                 ? new Vector4(0.4f, 0.82f, 1f, 1f)
                 : new Vector4(0.7f, 0.72f, 0.75f, 1f),
-            automation.IsRunning ? $"[{automation.Current}/{automation.Total}] {automation.Status}" : automation.Status);
+            automation.Status);
     }
 
     private static void DrawCrafterPreparationTable(CrafterLevelingSettings settings, string id, string title,
