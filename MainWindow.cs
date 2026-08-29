@@ -447,7 +447,14 @@ public sealed partial class MainWindow : Window
             (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
             (Loc.L("設定", "Settings"), MainSection.Settings),
-        };
+        }.Where(item => !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section)).ToArray();
+        if (items.Length == 0)
+        {
+            ImGui.EndChild();
+            ImGui.PopStyleColor();
+            ImGui.PopStyleVar(2);
+            return;
+        }
         var gap = ImGui.GetStyle().ItemSpacing.X;
         var buttonWidth = (ImGui.GetContentRegionAvail().X - gap * (items.Length - 1)) / items.Length;
         foreach (var (label, section) in items)
@@ -1273,6 +1280,37 @@ public sealed partial class MainWindow : Window
         ImGui.TextDisabled(Loc.L(
             "機能はそのままに、ロゴとメニュー幅を縮小します。",
             "Reduces the logo and sidebar width without hiding any features."));
+        ImGui.Spacing();
+        ImGui.TextUnformatted(Loc.L("最小化表示のメニュー項目", "Compact view menu items"));
+        ImGui.TextDisabled(Loc.L(
+            "最小化バーの下段に表示する項目を選択します。",
+            "Choose the items shown in the lower row of the compact bar."));
+        var compactMenuItems = new (string Label, MainSection Section)[]
+        {
+            (Loc.L("ホーム", "Home"), MainSection.Home),
+            (Loc.L("連携", "Link"), MainSection.CharacterLink),
+            (Loc.L("アニメ", "Emotes"), MainSection.Animations),
+            (Loc.L("住宅", "Housing"), MainSection.Housing),
+            (Loc.L("ギル", "Gil"), MainSection.Gil),
+            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
+            (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
+            (Loc.L("設定", "Settings"), MainSection.Settings),
+        };
+        for (var index = 0; index < compactMenuItems.Length; index++)
+        {
+            var item = compactMenuItems[index];
+            var visible = !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section);
+            if (ImGui.Checkbox($"{item.Label}##compact-menu-visible-{item.Section}", ref visible))
+            {
+                if (visible)
+                    plugin.Configuration.HiddenCompactMenuSections.Remove((int)item.Section);
+                else
+                    plugin.Configuration.HiddenCompactMenuSections.Add((int)item.Section);
+                plugin.SaveSharedSettings();
+            }
+            if (index % 4 != 3 && index != compactMenuItems.Length - 1)
+                ImGui.SameLine();
+        }
         ImGui.Spacing();
         ImGui.TextUnformatted(Loc.T("Command"));
         ImGui.TextDisabled("/altmate");

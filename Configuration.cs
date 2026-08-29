@@ -52,6 +52,7 @@ public sealed class Configuration : IPluginConfiguration
     public float WindowBackgroundOpacity { get; set; } = 0.96f;
     public float CompactWindowBackgroundOpacity { get; set; } = 0.96f;
     public bool CompactMainMenu { get; set; }
+    public HashSet<int> HiddenCompactMenuSections { get; set; } = new();
     public bool HasExpandedWindowPlacement { get; set; }
     public float ExpandedWindowX { get; set; }
     public float ExpandedWindowY { get; set; }

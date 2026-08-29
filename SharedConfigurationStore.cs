@@ -269,6 +269,9 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.WindowBackgroundOpacity = incoming.WindowBackgroundOpacity;
         target.CompactWindowBackgroundOpacity = incoming.CompactWindowBackgroundOpacity;
         target.CompactMainMenu = incoming.CompactMainMenu;
+        target.HiddenCompactMenuSections = incoming.HiddenCompactMenuSections is null
+            ? new HashSet<int>()
+            : new HashSet<int>(incoming.HiddenCompactMenuSections);
         if (!string.IsNullOrWhiteSpace(incoming.LocalLinkKey)) target.LocalLinkKey = incoming.LocalLinkKey;
     }
 
@@ -312,6 +315,9 @@ internal sealed class SharedConfigurationStore : IDisposable
             target.CompactWindowBackgroundOpacity = current.CompactWindowBackgroundOpacity;
         if (current.CompactMainMenu != baseline.CompactMainMenu)
             target.CompactMainMenu = current.CompactMainMenu;
+        if (!(current.HiddenCompactMenuSections ?? new HashSet<int>())
+            .SetEquals(baseline.HiddenCompactMenuSections ?? new HashSet<int>()))
+            target.HiddenCompactMenuSections = new HashSet<int>(current.HiddenCompactMenuSections ?? new HashSet<int>());
         if (current.LocalLinkKey != baseline.LocalLinkKey) target.LocalLinkKey = current.LocalLinkKey;
     }
 
