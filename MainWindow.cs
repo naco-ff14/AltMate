@@ -1235,7 +1235,7 @@ public sealed partial class MainWindow : Window
         ImGui.TextUnformatted(Loc.L("通常表示の背景透明度", "Expanded view background opacity"));
         var opacityPercent = (int)MathF.Round(plugin.Configuration.WindowBackgroundOpacity * 100f);
         ImGui.SetNextItemWidth(280 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderInt("##window-background-opacity", ref opacityPercent, 20, 100, "%d%%",
+        if (ImGui.SliderInt("##window-background-opacity", ref opacityPercent, 0, 100, "%d%%",
                 ImGuiSliderFlags.AlwaysClamp))
         {
             var opacity = opacityPercent / 100f;
@@ -1250,7 +1250,7 @@ public sealed partial class MainWindow : Window
         ImGui.TextUnformatted(Loc.L("最小化表示の背景透明度", "Compact view background opacity"));
         var compactOpacityPercent = (int)MathF.Round(plugin.Configuration.CompactWindowBackgroundOpacity * 100f);
         ImGui.SetNextItemWidth(280 * ImGuiHelpers.GlobalScale);
-        if (ImGui.SliderInt("##compact-window-background-opacity", ref compactOpacityPercent, 20, 100, "%d%%",
+        if (ImGui.SliderInt("##compact-window-background-opacity", ref compactOpacityPercent, 0, 100, "%d%%",
                 ImGuiSliderFlags.AlwaysClamp))
         {
             var compactOpacity = compactOpacityPercent / 100f;
