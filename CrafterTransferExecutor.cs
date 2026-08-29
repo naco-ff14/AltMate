@@ -79,7 +79,18 @@ internal static unsafe class CrafterTransferExecutor
         if (minimum->Type != AtkValueType.UInt || maximum->Type != AtkValueType.UInt ||
             defaultValue->Type != AtkValueType.UInt) return;
         defaultValue->UInt = Math.Clamp(pendingQuantity, minimum->UInt, maximum->UInt);
+    }
+
+    internal static void ConfirmPendingQuantity(nint addonAddress)
+    {
+        if (pendingQuantity == 0 || addonAddress == nint.Zero) return;
+        var addon = (AtkUnitBase*)addonAddress;
+        if (addon->AtkValuesCount < 5 || addon->AtkValues == null) return;
+        var value = addon->AtkValues + 4;
+        if (value->Type != AtkValueType.UInt || value->UInt != pendingQuantity) return;
+        var quantity = pendingQuantity;
         pendingQuantity = 0;
+        addon->FireCallbackInt((int)quantity);
     }
 
     private static bool HasFreePlayerSlot(InventoryManager* manager)

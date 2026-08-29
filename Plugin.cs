@@ -218,6 +218,7 @@ public sealed class Plugin : IDalamudPlugin
         AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "SelectYesno", OnLinkedSelectYesnoOpen);
         AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "SelectYesno", OnLinkedSelectYesnoClose);
         AddonLifecycle.RegisterListener(AddonEvent.PreSetup, "InputNumeric", OnCrafterQuantityInput);
+        AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "InputNumeric", OnCrafterQuantityConfirm);
 
         if (ClientState.IsLoggedIn)
         {
@@ -715,6 +716,9 @@ public sealed class Plugin : IDalamudPlugin
     private static void OnCrafterQuantityInput(AddonEvent _, AddonArgs args) =>
         CrafterTransferExecutor.ApplyPendingQuantity(args.Addon.Address);
 
+    private static void OnCrafterQuantityConfirm(AddonEvent _, AddonArgs args) =>
+        CrafterTransferExecutor.ConfirmPendingQuantity(args.Addon.Address);
+
     private unsafe void OnPlacardUpdate(AddonEvent _, AddonArgs args)
     {
         if (!ClientState.IsLoggedIn || !PlayerState.IsLoaded || args.Addon.Address == nint.Zero)
@@ -967,6 +971,7 @@ public sealed class Plugin : IDalamudPlugin
         AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "SelectYesno", OnLinkedSelectYesnoOpen);
         AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, "SelectYesno", OnLinkedSelectYesnoClose);
         AddonLifecycle.UnregisterListener(AddonEvent.PreSetup, "InputNumeric", OnCrafterQuantityInput);
+        AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "InputNumeric", OnCrafterQuantityConfirm);
         windowSystem.RemoveAllWindows();
         sharedConfiguration?.Dispose();
         sharedConfiguration = null;
