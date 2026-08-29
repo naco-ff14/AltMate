@@ -395,19 +395,6 @@ public sealed partial class MainWindow
             settings.ShowMissingOnly = missingOnly;
             SaveCrafterSettings();
         }
-        ImGui.SameLine();
-        if (ImGui.Button(Loc.L("不足している素材・装備をコピー", "Copy missing materials and gear")))
-        {
-            var lines = crafterPreparationItems.Where(x => x.MissingCount > 0)
-                .Select(x =>
-                {
-                    var locations = CrafterInventoryLocator.GetLocations(settings, x.ItemId);
-                    var locationText = locations.Count > 0 ? $"（所在：{string.Join(" / ", locations)}）" : string.Empty;
-                    return $"{x.Name} ×{x.MissingCount}{locationText}";
-                });
-            ImGui.SetClipboardText($"【AltMate クラフター育成 不足品】\n\n{string.Join("\n", lines)}");
-        }
-
         foreach (var error in crafterPreparationErrors)
             ImGui.TextColored(new Vector4(1f, 0.35f, 0.3f, 1f),
                 Loc.L($"無効な製作品：{error}", $"Invalid recipe: {error}"));
@@ -420,8 +407,11 @@ public sealed partial class MainWindow
             ? crafterPreparationItems.Where(x => x.MissingCount > 0).ToArray()
             : crafterPreparationItems.ToArray();
         DrawCrafterPreparationTable(settings, "crafter-preparation-materials",
-            Loc.L("製作用の素材・クリスタル", "Crafting materials and crystals"),
-            rows.Where(x => !x.IsGear).ToArray());
+            Loc.L("製作用の素材", "Crafting materials"),
+            rows.Where(x => !x.IsGear && !x.IsCrystal).ToArray());
+        DrawCrafterPreparationTable(settings, "crafter-preparation-crystals",
+            Loc.L("製作用のクリスタル", "Crafting crystals"),
+            rows.Where(x => x.IsCrystal).ToArray());
         DrawCrafterPreparationTable(settings, "crafter-preparation-gear",
             Loc.L("育成途中で使用する装備", "Gear used while leveling"),
             rows.Where(x => x.IsGear).ToArray());
@@ -437,10 +427,10 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L("該当項目なし", "No items"));
             return;
         }
-        if (!ImGui.BeginTable(id, 6,
+        if (!ImGui.BeginTable(id, 7,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, Math.Min(220, 30 + rows.Count * 24) * ImGuiHelpers.GlobalScale))) return;
-        foreach (var heading in new[] { Loc.L("アイテム", "Item"), Loc.L("分類", "Type"),
+        foreach (var heading in new[] { Loc.L("アイテム", "Item"), Loc.L("コピー", "Copy"), Loc.L("分類", "Type"),
                      Loc.L("必要", "Required"), Loc.L("所持", "Owned"), Loc.L("不足", "Missing"),
                      Loc.L("所在", "Location") })
             ImGui.TableSetupColumn(heading);
@@ -450,6 +440,9 @@ public sealed partial class MainWindow
             ImGui.TableNextRow();
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.Name);
             if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Item ID: {item.ItemId}");
+            ImGui.TableNextColumn();
+            if (ImGui.SmallButton($"{Loc.L("名前", "Name")}##copy-crafter-item-{id}-{item.ItemId}"))
+                ImGui.SetClipboardText(item.Name);
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.IsGear ? Loc.L("装備", "Gear") :
                 item.IsCrystal ? Loc.L("クリスタル", "Crystal") : Loc.L("素材", "Material"));
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.RequiredCount.ToString("N0"));
