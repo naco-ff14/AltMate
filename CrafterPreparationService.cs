@@ -13,9 +13,12 @@ internal sealed class CrafterPreparationService
         var required = new Dictionary<uint, (int Count, bool Crystal, bool Gear)>();
         var problems = new List<string>();
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
+        var currentJobId = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.ClassJob.RowId : 0;
+        var currentLevel = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.Level : 0;
 
         foreach (var preset in settings.RecipePresets.Where(x =>
-                     settings.EnabledJobIds.Contains(x.JobId) && x.MaxLevel <= settings.TargetLevel))
+                     settings.EnabledJobIds.Contains(x.JobId) && x.MaxLevel <= settings.TargetLevel &&
+                     (x.JobId != currentJobId || x.MaxLevel >= currentLevel)))
         {
             if (preset.RecipeId == 0 || preset.MaxCraftCount <= 0 ||
                 !recipeSheet.TryGetRow(preset.RecipeId, out var recipe))
@@ -24,13 +27,14 @@ internal sealed class CrafterPreparationService
                 continue;
             }
 
+            var craftCount = RemainingCraftCount(preset, currentJobId, currentLevel);
             for (var index = 0; index < recipe.Ingredient.Count; index++)
             {
                 var itemId = recipe.Ingredient[index].RowId;
                 var amount = recipe.AmountIngredient[index];
                 if (itemId == 0 || amount == 0)
                     continue;
-                Add(required, itemId, checked((int)amount * preset.MaxCraftCount), IsCrystal(itemId), false);
+                Add(required, itemId, checked((int)amount * craftCount), IsCrystal(itemId), false);
             }
         }
 
@@ -70,4 +74,13 @@ internal sealed class CrafterPreparationService
     }
 
     private static bool IsCrystal(uint itemId) => itemId is >= 2 and <= 19;
+
+    private static int RemainingCraftCount(CrafterRecipePreset preset, uint currentJobId, int currentLevel)
+    {
+        if (preset.JobId != currentJobId || currentLevel <= preset.MinLevel)
+            return preset.MaxCraftCount;
+        var totalLevels = Math.Max(1, preset.MaxLevel - preset.MinLevel + 1);
+        var remainingLevels = Math.Max(1, preset.MaxLevel - currentLevel + 1);
+        return Math.Max(1, (int)Math.Ceiling(preset.MaxCraftCount * remainingLevels / (double)totalLevels));
+    }
 }

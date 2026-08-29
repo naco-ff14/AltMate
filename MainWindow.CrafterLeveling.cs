@@ -42,6 +42,10 @@ public sealed partial class MainWindow
         if (ImGui.CollapsingHeader(Loc.L("育成設定", "Leveling settings"), ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawCrafterJobSelection(settings);
+            if (Plugin.PlayerState.IsLoaded && Plugin.PlayerState.ClassJob.RowId is >= 8 and <= 15)
+                ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f),
+                    Loc.L($"現在：{Plugin.PlayerState.ClassJob.Value.Abbreviation} Lv{Plugin.PlayerState.Level}",
+                        $"Current: {Plugin.PlayerState.ClassJob.Value.Abbreviation} Lv{Plugin.PlayerState.Level}"));
             var targetLevel = settings.TargetLevel;
             ImGui.SetNextItemWidth(180 * ImGuiHelpers.GlobalScale);
             if (ImGui.SliderInt(Loc.L("目標レベル", "Target level"), ref targetLevel, 1, 100))
@@ -291,9 +295,12 @@ public sealed partial class MainWindow
 
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        var currentJobId = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.ClassJob.RowId : 0;
+        var currentLevel = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.Level : 0;
         var visiblePresets = settings.RecipePresets.Select((preset, index) => (Preset: preset, Index: index))
             .Where(x => settings.EnabledJobIds.Contains(x.Preset.JobId) &&
-                        x.Preset.MinLevel < settings.TargetLevel).ToArray();
+                        x.Preset.MinLevel < settings.TargetLevel &&
+                        (x.Preset.JobId != currentJobId || x.Preset.MaxLevel >= currentLevel)).ToArray();
         if (visiblePresets.Length > 0 && ImGui.BeginTable("crafter-leveling-recipes", 6,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
