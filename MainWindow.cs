@@ -117,7 +117,11 @@ public sealed partial class MainWindow : Window
         }
         if (clearForcedSize)
         {
-            SizeCondition = ImGuiCond.None;
+            // A non-null Size/Position is still submitted by Dalamud even with
+            // ImGuiCond.None (which means unconditional in ImGui). Remove the
+            // values themselves after their one restoration frame.
+            Size = null;
+            Position = null;
             clearForcedSize = false;
         }
         if (compactMode)
@@ -277,6 +281,12 @@ public sealed partial class MainWindow : Window
     private void EnterCompactMode()
     {
         expandedWindowSize = ImGui.GetWindowSize();
+        var expandedPosition = ImGui.GetWindowPos();
+        plugin.Configuration.HasExpandedWindowPlacement = true;
+        plugin.Configuration.ExpandedWindowX = expandedPosition.X;
+        plugin.Configuration.ExpandedWindowY = expandedPosition.Y;
+        plugin.Configuration.ExpandedWindowWidth = expandedWindowSize.X;
+        plugin.Configuration.ExpandedWindowHeight = expandedWindowSize.Y;
         expandedWindowFlags = Flags;
         expandedBackgroundAlpha = BgAlpha;
         ApplyCompactMode();
@@ -297,21 +307,37 @@ public sealed partial class MainWindow : Window
         };
         Size = new Vector2(650, 118);
         SizeCondition = ImGuiCond.Always;
+        if (plugin.Configuration.HasCompactWindowPosition)
+        {
+            Position = new Vector2(plugin.Configuration.CompactWindowX, plugin.Configuration.CompactWindowY);
+            PositionCondition = ImGuiCond.Always;
+        }
         clearForcedSize = true;
     }
 
     private void ExitCompactMode()
     {
+        var compactPosition = ImGui.GetWindowPos();
+        plugin.Configuration.HasCompactWindowPosition = true;
+        plugin.Configuration.CompactWindowX = compactPosition.X;
+        plugin.Configuration.CompactWindowY = compactPosition.Y;
         compactMode = false;
         Flags = expandedWindowFlags;
         BgAlpha = plugin.Configuration.WindowBackgroundOpacity;
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(760, 360) };
-        var restoredSize = new Vector2(MathF.Max(760, expandedWindowSize.X), MathF.Max(360, expandedWindowSize.Y));
+        var restoredSize = plugin.Configuration.HasExpandedWindowPlacement
+            ? new Vector2(MathF.Max(760, plugin.Configuration.ExpandedWindowWidth),
+                MathF.Max(360, plugin.Configuration.ExpandedWindowHeight))
+            : new Vector2(MathF.Max(760, expandedWindowSize.X), MathF.Max(360, expandedWindowSize.Y));
+        var restoredPosition = plugin.Configuration.HasExpandedWindowPlacement
+            ? new Vector2(plugin.Configuration.ExpandedWindowX, plugin.Configuration.ExpandedWindowY)
+            : ImGui.GetWindowPos();
         // Apply the restored size directly once. Keeping SizeCondition=Always
         // causes Dalamud to overwrite later user resizing during subsequent frames.
         ImGui.SetWindowSize(restoredSize, ImGuiCond.Always);
-        Size = restoredSize;
-        SizeCondition = ImGuiCond.None;
+        ImGui.SetWindowPos(restoredPosition, ImGuiCond.Always);
+        Size = null;
+        Position = null;
         clearForcedSize = false;
         plugin.Configuration.WindowCompactMode = false;
         plugin.Configuration.Save();

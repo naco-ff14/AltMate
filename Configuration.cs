@@ -51,6 +51,14 @@ public sealed class Configuration : IPluginConfiguration
     public bool WindowCompactMode { get; set; }
     public float WindowBackgroundOpacity { get; set; } = 0.96f;
     public float CompactWindowBackgroundOpacity { get; set; } = 0.96f;
+    public bool HasExpandedWindowPlacement { get; set; }
+    public float ExpandedWindowX { get; set; }
+    public float ExpandedWindowY { get; set; }
+    public float ExpandedWindowWidth { get; set; } = 940f;
+    public float ExpandedWindowHeight { get; set; } = 520f;
+    public bool HasCompactWindowPosition { get; set; }
+    public float CompactWindowX { get; set; }
+    public float CompactWindowY { get; set; }
     public int LastMainSection { get; set; }
     public int LastHousingSection { get; set; }
 
