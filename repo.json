@@ -8,6 +8,7 @@
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
     "Punchline": "Multi-character linking, housing, animation, and gil tools",
+    "Changelog": "v1.46.1: Fixed automatic selection of retainer inventory menus with dynamic status text.",
     "RepoUrl": "https://github.com/naco-ff14/AltMate",
     "IconUrl": "https://raw.githubusercontent.com/naco-ff14/AltMate/main/images/icon.png",
     "Tags": [
