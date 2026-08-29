@@ -42,7 +42,31 @@ public sealed class CrafterLevelingSettings
     public List<CrafterRecipePreset> RecipePresets { get; set; } = new();
     public List<CrafterGearPreset> GearPresets { get; set; } = new();
     public Dictionary<uint, int> KnownOwnedItems { get; set; } = new();
+    public CrafterBellRegistration Bell { get; set; } = new();
+    public List<ulong> SelectedRetainerIds { get; set; } = new();
+    public Dictionary<ulong, CrafterRetainerInventoryCache> RetainerInventories { get; set; } = new();
     public CrafterLevelingProgress Progress { get; set; } = new();
+}
+
+[Serializable]
+public sealed class CrafterBellRegistration
+{
+    public bool IsRegistered { get; set; }
+    public uint TerritoryId { get; set; }
+    public uint ObjectId { get; set; }
+    public string ObjectName { get; set; } = string.Empty;
+    public float X { get; set; }
+    public float Y { get; set; }
+    public float Z { get; set; }
+}
+
+[Serializable]
+public sealed class CrafterRetainerInventoryCache
+{
+    public ulong RetainerId { get; set; }
+    public string RetainerName { get; set; } = string.Empty;
+    public Dictionary<uint, int> Items { get; set; } = new();
+    public DateTime ScannedAt { get; set; }
 }
 
 [Serializable]

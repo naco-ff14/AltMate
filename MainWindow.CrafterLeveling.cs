@@ -17,6 +17,7 @@ public sealed partial class MainWindow
     private int crafterPresetMaxLevel = 20;
     private int crafterPresetRecipeId;
     private int crafterPresetCraftCount = 20;
+    private string crafterStorageMessage = string.Empty;
 
     private void DrawCrafterLeveling()
     {
@@ -72,6 +73,10 @@ public sealed partial class MainWindow
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPresetEditor(settings);
 
+        if (ImGui.CollapsingHeader(Loc.L("リテイナー保管設定", "Retainer storage"),
+                ImGuiTreeNodeFlags.DefaultOpen))
+            DrawCrafterStorageSettings(settings);
+
         if (ImGui.CollapsingHeader(Loc.L("準備リスト", "Preparation list"),
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPreparationList(settings);
@@ -83,6 +88,120 @@ public sealed partial class MainWindow
                 ImGui.TextColored(new Vector4(1f, 0.35f, 0.3f, 1f), settings.Progress.LastError);
             ImGui.BeginDisabled();
             ImGui.Button(Loc.L("自動レベリング開始（Phase 4以降）", "Start auto-leveling (Phase 4+)"));
+            ImGui.EndDisabled();
+        }
+    }
+
+    private void DrawCrafterStorageSettings(CrafterLevelingSettings settings)
+    {
+        ImGui.TextUnformatted(Loc.L("使用するリテイナーベル", "Summoning bell"));
+        if (settings.Bell.IsRegistered)
+        {
+            ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f),
+                $"{settings.Bell.ObjectName} / Territory {settings.Bell.TerritoryId} / " +
+                $"({settings.Bell.X:F1}, {settings.Bell.Y:F1}, {settings.Bell.Z:F1})");
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
+                Loc.L("未登録", "Not registered"));
+        }
+        if (ImGui.Button(Loc.L("ターゲット中のベルを登録", "Register targeted bell")))
+        {
+            var target = Plugin.TargetManager.Target;
+            var name = target?.Name.ToString() ?? string.Empty;
+            if (target is null || (!name.Contains("ベル", StringComparison.OrdinalIgnoreCase) &&
+                                   !name.Contains("bell", StringComparison.OrdinalIgnoreCase)))
+            {
+                crafterStorageMessage = Loc.L("リテイナーベルをターゲットしてから登録してください。",
+                    "Target a summoning bell before registering it.");
+            }
+            else
+            {
+                settings.Bell = new CrafterBellRegistration
+                {
+                    IsRegistered = true,
+                    TerritoryId = Plugin.ClientState.TerritoryType,
+                    ObjectId = target.BaseId,
+                    ObjectName = name,
+                    X = target.Position.X,
+                    Y = target.Position.Y,
+                    Z = target.Position.Z,
+                };
+                crafterStorageMessage = Loc.L("ベルを登録しました。", "Bell registered.");
+                SaveCrafterSettings();
+            }
+        }
+        if (settings.Bell.IsRegistered)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button(Loc.L("登録解除", "Clear registration")))
+            {
+                settings.Bell = new CrafterBellRegistration();
+                SaveCrafterSettings();
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(crafterStorageMessage))
+            ImGui.TextWrapped(crafterStorageMessage);
+
+        ImGui.Separator();
+        ImGui.TextUnformatted(Loc.L("検索対象リテイナー（上から検索）", "Retainers to scan (priority order)"));
+        ImGui.TextDisabled(Loc.L(
+            "一度ずつリテイナーを開くと所持品を自動スキャンします。チェックしたリテイナーだけ準備数へ合算します。",
+            "Open each retainer once to scan automatically. Only checked retainers count toward preparation totals."));
+        var knownRetainers = plugin.Configuration.CharacterGil.Values
+            .SelectMany(character => character.Retainers.Values)
+            .Select(retainer => (RetainerId: retainer.RetainerId, Name: retainer.Name))
+            .Concat(settings.RetainerInventories.Values.Select(cache =>
+                (RetainerId: cache.RetainerId, Name: cache.RetainerName)))
+            .GroupBy(x => x.RetainerId)
+            .Select(group => group.Last())
+            .OrderBy(x =>
+            {
+                var index = settings.SelectedRetainerIds.IndexOf(x.RetainerId);
+                return index < 0 ? int.MaxValue : index;
+            })
+            .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToArray();
+        if (knownRetainers.Length == 0)
+            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
+                Loc.L("リテイナー情報がありません。ゲーム内でリテイナー一覧を開いてください。",
+                    "No retainer data. Open the retainer list in game."));
+        foreach (var retainer in knownRetainers)
+        {
+            var selected = settings.SelectedRetainerIds.Contains(retainer.RetainerId);
+            if (ImGui.Checkbox($"{retainer.Name}##crafter-retainer-{retainer.RetainerId}", ref selected))
+            {
+                if (selected) settings.SelectedRetainerIds.Add(retainer.RetainerId);
+                else settings.SelectedRetainerIds.Remove(retainer.RetainerId);
+                CrafterRetainerScanner.RefreshOwnedTotals(settings);
+                SaveCrafterSettings();
+            }
+            if (settings.RetainerInventories.TryGetValue(retainer.RetainerId, out var cache))
+            {
+                ImGui.SameLine();
+                ImGui.TextDisabled(Loc.L($"{cache.Items.Count}種類 / {cache.ScannedAt:MM/dd HH:mm}",
+                    $"{cache.Items.Count} items / {cache.ScannedAt:MM/dd HH:mm}"));
+            }
+            if (!selected) continue;
+            var priorityIndex = settings.SelectedRetainerIds.IndexOf(retainer.RetainerId);
+            ImGui.SameLine();
+            ImGui.BeginDisabled(priorityIndex <= 0);
+            if (ImGui.SmallButton($"↑##crafter-retainer-up-{retainer.RetainerId}"))
+            {
+                (settings.SelectedRetainerIds[priorityIndex - 1], settings.SelectedRetainerIds[priorityIndex]) =
+                    (settings.SelectedRetainerIds[priorityIndex], settings.SelectedRetainerIds[priorityIndex - 1]);
+                SaveCrafterSettings();
+            }
+            ImGui.EndDisabled();
+            ImGui.SameLine();
+            ImGui.BeginDisabled(priorityIndex >= settings.SelectedRetainerIds.Count - 1);
+            if (ImGui.SmallButton($"↓##crafter-retainer-down-{retainer.RetainerId}"))
+            {
+                (settings.SelectedRetainerIds[priorityIndex + 1], settings.SelectedRetainerIds[priorityIndex]) =
+                    (settings.SelectedRetainerIds[priorityIndex], settings.SelectedRetainerIds[priorityIndex + 1]);
+                SaveCrafterSettings();
+            }
             ImGui.EndDisabled();
         }
     }

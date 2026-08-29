@@ -68,6 +68,7 @@ public sealed class Plugin : IDalamudPlugin
     internal AnimationService Animations { get; }
     internal RoleBasedFpsController RoleBasedFps { get; }
     internal CustomDeliveryService CustomDeliveries { get; }
+    internal CrafterRetainerScanner CrafterRetainers { get; }
     internal string IconPath { get; }
 
     internal Configuration Configuration { get; }
@@ -148,6 +149,7 @@ public sealed class Plugin : IDalamudPlugin
         CharacterLink = new CharacterLinkCoordinator(this);
         RoleBasedFps = new RoleBasedFpsController(this);
         CustomDeliveries = new CustomDeliveryService(this);
+        CrafterRetainers = new CrafterRetainerScanner(this);
         wardObserver = HousingWardObserver.TryCreate(this);
         gilTracker = new GilTracker(this);
         HousingDemolition = new HousingDemolitionTracker(this);
@@ -918,6 +920,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Animations.Dispose();
+        CrafterRetainers.Dispose();
         CustomDeliveries.Dispose();
         RoleBasedFps.Dispose();
         CharacterLink.Dispose();
