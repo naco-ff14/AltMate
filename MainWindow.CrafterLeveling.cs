@@ -21,6 +21,8 @@ public sealed partial class MainWindow
     private IReadOnlyList<(uint RecipeId, string ProductName)> crafterRecipeSearchResults = [];
     private string crafterCatalogMessage = string.Empty;
     private string crafterStorageMessage = string.Empty;
+    private string crafterTransferMessage = string.Empty;
+    private bool crafterTransferMessageIsError;
 
     private void DrawCrafterLeveling()
     {
@@ -129,7 +131,13 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L("先に準備リストを生成してください。", "Build the preparation list first."));
 
         var plan = settings.TransferPlan;
-        if (plan.CreatedAt == default) return;
+        if (plan.CreatedAt == default)
+        {
+            ImGui.TextDisabled(Loc.L(
+                "計画未生成。現在の準備リストとリテイナー在庫を確認してから生成してください。",
+                "No plan generated. Verify the current preparation list and retainer inventory first."));
+            return;
+        }
         ImGui.TextUnformatted(Loc.L($"計画作成：{plan.CreatedAt:MM/dd HH:mm:ss}",
             $"Created: {plan.CreatedAt:MM/dd HH:mm:ss}"));
         ImGui.TextColored(plan.IsReady ? new Vector4(0.35f, 0.9f, 0.5f, 1f) :
@@ -157,9 +165,30 @@ public sealed partial class MainWindow
             }
             ImGui.EndTable();
         }
-        ImGui.BeginDisabled();
-        ImGui.Button(Loc.L("計画どおり移動開始（検証中）", "Execute transfer plan (validation pending)"));
+        var firstWithdrawal = plan.Withdrawals.FirstOrDefault();
+        ImGui.BeginDisabled(firstWithdrawal is null);
+        if (ImGui.Button(Loc.L("先頭1スタックを取得（試験）", "Withdraw first stack (test)")) &&
+            firstWithdrawal is not null)
+        {
+            var result = CrafterTransferExecutor.WithdrawOneStack(firstWithdrawal);
+            crafterTransferMessage = Loc.L(result.JapaneseMessage, result.EnglishMessage);
+            crafterTransferMessageIsError = !result.Success;
+            if (result.Success)
+            {
+                settings.TransferPlan = new CrafterTransferPlan();
+                settings.Progress.State = CrafterLevelingState.Idle;
+                settings.Progress.UpdatedAt = DateTime.Now;
+                plugin.Configuration.Save();
+            }
+        }
         ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextDisabled(Loc.L("対象リテイナーの所持品画面を開いてから実行してください。",
+            "Open the target retainer inventory before running."));
+        if (!string.IsNullOrWhiteSpace(crafterTransferMessage))
+            ImGui.TextColored(crafterTransferMessageIsError
+                ? new Vector4(1f, 0.35f, 0.3f, 1f)
+                : new Vector4(0.35f, 0.9f, 0.5f, 1f), crafterTransferMessage);
     }
 
     private void DrawCrafterStorageSettings(CrafterLevelingSettings settings)
@@ -455,8 +484,10 @@ public sealed partial class MainWindow
     {
         if (ImGui.Button(Loc.L("準備リスト生成", "Build preparation list")))
         {
+            InvalidateCrafterTransferPlan(settings);
             var service = new CrafterPreparationService();
             crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+            plugin.Configuration.Save();
         }
         ImGui.SameLine();
         var missingOnly = settings.ShowMissingOnly;
@@ -510,9 +541,18 @@ public sealed partial class MainWindow
     private void SaveCrafterSettings()
     {
         var settings = plugin.GetCrafterLevelingSettings();
+        InvalidateCrafterTransferPlan(settings);
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
         crafterPreparationItems = [];
         crafterPreparationErrors = [];
+    }
+
+    private static void InvalidateCrafterTransferPlan(CrafterLevelingSettings settings)
+    {
+        settings.TransferPlan = new CrafterTransferPlan();
+        if (settings.Progress.State is CrafterLevelingState.Preparing or
+            CrafterLevelingState.WithdrawingItems or CrafterLevelingState.ReturningOldGear)
+            settings.Progress.State = CrafterLevelingState.Idle;
     }
 }
