@@ -413,8 +413,6 @@ public sealed partial class MainWindow
         var settings = plugin.GetCrafterLevelingSettings();
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
-        crafterPreparationItems = [];
-        crafterPreparationErrors = [];
     }
 
 }
