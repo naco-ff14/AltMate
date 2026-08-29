@@ -2,12 +2,24 @@ using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
+using System.Collections.Generic;
+using System.Linq;
 
 namespace AltMate;
 
 internal static unsafe class CrafterTransferExecutor
 {
     private static uint pendingQuantity;
+    private static readonly Queue<CrafterTransferLine> batch = new();
+    private static ulong batchRetainerId;
+    private static uint waitingItemId;
+    private static int waitingCountBefore;
+    private static DateTime waitingDeadlineUtc;
+    private static DateTime nextActionUtc;
+    internal static bool IsRunning { get; private set; }
+    internal static string StatusJapanese { get; private set; } = string.Empty;
+    internal static string StatusEnglish { get; private set; } = string.Empty;
+    internal static bool StatusIsError { get; private set; }
     private static readonly InventoryType[] RetainerContainers =
     [
         InventoryType.RetainerPage1, InventoryType.RetainerPage2, InventoryType.RetainerPage3,
@@ -22,6 +34,92 @@ internal static unsafe class CrafterTransferExecutor
     ];
 
     internal sealed record Result(bool Success, string JapaneseMessage, string EnglishMessage);
+
+    internal static Result BeginBatch(IReadOnlyList<CrafterTransferLine> lines)
+    {
+        if (IsRunning) return Fail("取得処理はすでに実行中です。", "A withdrawal batch is already running.");
+        var manager = RetainerManager.Instance();
+        var active = manager == null ? null : manager->GetActiveRetainer();
+        if (active == null || active->RetainerId == 0)
+            return Fail("対象リテイナーを開いてください。", "Open the target retainer first.");
+        var selected = lines.Where(x => x.RetainerId == active->RetainerId && x.Quantity > 0).ToArray();
+        if (selected.Length == 0)
+            return Fail("現在開いているリテイナーの取得計画がありません。",
+                "There are no withdrawals for the currently open retainer.");
+
+        batch.Clear();
+        foreach (var line in selected)
+            batch.Enqueue(new CrafterTransferLine
+            {
+                RetainerId = line.RetainerId,
+                RetainerName = line.RetainerName,
+                ItemId = line.ItemId,
+                ItemName = line.ItemName,
+                Quantity = line.Quantity,
+                IsGear = line.IsGear,
+            });
+        batchRetainerId = active->RetainerId;
+        waitingItemId = 0;
+        nextActionUtc = DateTime.UtcNow;
+        IsRunning = true;
+        SetStatus(false, $"{active->NameString}から{batch.Count}種類の取得を開始します。",
+            $"Starting {batch.Count} withdrawals from {active->NameString}.");
+        return new Result(true, StatusJapanese, StatusEnglish);
+    }
+
+    internal static void Update()
+    {
+        if (!IsRunning) return;
+        var now = DateTime.UtcNow;
+        var manager = RetainerManager.Instance();
+        var active = manager == null ? null : manager->GetActiveRetainer();
+        if (active == null || active->RetainerId != batchRetainerId)
+        {
+            Stop(true, "リテイナー画面が閉じたか、別のリテイナーに切り替わったため停止しました。",
+                "Stopped because the retainer window closed or the active retainer changed.");
+            return;
+        }
+        if (waitingItemId != 0)
+        {
+            var current = CountRetainerItem(waitingItemId);
+            if (current < waitingCountBefore)
+            {
+                var moved = waitingCountBefore - current;
+                waitingItemId = 0;
+                if (batch.Count > 0)
+                {
+                    batch.Peek().Quantity -= moved;
+                    if (batch.Peek().Quantity <= 0) batch.Dequeue();
+                }
+                nextActionUtc = now.AddMilliseconds(700);
+                SetStatus(false, $"取得を確認しました。残り{batch.Count}種類。",
+                    $"Withdrawal confirmed. {batch.Count} items remain.");
+            }
+            else if (now >= waitingDeadlineUtc)
+                Stop(true, "10秒以内に在庫変化を確認できなかったため停止しました。",
+                    "Stopped because no inventory change was detected within 10 seconds.");
+            return;
+        }
+        if (batch.Count == 0)
+        {
+            Stop(false, "現在のリテイナー分をすべて取得しました。",
+                "All planned items for the current retainer were withdrawn.");
+            return;
+        }
+        if (now < nextActionUtc || pendingQuantity != 0) return;
+
+        var line = batch.Peek();
+        waitingCountBefore = CountRetainerItem(line.ItemId);
+        var result = WithdrawOneStack(line);
+        if (!result.Success)
+        {
+            Stop(true, result.JapaneseMessage, result.EnglishMessage);
+            return;
+        }
+        waitingItemId = line.ItemId;
+        waitingDeadlineUtc = now.AddSeconds(10);
+        SetStatus(false, result.JapaneseMessage, result.EnglishMessage);
+    }
 
     internal static Result WithdrawOneStack(CrafterTransferLine line)
     {
@@ -106,6 +204,40 @@ internal static unsafe class CrafterTransferExecutor
             }
         }
         return false;
+    }
+
+    private static int CountRetainerItem(uint itemId)
+    {
+        var manager = InventoryManager.Instance();
+        if (manager == null) return 0;
+        var count = 0;
+        foreach (var type in RetainerContainers)
+        {
+            var container = manager->GetInventoryContainer(type);
+            if (container == null || !container->IsLoaded) continue;
+            for (var index = 0; index < container->Size; index++)
+            {
+                var slot = container->GetInventorySlot(index);
+                if (slot != null && slot->ItemId == itemId) count += (int)slot->Quantity;
+            }
+        }
+        return count;
+    }
+
+    private static void Stop(bool error, string japanese, string english)
+    {
+        IsRunning = false;
+        pendingQuantity = 0;
+        waitingItemId = 0;
+        batch.Clear();
+        SetStatus(error, japanese, english);
+    }
+
+    private static void SetStatus(bool error, string japanese, string english)
+    {
+        StatusIsError = error;
+        StatusJapanese = japanese;
+        StatusEnglish = english;
     }
 
     private static Result Fail(string japanese, string english) => new(false, japanese, english);

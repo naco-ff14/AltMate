@@ -207,6 +207,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += mainWindow.OpenSettings;
         ClientState.Login += OnLogin;
         ChatGui.ChatMessage += OnChatMessage;
+        Framework.Update += OnCrafterTransferUpdate;
 
         AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "HousingSignBoard", OnPlacardOpen);
         AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "HousingSignBoard", OnPlacardUpdate);
@@ -719,6 +720,8 @@ public sealed class Plugin : IDalamudPlugin
     private static void OnCrafterQuantityConfirm(AddonEvent _, AddonArgs args) =>
         CrafterTransferExecutor.ConfirmPendingQuantity(args.Addon.Address);
 
+    private static void OnCrafterTransferUpdate(IFramework _) => CrafterTransferExecutor.Update();
+
     private unsafe void OnPlacardUpdate(AddonEvent _, AddonArgs args)
     {
         if (!ClientState.IsLoggedIn || !PlayerState.IsLoaded || args.Addon.Address == nint.Zero)
@@ -955,6 +958,7 @@ public sealed class Plugin : IDalamudPlugin
         wardObserver?.Dispose();
         ClientState.Login -= OnLogin;
         ChatGui.ChatMessage -= OnChatMessage;
+        Framework.Update -= OnCrafterTransferUpdate;
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= mainWindow.Toggle;
         PluginInterface.UiBuilder.OpenConfigUi -= mainWindow.OpenSettings;

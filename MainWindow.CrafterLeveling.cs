@@ -131,6 +131,11 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L("先に準備リストを生成してください。", "Build the preparation list first."));
 
         var plan = settings.TransferPlan;
+        if (!string.IsNullOrWhiteSpace(CrafterTransferExecutor.StatusJapanese))
+            ImGui.TextColored(CrafterTransferExecutor.StatusIsError
+                    ? new Vector4(1f, 0.35f, 0.3f, 1f)
+                    : new Vector4(0.35f, 0.9f, 0.5f, 1f),
+                Loc.L(CrafterTransferExecutor.StatusJapanese, CrafterTransferExecutor.StatusEnglish));
         if (plan.CreatedAt == default)
         {
             ImGui.TextDisabled(Loc.L(
@@ -145,12 +150,10 @@ public sealed partial class MainWindow
             plan.IsReady ? Loc.L("取得可能", "Ready") :
                 Loc.L($"在庫不足 {plan.UnavailableItems.Count}種類", $"Unavailable items: {plan.UnavailableItems.Count}"));
 
-        var firstWithdrawal = plan.Withdrawals.FirstOrDefault();
-        ImGui.BeginDisabled(firstWithdrawal is null);
-        if (ImGui.Button(Loc.L("先頭素材を取得（試験）", "Withdraw first material (test)")) &&
-            firstWithdrawal is not null)
+        ImGui.BeginDisabled(plan.Withdrawals.Count == 0 || CrafterTransferExecutor.IsRunning);
+        if (ImGui.Button(Loc.L("現在のリテイナー分を連続取得", "Withdraw all from current retainer")))
         {
-            var result = CrafterTransferExecutor.WithdrawOneStack(firstWithdrawal);
+            var result = CrafterTransferExecutor.BeginBatch(plan.Withdrawals);
             crafterTransferMessage = Loc.L(result.JapaneseMessage, result.EnglishMessage);
             crafterTransferMessageIsError = !result.Success;
         }
