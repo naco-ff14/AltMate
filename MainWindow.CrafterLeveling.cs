@@ -78,6 +78,9 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L(
                 "製作品・装備候補・必要素材・所持数をまとめて更新します。",
                 "Updates recipes, gear, required items, and owned counts together."));
+            ImGui.TextDisabled(Loc.L(
+                "製作数は公開レベリングガイドの目安です。経験値ボーナスや初回製作で実際の必要数は前後します。",
+                "Craft counts are public-guide estimates and vary with EXP bonuses and first-time crafting."));
             if (!string.IsNullOrWhiteSpace(crafterListMessage))
                 ImGui.TextWrapped(crafterListMessage);
         }

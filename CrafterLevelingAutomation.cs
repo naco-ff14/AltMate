@@ -15,6 +15,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private bool requestSent;
     private bool artisanBecameBusy;
     private DateTime requestAtUtc;
+    private int lastStylistTier = -1;
+    private DateTime waitUntilUtc;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -33,6 +35,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             return false;
         if (!CustomDeliveryService.IsPluginLoaded("Artisan"))
             return Fail(settings, Loc.L("Artisanが読み込まれていません。", "Artisan is not loaded."));
+        if (!CustomDeliveryService.IsPluginLoaded("Stylist"))
+            return Fail(settings, Loc.L("装備更新に必要なStylistが読み込まれていません。",
+                "Stylist is required for gear updates but is not loaded."));
         if (plugin.CustomDeliveries.Automation.IsRunning)
             return Fail(settings, Loc.L("お得意様取引の自動処理を先に停止してください。",
                 "Stop custom-delivery automation first."));
@@ -56,6 +61,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         index = 0;
         requestSent = false;
         artisanBecameBusy = false;
+        lastStylistTier = -1;
+        waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
         settings.Progress.CurrentJobId = jobId;
@@ -91,6 +98,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private void OnFrameworkUpdate(IFramework _)
     {
         if (!IsRunning)
+            return;
+        if (DateTime.UtcNow < waitUntilUtc)
             return;
         if (!Plugin.PlayerState.IsLoaded)
         {
@@ -146,6 +155,33 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         {
             Complete();
             return;
+        }
+
+        var stylistTier = CrafterGearCatalog.TierLevels.Where(x => x <= currentLevel).DefaultIfEmpty(1).Max();
+        if (stylistTier > lastStylistTier)
+        {
+            try
+            {
+                var stylistBusy = Plugin.PluginInterface.GetIpcSubscriber<bool>("Stylist.IsBusy").InvokeFunc();
+                if (stylistBusy)
+                {
+                    Status = Loc.L("Stylistで装備更新中です。", "Stylist is updating gear.");
+                    return;
+                }
+                Plugin.PluginInterface.GetIpcSubscriber<bool?, bool?, object>("Stylist.UpdateCurrentGearsetEx")
+                    .InvokeAction(true, true);
+                lastStylistTier = stylistTier;
+                waitUntilUtc = DateTime.UtcNow.AddSeconds(2);
+                Status = Loc.L($"StylistでLv{stylistTier}装備へ更新します。",
+                    $"Updating to Lv{stylistTier} gear with Stylist.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Stop(Loc.L($"Stylistで装備を更新できませんでした：{ex.Message}",
+                    $"Stylist could not update gear: {ex.Message}"));
+                return;
+            }
         }
 
         var preset = queue[index];
