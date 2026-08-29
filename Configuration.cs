@@ -49,6 +49,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool ShowChatMessages { get; set; }
     public string LocalLinkKey { get; set; } = string.Empty;
     public bool WindowCompactMode { get; set; }
+    public float WindowBackgroundOpacity { get; set; } = 0.96f;
     public int LastMainSection { get; set; }
     public int LastHousingSection { get; set; }
 

@@ -85,6 +85,7 @@ public sealed partial class MainWindow : Window
         if (Enum.IsDefined(typeof(HousingSection), plugin.Configuration.LastHousingSection))
             selectedHousingSection = (HousingSection)plugin.Configuration.LastHousingSection;
         Size = new Vector2(940, 520);
+        BgAlpha = plugin.Configuration.WindowBackgroundOpacity;
         SizeCondition = ImGuiCond.FirstUseEver;
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(760, 360) };
         TitleBarButtons.Add(new()
@@ -128,14 +129,15 @@ public sealed partial class MainWindow : Window
         var menuWidth = 184 * ImGuiHelpers.GlobalScale;
 
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8 * ImGuiHelpers.GlobalScale);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.075f, 0.085f, 0.11f, 0.96f));
+        var backgroundOpacity = plugin.Configuration.WindowBackgroundOpacity;
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.075f, 0.085f, 0.11f, backgroundOpacity));
         if (ImGui.BeginChild("altmate-menu", new Vector2(menuWidth, 0), true))
             DrawMainMenu();
         ImGui.EndChild();
         ImGui.PopStyleColor();
 
         ImGui.SameLine();
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.055f, 0.065f, 0.085f, 0.72f));
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.055f, 0.065f, 0.085f, backgroundOpacity * 0.82f));
         if (ImGui.BeginChild("altmate-content", new Vector2(0, 0), true))
             DrawSelectedSection();
         ImGui.EndChild();
@@ -285,7 +287,7 @@ public sealed partial class MainWindow : Window
     private void ApplyCompactMode()
     {
         compactMode = true;
-        BgAlpha = 0.96f;
+        BgAlpha = plugin.Configuration.WindowBackgroundOpacity;
         Flags = expandedWindowFlags | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize |
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
         SizeConstraints = new WindowSizeConstraints
@@ -302,11 +304,15 @@ public sealed partial class MainWindow : Window
     {
         compactMode = false;
         Flags = expandedWindowFlags;
-        BgAlpha = expandedBackgroundAlpha;
+        BgAlpha = plugin.Configuration.WindowBackgroundOpacity;
         SizeConstraints = new WindowSizeConstraints { MinimumSize = new Vector2(760, 360) };
-        Size = new Vector2(MathF.Max(760, expandedWindowSize.X), MathF.Max(360, expandedWindowSize.Y));
-        SizeCondition = ImGuiCond.Always;
-        clearForcedSize = true;
+        var restoredSize = new Vector2(MathF.Max(760, expandedWindowSize.X), MathF.Max(360, expandedWindowSize.Y));
+        // Apply the restored size directly once. Keeping SizeCondition=Always
+        // causes Dalamud to overwrite later user resizing during subsequent frames.
+        ImGui.SetWindowSize(restoredSize, ImGuiCond.Always);
+        Size = restoredSize;
+        SizeCondition = ImGuiCond.None;
+        clearForcedSize = false;
         plugin.Configuration.WindowCompactMode = false;
         plugin.Configuration.Save();
     }
@@ -316,7 +322,8 @@ public sealed partial class MainWindow : Window
         var scale = ImGuiHelpers.GlobalScale;
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8 * scale);
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 6 * scale);
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.055f, 0.07f, 0.095f, 0.98f));
+        var backgroundOpacity = plugin.Configuration.WindowBackgroundOpacity;
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.055f, 0.07f, 0.095f, backgroundOpacity));
         ImGui.BeginChild("compact-header", new Vector2(0, 52 * scale), false,
             ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
         ImGui.SetCursorPos(new Vector2(10 * scale, 8 * scale));
@@ -353,6 +360,7 @@ public sealed partial class MainWindow : Window
         }
         ImGui.PopStyleColor();
         ImGui.SameLine();
+        ImGui.SetCursorPosY(12 * scale);
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.72f, 0.08f, 0.08f, 0.95f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.12f, 0.12f, 1f));
         if (ImGui.Button($"{Loc.T("EmergencyStop")}##compact-stop", new Vector2(92 * scale, 30 * scale)))
@@ -362,6 +370,7 @@ public sealed partial class MainWindow : Window
         }
         ImGui.PopStyleColor(2);
         ImGui.SameLine();
+        ImGui.SetCursorPosY(12 * scale);
         if (ImGui.Button("⛶##compact-expand", new Vector2(34 * scale, 30 * scale)))
             ExitCompactMode();
         if (ImGui.IsItemHovered())
@@ -369,7 +378,7 @@ public sealed partial class MainWindow : Window
         ImGui.EndChild();
         ImGui.PopStyleColor();
 
-        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.075f, 0.09f, 0.12f, 0.96f));
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.075f, 0.09f, 0.12f, backgroundOpacity));
         ImGui.BeginChild("compact-navigation", new Vector2(0, 44 * scale), false,
             ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
         ImGui.SetCursorPos(new Vector2(7 * scale, 7 * scale));
@@ -1143,6 +1152,21 @@ public sealed partial class MainWindow : Window
         ImGui.TextDisabled(Loc.L(
             "無効時もAltMateのログファイルへの記録と画面内ステータスは継続します。",
             "Disabling this does not affect AltMate log files or in-window status messages."));
+        ImGui.Spacing();
+        ImGui.TextUnformatted(Loc.L("背景の透明度", "Background opacity"));
+        var opacityPercent = (int)MathF.Round(plugin.Configuration.WindowBackgroundOpacity * 100f);
+        ImGui.SetNextItemWidth(280 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderInt("##window-background-opacity", ref opacityPercent, 20, 100, "%d%%",
+                ImGuiSliderFlags.AlwaysClamp))
+        {
+            var opacity = opacityPercent / 100f;
+            plugin.Configuration.WindowBackgroundOpacity = opacity;
+            BgAlpha = opacity;
+            plugin.SaveSharedSettings();
+        }
+        ImGui.TextDisabled(Loc.L(
+            "通常表示と最小化表示の両方に適用されます。",
+            "Applied to both expanded and compact views."));
         ImGui.Spacing();
         ImGui.TextUnformatted(Loc.T("Command"));
         ImGui.TextDisabled("/altmate");
