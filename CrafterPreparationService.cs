@@ -1,4 +1,5 @@
 using Lumina.Excel.Sheets;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -13,12 +14,10 @@ internal sealed class CrafterPreparationService
         var required = new Dictionary<uint, (int Count, bool Crystal, bool Gear)>();
         var problems = new List<string>();
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
-        var currentJobId = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.ClassJob.RowId : 0;
-        var currentLevel = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.Level : 0;
 
         foreach (var preset in settings.RecipePresets.Where(x =>
                      settings.EnabledJobIds.Contains(x.JobId) && x.MaxLevel <= settings.TargetLevel &&
-                     (x.JobId != currentJobId || x.MaxLevel >= currentLevel)))
+                     JobLevel(x.JobId) < settings.TargetLevel && x.MaxLevel >= JobLevel(x.JobId)))
         {
             if (preset.RecipeId == 0 || preset.MaxCraftCount <= 0 ||
                 !recipeSheet.TryGetRow(preset.RecipeId, out var recipe))
@@ -29,7 +28,7 @@ internal sealed class CrafterPreparationService
 
             if (!settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var plannedCrafts))
             {
-                plannedCrafts = RemainingCraftCount(preset, currentJobId, currentLevel);
+                plannedCrafts = RemainingCraftCount(preset, JobLevel(preset.JobId));
                 settings.PlannedCraftCounts[preset.RecipeId] = plannedCrafts;
             }
             settings.CompletedCraftCounts.TryGetValue(preset.RecipeId, out var completedCrafts);
@@ -81,12 +80,22 @@ internal sealed class CrafterPreparationService
 
     private static bool IsCrystal(uint itemId) => itemId is >= 2 and <= 19;
 
-    private static int RemainingCraftCount(CrafterRecipePreset preset, uint currentJobId, int currentLevel)
+    private static int RemainingCraftCount(CrafterRecipePreset preset, int jobLevel)
     {
-        if (preset.JobId != currentJobId || currentLevel <= preset.MinLevel)
+        if (jobLevel <= preset.MinLevel)
             return preset.MaxCraftCount;
         var totalLevels = Math.Max(1, preset.MaxLevel - preset.MinLevel + 1);
-        var remainingLevels = Math.Max(1, preset.MaxLevel - currentLevel + 1);
+        var remainingLevels = Math.Max(1, preset.MaxLevel - jobLevel + 1);
         return Math.Max(1, (int)Math.Ceiling(preset.MaxCraftCount * remainingLevels / (double)totalLevels));
+    }
+
+    private static unsafe int JobLevel(uint jobId)
+    {
+        if (!Plugin.PlayerState.IsLoaded) return 0;
+        if (Plugin.PlayerState.ClassJob.RowId == jobId) return Plugin.PlayerState.Level;
+        var playerState = PlayerState.Instance();
+        var classJobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        if (playerState == null || !classJobs.TryGetRow(jobId, out var job)) return 0;
+        return playerState->ClassJobLevels[job.ExpArrayIndex];
     }
 }
