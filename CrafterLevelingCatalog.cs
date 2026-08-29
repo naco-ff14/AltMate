@@ -54,6 +54,28 @@ internal static class CrafterLevelingCatalog
         new(15, 1, 20, "ドライプルーン", "Dried Plums", 10),
     ];
 
+    // The Lv20/Lv40 Grade 4 restoration recipes are intentionally explicit. Choosing an
+    // arbitrary recipe near the player's level can select furnishings or obsolete gear.
+    internal static readonly IReadOnlyList<Entry> RestorationLevel21To50 =
+    [
+        new(8, 21, 40, "第四次復興用の合板", "Grade 4 Skybuilders' Plywood", 25),
+        new(9, 21, 40, "第四次復興用の合金", "Grade 4 Skybuilders' Alloy", 25),
+        new(10, 21, 40, "第四次復興用の金属板", "Grade 4 Skybuilders' Steel Plate", 25),
+        new(11, 21, 40, "第四次復興用の地金", "Grade 4 Skybuilders' Ingot", 25),
+        new(12, 21, 40, "第四次復興用のなめし革", "Grade 4 Skybuilders' Leather", 25),
+        new(13, 21, 40, "第四次復興用の荒縄", "Grade 4 Skybuilders' Rope", 25),
+        new(14, 21, 40, "第四次復興用のインク", "Grade 4 Skybuilders' Ink", 25),
+        new(15, 21, 40, "第四次復興用のヘンプミルク", "Grade 4 Skybuilders' Hemp Milk", 25),
+        new(8, 41, 50, "第四次復興用の木箱", "Grade 4 Skybuilders' Crate", 20),
+        new(9, 41, 50, "第四次復興用の鉄釘", "Grade 4 Skybuilders' Nails", 20),
+        new(10, 41, 50, "第四次復興用のリベット", "Grade 4 Skybuilders' Rivets", 20),
+        new(11, 41, 50, "第四次復興用の鉄環", "Grade 4 Skybuilders' Rings", 20),
+        new(12, 41, 50, "第四次復興用の革紐", "Grade 4 Skybuilders' Leather Straps", 20),
+        new(13, 41, 50, "第四次復興用の生地", "Grade 4 Skybuilders' Cloth", 20),
+        new(14, 41, 50, "第四次復興用の植物油", "Grade 4 Skybuilders' Plant Oil", 20),
+        new(15, 41, 50, "第四次復興用のセサミクッキー", "Grade 4 Skybuilders' Sesame Cookie", 20),
+    ];
+
     internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
     {
         var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
@@ -114,47 +136,41 @@ internal static class CrafterLevelingCatalog
             }
         }
 
-        var upperLevel = Math.Min(settings.TargetLevel, 50);
-        for (var minLevel = 21; minLevel <= upperLevel; minLevel += 5)
+        foreach (var entry in RestorationLevel21To50
+                     .Where(x => settings.EnabledJobIds.Contains(x.JobId) && x.MinLevel < settings.TargetLevel))
         {
-            var maxLevel = Math.Min(minLevel + 4, upperLevel);
-            foreach (var jobId in settings.EnabledJobIds.Where(x => x is >= 8 and <= 15).OrderBy(x => x))
+            var matches = Find(byName, entry.JapaneseName).Concat(Find(byName, entry.EnglishName))
+                .Where(x => x.CraftType.RowId + 8 == entry.JobId)
+                .DistinctBy(x => x.RowId).ToArray();
+            if (matches.Length == 0)
             {
-                var candidate = recipes
-                    .Where(x => x.ItemResult.RowId != 0 && x.CraftType.RowId + 8 == jobId)
-                    .Where(x =>
-                    {
-                        var level = x.RecipeLevelTable.Value.ClassJobLevel;
-                        var name = x.ItemResult.Value.Name.ToString().TrimStart();
-                        return level <= minLevel && level >= Math.Max(1, minLevel - 4) &&
-                               !name.StartsWith('†');
-                    })
-                    .OrderByDescending(x => x.RecipeLevelTable.Value.ClassJobLevel)
-                    .ThenBy(x => x.Ingredient.Count(ingredient => ingredient.RowId != 0))
-                    .ThenBy(x => x.RowId)
-                    .FirstOrDefault();
-                if (candidate.RowId == 0)
-                {
-                    unresolved.Add($"Job {jobId} Lv{minLevel}-{maxLevel}");
-                    continue;
-                }
-                if (settings.RecipePresets.Any(x => x.RecipeId == candidate.RowId && x.JobId == jobId))
-                {
-                    skipped++;
-                    continue;
-                }
-                settings.RecipePresets.Add(new CrafterRecipePreset
-                {
-                    JobId = jobId,
-                    MinLevel = minLevel,
-                    MaxLevel = maxLevel,
-                    RecipeId = candidate.RowId,
-                    MaxCraftCount = EstimatedCraftCount(minLevel),
-                    Route = CrafterLevelingRoute.Normal,
-                    IsCatalogGenerated = true,
-                });
-                added++;
+                unresolved.Add(entry.JapaneseName);
+                continue;
             }
+
+            var recipe = matches[0];
+            if (settings.RecipePresets.Any(x => x.RecipeId == recipe.RowId && x.JobId == entry.JobId))
+            {
+                skipped++;
+                continue;
+            }
+
+            var maxLevel = Math.Min(entry.MaxLevel, settings.TargetLevel - 1);
+            var fullLevelCount = entry.MaxLevel - entry.MinLevel + 1;
+            var selectedLevelCount = maxLevel - entry.MinLevel + 1;
+            settings.RecipePresets.Add(new CrafterRecipePreset
+            {
+                JobId = entry.JobId,
+                MinLevel = entry.MinLevel,
+                MaxLevel = maxLevel,
+                RecipeId = recipe.RowId,
+                MaxCraftCount = Math.Max(1,
+                    (int)Math.Ceiling(entry.MaxCraftCount * selectedLevelCount / (double)fullLevelCount)),
+                Route = CrafterLevelingRoute.Restoration,
+                RequiredUnlock = "Towards the Firmament",
+                IsCatalogGenerated = true,
+            });
+            added++;
         }
 
         settings.RecipePresets.Sort((left, right) =>
@@ -169,13 +185,4 @@ internal static class CrafterLevelingCatalog
     private static IEnumerable<Recipe> Find(Dictionary<string, Recipe[]> recipes, string name) =>
         recipes.TryGetValue(name, out var matches) ? matches : [];
 
-    // Public leveling guides estimate about 25 restoration crafts for Lv21-41 and
-    // about 20 for Lv41-53. Distribute those totals over the current five-level bands.
-    private static int EstimatedCraftCount(int minLevel) => minLevel switch
-    {
-        21 => 7,
-        26 or 31 or 36 => 6,
-        41 or 46 => 10,
-        _ => 20,
-    };
 }
