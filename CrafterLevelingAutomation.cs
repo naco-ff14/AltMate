@@ -21,6 +21,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private int requestProductCount;
     private int creditedCraftCount;
     private bool stopRequested;
+    private int requestStopLevel;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -70,6 +71,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         requestProductCount = 0;
         creditedCraftCount = 0;
         stopRequested = false;
+        requestStopLevel = 0;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -138,7 +140,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         {
             artisanBecameBusy = true;
             CreditCompletedCrafts();
-            var switchLevel = NextSwitchLevel();
+            var switchLevel = requestStopLevel > 0 ? requestStopLevel : NextSwitchLevel();
             if (!stopRequested && Plugin.PlayerState.Level >= switchLevel)
             {
                 try
@@ -244,6 +246,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             requestProductCount = CrafterInventoryLocator.PlayerInventoryCount(RecipeProductId(preset.RecipeId));
             creditedCraftCount = 0;
             stopRequested = false;
+            requestStopLevel = CalculateNextStopLevel(Plugin.PlayerState.Level);
             Plugin.PluginInterface.GetIpcSubscriber<ushort, int, object>("Artisan.CraftItem")
                 .InvokeAction((ushort)preset.RecipeId, requestedCraftCount);
             requestSent = true;
@@ -303,15 +306,26 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
     private string NextSwitchLabel(bool japanese = true)
     {
-        var targetLevel = index + 1 < queue.Count
-            ? queue[index + 1].MinLevel
-            : plugin.GetCrafterLevelingSettings().TargetLevel;
-        return japanese ? $"次の切替 Lv{targetLevel}" : $"next change at Lv{targetLevel}";
+        var targetLevel = requestSent && requestStopLevel > 0
+            ? requestStopLevel
+            : CalculateNextStopLevel(Plugin.PlayerState.Level);
+        return japanese ? $"次の判定 Lv{targetLevel}" : $"next check at Lv{targetLevel}";
     }
 
-    private int NextSwitchLevel() => index + 1 < queue.Count
-        ? queue[index + 1].MinLevel
-        : plugin.GetCrafterLevelingSettings().TargetLevel;
+    private int NextSwitchLevel() => requestStopLevel > 0
+        ? requestStopLevel
+        : CalculateNextStopLevel(Plugin.PlayerState.Level);
+
+    private int CalculateNextStopLevel(int currentLevel)
+    {
+        var targetLevel = plugin.GetCrafterLevelingSettings().TargetLevel;
+        var recipeLevel = index + 1 < queue.Count ? queue[index + 1].MinLevel : targetLevel;
+        var gearLevel = CrafterGearCatalog.TierLevels
+            .Where(level => level > currentLevel)
+            .DefaultIfEmpty(targetLevel)
+            .Min();
+        return Math.Min(targetLevel, Math.Min(recipeLevel, gearLevel));
+    }
 
     private void CreditCompletedCrafts()
     {
