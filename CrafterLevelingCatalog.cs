@@ -67,7 +67,8 @@ internal static class CrafterLevelingCatalog
         // Replace only presets created by this catalog. User-created presets remain untouched.
         settings.RecipePresets.RemoveAll(x => x.IsCatalogGenerated);
 
-        foreach (var jobEntries in Level1To20.GroupBy(x => x.JobId))
+        foreach (var jobEntries in Level1To20.Where(x => settings.EnabledJobIds.Contains(x.JobId))
+                     .GroupBy(x => x.JobId))
         {
             var resolved = new List<(Entry Entry, Recipe Recipe, int RecipeLevel)>();
             foreach (var entry in jobEntries)
@@ -113,7 +114,7 @@ internal static class CrafterLevelingCatalog
         for (var minLevel = 21; minLevel <= upperLevel; minLevel += 5)
         {
             var maxLevel = Math.Min(minLevel + 4, upperLevel);
-            for (uint jobId = 8; jobId <= 15; jobId++)
+            foreach (var jobId in settings.EnabledJobIds.Where(x => x is >= 8 and <= 15).OrderBy(x => x))
             {
                 var candidate = recipes
                     .Where(x => x.ItemResult.RowId != 0 && x.CraftType.RowId + 8 == jobId)

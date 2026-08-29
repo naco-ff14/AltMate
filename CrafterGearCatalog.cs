@@ -33,7 +33,7 @@ internal static class CrafterGearCatalog
                 }
                 else missing.Add($"Lv{tier} shared slot {slot}");
             }
-            for (uint jobId = 8; jobId <= 15; jobId++)
+            foreach (var jobId in settings.EnabledJobIds.Where(x => x is >= 8 and <= 15).OrderBy(x => x))
             {
                 var tools = new List<uint>();
                 foreach (var offHand in new[] { false, true })

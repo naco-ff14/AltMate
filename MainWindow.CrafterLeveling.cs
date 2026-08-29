@@ -75,6 +75,10 @@ public sealed partial class MainWindow
             }
         }
 
+        if (ImGui.CollapsingHeader(Loc.L("最初に設定：リテイナーベル", "First: Summoning bell"),
+                ImGuiTreeNodeFlags.DefaultOpen))
+            DrawCrafterBellRegistration(settings);
+
         if (ImGui.CollapsingHeader(Loc.L("レベリング製作品", "Leveling recipes"),
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPresetEditor(settings);
@@ -171,6 +175,18 @@ public sealed partial class MainWindow
         ImGui.SameLine();
         ImGui.TextDisabled(Loc.L("登録ベル付近から、計画順にリテイナーを呼び出します。",
             "Calls retainers in plan order while near the registered bell."));
+        if (plan.Withdrawals.Count == 0)
+        {
+            var unscanned = settings.SelectedRetainerIds.Count(id =>
+                !settings.RetainerInventories.ContainsKey(id));
+            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f), unscanned > 0
+                ? Loc.L($"自動取得できません：選択中のリテイナー{unscanned}人の所持品が未確認です。一度ずつ開いて再スキャンしてください。",
+                    $"Cannot auto-withdraw: {unscanned} selected retainers have not been scanned. Open each once and rebuild the plan.")
+                : plan.UnavailableItems.Count > 0
+                    ? Loc.L("自動取得できません：選択したリテイナーに取得可能な不足品がありません。在庫・選択リテイナー・準備リストを確認してください。",
+                        "Cannot auto-withdraw: no missing items are available from selected retainers. Check inventory, selection, and preparation list.")
+                    : Loc.L("自動取得するアイテムがありません。", "There are no items to withdraw."));
+        }
 
         ImGui.BeginDisabled(plan.Withdrawals.Count == 0 || CrafterTransferExecutor.IsRunning ||
                             CrafterBellAutomation.IsRunning);
@@ -213,59 +229,7 @@ public sealed partial class MainWindow
 
     private void DrawCrafterStorageSettings(CrafterLevelingSettings settings)
     {
-        ImGui.TextUnformatted(Loc.L("使用するリテイナーベル", "Summoning bell"));
-        if (settings.Bell.IsRegistered)
-        {
-            ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f),
-                $"{settings.Bell.ObjectName} / Territory {settings.Bell.TerritoryId} / " +
-                $"({settings.Bell.X:F1}, {settings.Bell.Y:F1}, {settings.Bell.Z:F1})");
-        }
-        else
-        {
-            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
-                Loc.L("未登録", "Not registered"));
-        }
-        if (ImGui.Button(Loc.L("ターゲット中のベルを登録", "Register targeted bell")))
-        {
-            var target = Plugin.TargetManager.Target;
-            var name = target?.Name.ToString() ?? string.Empty;
-            if (target is null || (!name.Contains("ベル", StringComparison.OrdinalIgnoreCase) &&
-                                   !name.Contains("呼び鈴", StringComparison.OrdinalIgnoreCase) &&
-                                   !name.Contains("bell", StringComparison.OrdinalIgnoreCase)))
-            {
-                crafterStorageMessage = Loc.L("リテイナーベルをターゲットしてから登録してください。",
-                    "Target a summoning bell before registering it.");
-            }
-            else
-            {
-                settings.Bell = new CrafterBellRegistration
-                {
-                    IsRegistered = true,
-                    TerritoryId = Plugin.ClientState.TerritoryType,
-                    ObjectId = target.BaseId,
-                    ObjectName = name,
-                    X = target.Position.X,
-                    Y = target.Position.Y,
-                    Z = target.Position.Z,
-                };
-                crafterStorageMessage = Loc.L("ベルを登録しました。", "Bell registered.");
-                SaveCrafterSettings();
-            }
-        }
-        if (settings.Bell.IsRegistered)
-        {
-            ImGui.SameLine();
-            if (ImGui.Button(Loc.L("登録解除", "Clear registration")))
-            {
-                settings.Bell = new CrafterBellRegistration();
-                SaveCrafterSettings();
-            }
-        }
-        if (!string.IsNullOrWhiteSpace(crafterStorageMessage))
-            ImGui.TextWrapped(crafterStorageMessage);
-
-        ImGui.Separator();
-        ImGui.TextUnformatted(Loc.L("検索対象リテイナー（上から検索）", "Retainers to scan (priority order)"));
+        ImGui.TextUnformatted(Loc.L("素材を保管しているリテイナー", "Retainers holding materials"));
         ImGui.TextDisabled(Loc.L(
             "一度ずつリテイナーを開くと所持品を自動スキャンします。チェックしたリテイナーだけ準備数へ合算します。",
             "Open each retainer once to scan automatically. Only checked retainers count toward preparation totals."));
@@ -329,12 +293,70 @@ public sealed partial class MainWindow
         }
     }
 
+    private void DrawCrafterBellRegistration(CrafterLevelingSettings settings)
+    {
+        ImGui.TextDisabled(Loc.L(
+            "自動取得で使うベルです。ゲーム内でベルをターゲットしてから一度だけ登録してください。",
+            "This bell is used for automatic withdrawals. Target it in game and register it once."));
+        ImGui.TextUnformatted(Loc.L("使用するリテイナーベル", "Summoning bell"));
+        if (settings.Bell.IsRegistered)
+        {
+            ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f),
+                $"{settings.Bell.ObjectName} / Territory {settings.Bell.TerritoryId} / " +
+                $"({settings.Bell.X:F1}, {settings.Bell.Y:F1}, {settings.Bell.Z:F1})");
+        }
+        else
+        {
+            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
+                Loc.L("未登録", "Not registered"));
+        }
+        if (ImGui.Button(Loc.L("ターゲット中のベルを登録", "Register targeted bell")))
+        {
+            var target = Plugin.TargetManager.Target;
+            var name = target?.Name.ToString() ?? string.Empty;
+            if (target is null || (!name.Contains("ベル", StringComparison.OrdinalIgnoreCase) &&
+                                   !name.Contains("呼び鈴", StringComparison.OrdinalIgnoreCase) &&
+                                   !name.Contains("bell", StringComparison.OrdinalIgnoreCase)))
+            {
+                crafterStorageMessage = Loc.L("リテイナーベルをターゲットしてから登録してください。",
+                    "Target a summoning bell before registering it.");
+            }
+            else
+            {
+                settings.Bell = new CrafterBellRegistration
+                {
+                    IsRegistered = true,
+                    TerritoryId = Plugin.ClientState.TerritoryType,
+                    ObjectId = target.BaseId,
+                    ObjectName = name,
+                    X = target.Position.X,
+                    Y = target.Position.Y,
+                    Z = target.Position.Z,
+                };
+                crafterStorageMessage = Loc.L("ベルを登録しました。", "Bell registered.");
+                SaveCrafterSettings();
+            }
+        }
+        if (settings.Bell.IsRegistered)
+        {
+            ImGui.SameLine();
+            if (ImGui.Button(Loc.L("登録解除", "Clear registration")))
+            {
+                settings.Bell = new CrafterBellRegistration();
+                SaveCrafterSettings();
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(crafterStorageMessage))
+            ImGui.TextWrapped(crafterStorageMessage);
+
+    }
+
     private void DrawCrafterGearTiers(CrafterLevelingSettings settings)
     {
         ImGui.TextDisabled(Loc.L(
-            "各Tier時点で装備可能な最高ILのクラフター共通装備と、8職の主道具・副道具をゲームデータから選びます。",
-            "Selects the highest-item-level shared crafting gear and tools available at each tier."));
-        if (ImGui.Button(Loc.L("標準装備Tierを作成", "Create standard gear tiers")))
+            "育成途中で着替えるクラフター装備候補を作成します。共通防具・アクセサリと、選択中の職だけの主道具・副道具を準備リストへ追加します。",
+            "Creates crafting gear candidates used while leveling. Adds shared gear and tools for selected jobs to the preparation list."));
+        if (ImGui.Button(Loc.L("選択職用の装備候補を作成・更新", "Create/update gear for selected jobs")))
         {
             var result = CrafterGearCatalog.BuildStandard(settings);
             crafterGearMessage = result.Missing.Count == 0
@@ -355,7 +377,8 @@ public sealed partial class MainWindow
                     ? item.Name.ToString() : $"Item {id}")
                 .GroupBy(x => x).Select(x => x.Count() > 1 ? $"{x.Key} ×{x.Count()}" : x.Key);
             ImGui.TextWrapped($"{Loc.L("共通装備", "Shared gear")}：{string.Join("、", shared)}");
-            foreach (var job in tier.JobItemIds.OrderBy(x => x.Key))
+            foreach (var job in tier.JobItemIds.Where(x => settings.EnabledJobIds.Contains(x.Key))
+                         .OrderBy(x => x.Key))
             {
                 var jobName = jobSheet.TryGetRow(job.Key, out var classJob)
                     ? classJob.Abbreviation.ToString() : $"Job {job.Key}";
@@ -496,7 +519,9 @@ public sealed partial class MainWindow
 
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        if (settings.RecipePresets.Count > 0 && ImGui.BeginTable("crafter-leveling-recipes", 6,
+        var visiblePresets = settings.RecipePresets.Select((preset, index) => (Preset: preset, Index: index))
+            .Where(x => settings.EnabledJobIds.Contains(x.Preset.JobId)).ToArray();
+        if (visiblePresets.Length > 0 && ImGui.BeginTable("crafter-leveling-recipes", 6,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {
             foreach (var heading in new[] { Loc.L("製作品", "Product"), Loc.L("ジョブ", "Job"),
@@ -504,9 +529,10 @@ public sealed partial class MainWindow
                          Loc.L("最大製作数", "Max crafts"), string.Empty })
                 ImGui.TableSetupColumn(heading);
             ImGui.TableHeadersRow();
-        for (var index = 0; index < settings.RecipePresets.Count; index++)
+        foreach (var entry in visiblePresets)
         {
-            var preset = settings.RecipePresets[index];
+            var preset = entry.Preset;
+            var index = entry.Index;
             var productName = recipeSheet.TryGetRow(preset.RecipeId, out var recipe)
                 ? recipe.ItemResult.Value.Name.ToString()
                 : Loc.L("不明な製作品", "Unknown product");
@@ -534,7 +560,7 @@ public sealed partial class MainWindow
             }
             ImGui.TableNextColumn();
             if (!ImGui.SmallButton($"{Loc.L("削除", "Remove")}##crafter-preset-{index}")) continue;
-            settings.RecipePresets.RemoveAt(index--);
+            settings.RecipePresets.RemoveAt(index);
             SaveCrafterSettings();
         }
             ImGui.EndTable();
@@ -558,7 +584,7 @@ public sealed partial class MainWindow
             SaveCrafterSettings();
         }
         ImGui.SameLine();
-        if (ImGui.Button(Loc.L("不足品をコピー", "Copy missing items")))
+        if (ImGui.Button(Loc.L("不足している素材・装備をコピー", "Copy missing materials and gear")))
         {
             var lines = crafterPreparationItems.Where(x => x.MissingCount > 0)
                 .Select(x => $"{x.Name} ×{x.MissingCount}");
@@ -576,9 +602,25 @@ public sealed partial class MainWindow
         var rows = settings.ShowMissingOnly
             ? crafterPreparationItems.Where(x => x.MissingCount > 0).ToArray()
             : crafterPreparationItems.ToArray();
-        if (!ImGui.BeginTable("crafter-preparation", 5,
+        DrawCrafterPreparationTable("crafter-preparation-materials", Loc.L("製作用の素材・クリスタル", "Crafting materials and crystals"),
+            rows.Where(x => !x.IsGear).ToArray());
+        DrawCrafterPreparationTable("crafter-preparation-gear", Loc.L("育成途中で使用する装備", "Gear used while leveling"),
+            rows.Where(x => x.IsGear).ToArray());
+    }
+
+    private static void DrawCrafterPreparationTable(string id, string title,
+        IReadOnlyList<CrafterPreparationItem> rows)
+    {
+        ImGui.Separator();
+        ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), title);
+        if (rows.Count == 0)
+        {
+            ImGui.TextDisabled(Loc.L("該当項目なし", "No items"));
+            return;
+        }
+        if (!ImGui.BeginTable(id, 5,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
-                new Vector2(0, 260 * ImGuiHelpers.GlobalScale))) return;
+                new Vector2(0, Math.Min(220, 30 + rows.Count * 24) * ImGuiHelpers.GlobalScale))) return;
         foreach (var heading in new[] { Loc.L("アイテム", "Item"), Loc.L("分類", "Type"),
                      Loc.L("必要", "Required"), Loc.L("所持", "Owned"), Loc.L("不足", "Missing") })
             ImGui.TableSetupColumn(heading);
