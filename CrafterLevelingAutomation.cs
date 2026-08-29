@@ -1,6 +1,8 @@
 using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
+using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -22,6 +24,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private int creditedCraftCount;
     private bool stopRequested;
     private int requestStopLevel;
+    private uint pendingJobId;
+    private DateTime jobChangeRequestedAtUtc;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -53,12 +57,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 "Switch to one of the selected crafting jobs before starting."));
 
         var level = Plugin.PlayerState.Level;
-        queue = settings.RecipePresets
-            .Where(x => x.JobId == jobId && x.MinLevel < settings.TargetLevel && x.MaxLevel >= level)
-            .OrderBy(x => x.MinLevel)
-            .ThenBy(x => x.RecipeId)
-            .Select(Clone)
-            .ToArray();
+        LoadQueue(settings, jobId, level);
         if (queue.Count == 0)
             return Fail(settings, Loc.L("現在レベルから目標レベルまでの製作品がありません。",
                 "No recipes apply between the current and target levels."));
@@ -72,6 +71,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         creditedCraftCount = 0;
         stopRequested = false;
         requestStopLevel = 0;
+        pendingJobId = 0;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -114,6 +114,11 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (!Plugin.PlayerState.IsLoaded)
         {
             Stop(Loc.L("ログアウトしたため停止しました。", "Stopped because the character logged out."));
+            return;
+        }
+        if (pendingJobId != 0)
+        {
+            ContinueJobChange();
             return;
         }
         if (Plugin.Condition[ConditionFlag.InCombat] || Plugin.Condition[ConditionFlag.Unconscious])
@@ -187,7 +192,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             index++;
         if (index >= queue.Count || currentLevel >= plugin.GetCrafterLevelingSettings().TargetLevel)
         {
-            Complete();
+            if (!BeginNextJob())
+                Complete();
             return;
         }
 
@@ -271,6 +277,127 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         settings.Progress.LastError = string.Empty;
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
+    }
+
+    private void LoadQueue(CrafterLevelingSettings settings, uint jobId, int level)
+    {
+        queue = settings.RecipePresets
+            .Where(x => x.JobId == jobId && x.MinLevel < settings.TargetLevel && x.MaxLevel >= level)
+            .OrderBy(x => x.MinLevel)
+            .ThenBy(x => x.RecipeId)
+            .Select(Clone)
+            .ToArray();
+        index = 0;
+    }
+
+    private unsafe bool BeginNextJob()
+    {
+        var settings = plugin.GetCrafterLevelingSettings();
+        var currentJobId = Plugin.PlayerState.ClassJob.RowId;
+        var targetJobId = settings.EnabledJobIds
+            .Where(jobId => jobId is >= 8 and <= 15 && jobId != currentJobId)
+            .OrderBy(jobId => jobId > currentJobId ? 0 : 1)
+            .ThenBy(jobId => jobId)
+            .FirstOrDefault(jobId => ClassJobLevel(jobId) < settings.TargetLevel);
+        if (targetJobId == 0)
+            return false;
+
+        var gearsets = RaptureGearsetModule.Instance();
+        if (gearsets == null)
+        {
+            Stop(Loc.L("ギアセット一覧を取得できませんでした。", "Could not read the gearset list."));
+            return true;
+        }
+        var gearsetIndex = -1;
+        for (var candidate = 0; candidate < gearsets->NumGearsets; candidate++)
+        {
+            if (!gearsets->IsValidGearset(candidate)) continue;
+            var gearset = gearsets->GetGearset(candidate);
+            if (gearset != null && gearset->ClassJob == targetJobId)
+            {
+                gearsetIndex = candidate;
+                break;
+            }
+        }
+        if (gearsetIndex < 0)
+        {
+            var jobName = JobName(targetJobId);
+            Stop(Loc.L($"{jobName}のギアセットがありません。先に登録してください。",
+                $"No gearset exists for {jobName}. Register one first."));
+            return true;
+        }
+
+        try
+        {
+            Plugin.PluginInterface.GetIpcSubscriber<int, bool?, bool?, object>("Stylist.UpdateGearsetIfNeededEx")
+                .InvokeAction(gearsetIndex, true, true);
+            pendingJobId = targetJobId;
+            jobChangeRequestedAtUtc = DateTime.UtcNow;
+            settings.Progress.State = CrafterLevelingState.ChangingJob;
+            settings.Progress.UpdatedAt = DateTime.Now;
+            plugin.Configuration.Save();
+            Status = Loc.L($"次の職：{JobName(targetJobId)}へ着替え中です。",
+                $"Changing to the next job: {JobName(targetJobId)}.");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Stop(Loc.L($"Stylistで次の職へ着替えられませんでした：{ex.Message}",
+                $"Stylist could not change to the next job: {ex.Message}"));
+            return true;
+        }
+    }
+
+    private void ContinueJobChange()
+    {
+        if (DateTime.UtcNow - jobChangeRequestedAtUtc > TimeSpan.FromSeconds(15))
+        {
+            Stop(Loc.L($"{JobName(pendingJobId)}への着替えがタイムアウトしました。",
+                $"Timed out changing to {JobName(pendingJobId)}."));
+            return;
+        }
+        try
+        {
+            if (Plugin.PluginInterface.GetIpcSubscriber<bool>("Stylist.IsBusy").InvokeFunc() ||
+                Plugin.PlayerState.ClassJob.RowId != pendingJobId)
+                return;
+        }
+        catch (Exception ex)
+        {
+            Stop(Loc.L($"Stylistの着替え状態を確認できませんでした：{ex.Message}",
+                $"Could not check Stylist job-change state: {ex.Message}"));
+            return;
+        }
+
+        var settings = plugin.GetCrafterLevelingSettings();
+        var changedJobId = pendingJobId;
+        pendingJobId = 0;
+        LoadQueue(settings, changedJobId, Plugin.PlayerState.Level);
+        requestSent = false;
+        artisanBecameBusy = false;
+        stopRequested = false;
+        requestStopLevel = 0;
+        lastStylistTier = -1;
+        settings.Progress.State = CrafterLevelingState.CraftingNormal;
+        settings.Progress.CurrentJobId = changedJobId;
+        settings.Progress.UpdatedAt = DateTime.Now;
+        plugin.Configuration.Save();
+        Status = Loc.L($"{JobName(changedJobId)}の製作を開始します。",
+            $"Starting crafting for {JobName(changedJobId)}.");
+    }
+
+    private static unsafe int ClassJobLevel(uint jobId)
+    {
+        var playerState = PlayerState.Instance();
+        var sheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        if (playerState == null || !sheet.TryGetRow(jobId, out var job)) return 0;
+        return playerState->ClassJobLevels[job.ExpArrayIndex];
+    }
+
+    private static string JobName(uint jobId)
+    {
+        var sheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        return sheet.TryGetRow(jobId, out var job) ? job.Abbreviation.ToString() : $"Job {jobId}";
     }
 
     private bool Fail(CrafterLevelingSettings settings, string reason)
