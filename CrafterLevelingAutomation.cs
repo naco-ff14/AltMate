@@ -184,6 +184,13 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         }
 
         var preset = queue[index];
+        var missingIngredients = MissingIngredients(preset.RecipeId);
+        if (missingIngredients.Count > 0)
+        {
+            Stop(Loc.L($"素材不足のため停止しました：{string.Join("、", missingIngredients)}",
+                $"Stopped because materials are missing: {string.Join(", ", missingIngredients)}"));
+            return;
+        }
         if (preset.RecipeId > ushort.MaxValue)
         {
             Stop(Loc.L($"Artisanに渡せないレシピIDです：{preset.RecipeId}",
@@ -246,6 +253,26 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         return sheet.TryGetRow(recipeId, out var recipe)
             ? recipe.ItemResult.Value.Name.ToString()
             : $"Recipe #{recipeId}";
+    }
+
+    private static IReadOnlyList<string> MissingIngredients(uint recipeId)
+    {
+        var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
+        var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
+        if (!recipeSheet.TryGetRow(recipeId, out var recipe))
+            return [$"Recipe #{recipeId}"];
+        var missing = new List<string>();
+        for (var index = 0; index < recipe.Ingredient.Count; index++)
+        {
+            var itemId = recipe.Ingredient[index].RowId;
+            var required = recipe.AmountIngredient[index];
+            if (itemId == 0 || required == 0) continue;
+            var owned = CrafterInventoryLocator.PlayerInventoryCount(itemId);
+            if (owned >= required) continue;
+            var name = itemSheet.TryGetRow(itemId, out var item) ? item.Name.ToString() : $"Item #{itemId}";
+            missing.Add($"{name} {owned}/{required}");
+        }
+        return missing;
     }
 
     public void Dispose() => Plugin.Framework.Update -= OnFrameworkUpdate;

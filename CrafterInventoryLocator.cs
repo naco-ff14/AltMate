@@ -8,7 +8,10 @@ internal static unsafe class CrafterInventoryLocator
     internal static int PlayerInventoryCount(uint itemId)
     {
         var inventory = InventoryManager.Instance();
-        return inventory == null ? 0 : inventory->GetInventoryItemCount(itemId, false, false, false);
+        if (inventory == null) return 0;
+        var normal = inventory->GetInventoryItemCount(itemId, false, false, false);
+        var highQuality = inventory->GetInventoryItemCount(itemId, true, false, false);
+        return checked(normal + highQuality);
     }
 
     internal static IReadOnlyList<string> GetLocations(CrafterLevelingSettings settings, uint itemId)
