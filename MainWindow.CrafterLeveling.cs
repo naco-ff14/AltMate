@@ -364,6 +364,32 @@ public sealed partial class MainWindow
         DrawCrafterPreparationTable(settings, "crafter-preparation-gear",
             Loc.L("育成途中で使用する装備", "Gear used while leveling"),
             rows.Where(x => x.IsGear).ToArray());
+
+        ImGui.Separator();
+        var automation = plugin.CrafterLeveling;
+        var hasList = crafterPreparationItems.Count > 0;
+        var missing = crafterPreparationItems.Count(x => x.MissingCount > 0);
+        ImGui.BeginDisabled(!hasList || missing > 0 || automation.IsRunning);
+        if (ImGui.Button(Loc.L("現在のクラフター職で製作開始", "Start crafting with current job"),
+                new Vector2(250 * ImGuiHelpers.GlobalScale, 34 * ImGuiHelpers.GlobalScale)))
+            automation.Start(settings);
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!automation.IsRunning);
+        if (ImGui.Button(Loc.L("停止", "Stop")))
+            automation.Stop();
+        ImGui.EndDisabled();
+        if (!hasList)
+            ImGui.TextDisabled(Loc.L("先に「リスト作成・更新」を実行してください。",
+                "Build the list first."));
+        else if (missing > 0)
+            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
+                Loc.L($"不足品が{missing}種類あります。手持ちバッグへ準備してから開始してください。",
+                    $"{missing} item types are missing. Put the required items in your inventory before starting."));
+        ImGui.TextColored(automation.IsRunning
+                ? new Vector4(0.4f, 0.82f, 1f, 1f)
+                : new Vector4(0.7f, 0.72f, 0.75f, 1f),
+            automation.IsRunning ? $"[{automation.Current}/{automation.Total}] {automation.Status}" : automation.Status);
     }
 
     private static void DrawCrafterPreparationTable(CrafterLevelingSettings settings, string id, string title,
