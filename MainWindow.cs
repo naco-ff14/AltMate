@@ -46,6 +46,7 @@ public sealed partial class MainWindow : Window
     private bool requestExpandedMode;
     private MainSection? requestedExpandedSection;
     private bool clearForcedSize;
+    private Vector2 lastCompactLayoutSize;
     private AnimationEmote[] animationEmotes = [];
     private AnimationEmote[] gameEmotes = [];
     private bool animationListLoaded;
@@ -136,6 +137,7 @@ public sealed partial class MainWindow : Window
             : plugin.Configuration.WindowBackgroundOpacity;
         if (compactMode)
         {
+            UpdateCompactLayoutSize();
             DrawCompactMenu();
             return;
         }
@@ -331,8 +333,8 @@ public sealed partial class MainWindow : Window
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(620, 112),
-            MaximumSize = new Vector2(720, 128),
+            MinimumSize = new Vector2(400, 62),
+            MaximumSize = new Vector2(1000, 128),
         };
         Size = new Vector2(650, 118);
         SizeCondition = ImGuiCond.Always;
@@ -342,6 +344,7 @@ public sealed partial class MainWindow : Window
             PositionCondition = ImGuiCond.Always;
         }
         clearForcedSize = true;
+        lastCompactLayoutSize = Vector2.Zero;
     }
 
     private void ExitCompactMode()
@@ -433,30 +436,19 @@ public sealed partial class MainWindow : Window
         ImGui.EndChild();
         ImGui.PopStyleColor();
 
+        var items = GetVisibleCompactMenuItems();
+        if (items.Length == 0)
+        {
+            ImGui.PopStyleVar(2);
+            return;
+        }
+
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.075f, 0.09f, 0.12f, backgroundOpacity));
         ImGui.BeginChild("compact-navigation", new Vector2(0, 44 * scale), false,
             ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
         ImGui.SetCursorPos(new Vector2(7 * scale, 7 * scale));
-        var items = new (string Label, MainSection Section)[]
-        {
-            (Loc.L("ホーム", "Home"), MainSection.Home),
-            (Loc.L("連携", "Link"), MainSection.CharacterLink),
-            (Loc.L("アニメ", "Emotes"), MainSection.Animations),
-            (Loc.L("住宅", "Housing"), MainSection.Housing),
-            (Loc.L("ギル", "Gil"), MainSection.Gil),
-            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
-            (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
-            (Loc.L("設定", "Settings"), MainSection.Settings),
-        }.Where(item => !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section)).ToArray();
-        if (items.Length == 0)
-        {
-            ImGui.EndChild();
-            ImGui.PopStyleColor();
-            ImGui.PopStyleVar(2);
-            return;
-        }
         var gap = ImGui.GetStyle().ItemSpacing.X;
-        var buttonWidth = (ImGui.GetContentRegionAvail().X - gap * (items.Length - 1)) / items.Length;
+        var buttonWidth = GetCompactMenuButtonWidth(items);
         foreach (var (label, section) in items)
         {
             ImGui.PushStyleColor(ImGuiCol.Button, section == selectedSection
@@ -473,6 +465,43 @@ public sealed partial class MainWindow : Window
         ImGui.EndChild();
         ImGui.PopStyleColor();
         ImGui.PopStyleVar(2);
+    }
+
+    private (string Label, MainSection Section)[] GetVisibleCompactMenuItems() =>
+        new (string Label, MainSection Section)[]
+        {
+            (Loc.L("ホーム", "Home"), MainSection.Home),
+            (Loc.L("連携", "Link"), MainSection.CharacterLink),
+            (Loc.L("アニメ", "Emotes"), MainSection.Animations),
+            (Loc.L("住宅", "Housing"), MainSection.Housing),
+            (Loc.L("ギル", "Gil"), MainSection.Gil),
+            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
+            (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
+            (Loc.L("設定", "Settings"), MainSection.Settings),
+        }.Where(item => !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section)).ToArray();
+
+    private static float GetCompactMenuButtonWidth((string Label, MainSection Section)[] items)
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        return items.Length == 0
+            ? 0
+            : MathF.Max(64 * scale, items.Max(item => ImGui.CalcTextSize(item.Label).X) + 26 * scale);
+    }
+
+    private void UpdateCompactLayoutSize()
+    {
+        var items = GetVisibleCompactMenuItems();
+        var scale = ImGuiHelpers.GlobalScale;
+        var gap = ImGui.GetStyle().ItemSpacing.X;
+        var navigationWidth = items.Length == 0
+            ? 0
+            : 14 * scale + GetCompactMenuButtonWidth(items) * items.Length + gap * (items.Length - 1);
+        var desiredSize = new Vector2(MathF.Max(400 * scale, navigationWidth),
+            items.Length == 0 ? 62 * scale : 118 * scale);
+        if (Vector2.DistanceSquared(lastCompactLayoutSize, desiredSize) < 0.25f)
+            return;
+        ImGui.SetWindowSize(desiredSize, ImGuiCond.Always);
+        lastCompactLayoutSize = desiredSize;
     }
 
     private void DrawCompactAttentionBadge(MainSection section, Vector2 buttonPosition, float buttonWidth)

@@ -3,7 +3,7 @@
     "Author": "naco-ff14",
     "Name": "AltMate",
     "InternalName": "AltMate",
-    "AssemblyVersion": "1.35.0.0",
+    "AssemblyVersion": "1.35.1.0",
     "Description": "AltMate supports multiple FFXIV clients running on the same PC. It provides linked controls, housing tracking, Penumbra emote playback, and shared gil summaries. Data stays on the local PC. Japanese and English UI are supported.",
     "ApplicableVersion": "any",
     "DalamudApiLevel": 15,
