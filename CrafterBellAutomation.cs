@@ -125,6 +125,23 @@ internal static unsafe class CrafterBellAutomation
         var manager = FFXIVClientStructs.FFXIV.Client.Game.RetainerManager.Instance();
         var active = manager == null ? null : manager->GetActiveRetainer();
         if (active == null || active->RetainerId != wanted.Id) return;
+        var talk = GetAddon("Talk");
+        if (talk != null)
+        {
+            var stage = AtkStage.Instance();
+            if (stage == null) return;
+            var click = new AtkEvent
+            {
+                Listener = &talk->AtkEventListener,
+                Target = &stage->AtkEventTarget,
+            };
+            AtkEventData data = default;
+            talk->ReceiveEvent(AtkEventType.MouseClick, 0, &click, &data);
+            nextActionUtc = DateTime.UtcNow.AddMilliseconds(500);
+            deadlineUtc = DateTime.UtcNow.AddSeconds(15);
+            SetStatus(false, $"{wanted.Name}の会話を進めています。", $"Advancing {wanted.Name}'s dialogue.");
+            return;
+        }
         var addon = GetAddon("SelectString");
         if (addon == null) return;
         var inventoryText = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.Addon>().GetRow(2378).Text.ToString();

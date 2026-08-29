@@ -23,7 +23,8 @@ internal static class CrafterGearCatalog
             var preset = new CrafterGearPreset { TierLevel = tier };
             foreach (var slot in Enumerable.Range(0, 9))
             {
-                var selected = Best(items.Where(x => x.LevelEquip <= tier && IsSharedSlot(x, slot) &&
+                var selected = Best(items.Where(x => x.LevelEquip <= tier && HasCraftingStats(x) &&
+                                                      IsSharedSlot(x, slot) &&
                                                       AllowsAllCrafters(x.ClassJobCategory.Value)));
                 if (selected.RowId != 0)
                 {
@@ -37,7 +38,8 @@ internal static class CrafterGearCatalog
                 var tools = new List<uint>();
                 foreach (var offHand in new[] { false, true })
                 {
-                    var selected = Best(items.Where(x => x.LevelEquip <= tier && IsToolSlot(x, offHand) &&
+                    var selected = Best(items.Where(x => x.LevelEquip <= tier && HasCraftingStats(x) &&
+                                                          IsToolSlot(x, offHand) &&
                                                           AllowsJob(x.ClassJobCategory.Value, jobId)));
                     if (selected.RowId != 0) tools.Add(selected.RowId);
                     else missing.Add($"Lv{tier} Job {jobId} {(offHand ? "offhand" : "mainhand")}");
@@ -59,6 +61,14 @@ internal static class CrafterGearCatalog
 
     private static bool IsLegacyItem(Item item) =>
         item.Name.ToString().TrimStart().StartsWith('†');
+
+    private static bool HasCraftingStats(Item item)
+    {
+        for (var index = 0; index < item.BaseParam.Count; index++)
+            if (item.BaseParam[index].RowId is 11 or 70 or 71 && item.BaseParamValue[index] > 0)
+                return true;
+        return false;
+    }
 
     private static bool IsToolSlot(Item item, bool offHand)
     {
