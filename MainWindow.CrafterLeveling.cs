@@ -23,6 +23,7 @@ public sealed partial class MainWindow
     private string crafterStorageMessage = string.Empty;
     private string crafterTransferMessage = string.Empty;
     private bool crafterTransferMessageIsError;
+    private string crafterGearMessage = string.Empty;
 
     private void DrawCrafterLeveling()
     {
@@ -77,6 +78,9 @@ public sealed partial class MainWindow
         if (ImGui.CollapsingHeader(Loc.L("レベリング製作品", "Leveling recipes"),
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPresetEditor(settings);
+
+        if (ImGui.CollapsingHeader(Loc.L("装備Tier", "Gear tiers"), ImGuiTreeNodeFlags.DefaultOpen))
+            DrawCrafterGearTiers(settings);
 
         if (ImGui.CollapsingHeader(Loc.L("リテイナー保管設定", "Retainer storage"),
                 ImGuiTreeNodeFlags.DefaultOpen))
@@ -303,6 +307,44 @@ public sealed partial class MainWindow
                 SaveCrafterSettings();
             }
             ImGui.EndDisabled();
+        }
+    }
+
+    private void DrawCrafterGearTiers(CrafterLevelingSettings settings)
+    {
+        ImGui.TextDisabled(Loc.L(
+            "各Tier時点で装備可能な最高ILのクラフター共通装備と、8職の主道具・副道具をゲームデータから選びます。",
+            "Selects the highest-item-level shared crafting gear and tools available at each tier."));
+        if (ImGui.Button(Loc.L("標準装備Tierを作成", "Create standard gear tiers")))
+        {
+            var result = CrafterGearCatalog.BuildStandard(settings);
+            crafterGearMessage = result.Missing.Count == 0
+                ? Loc.L($"{result.TierCount}段階の装備リストを作成しました。",
+                    $"Created {result.TierCount} gear tiers.")
+                : Loc.L($"装備リストを作成しました。未解決{result.Missing.Count}件。",
+                    $"Created gear tiers with {result.Missing.Count} unresolved slots.");
+            SaveCrafterSettings();
+        }
+        if (!string.IsNullOrWhiteSpace(crafterGearMessage)) ImGui.TextWrapped(crafterGearMessage);
+
+        var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
+        var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        foreach (var tier in settings.GearPresets.OrderBy(x => x.TierLevel))
+        {
+            if (!ImGui.TreeNode($"Lv{tier.TierLevel}##crafter-gear-tier-{tier.TierLevel}")) continue;
+            var shared = tier.SharedItemIds.Select(id => itemSheet.TryGetRow(id, out var item)
+                    ? item.Name.ToString() : $"Item {id}")
+                .GroupBy(x => x).Select(x => x.Count() > 1 ? $"{x.Key} ×{x.Count()}" : x.Key);
+            ImGui.TextWrapped($"{Loc.L("共通装備", "Shared gear")}：{string.Join("、", shared)}");
+            foreach (var job in tier.JobItemIds.OrderBy(x => x.Key))
+            {
+                var jobName = jobSheet.TryGetRow(job.Key, out var classJob)
+                    ? classJob.Abbreviation.ToString() : $"Job {job.Key}";
+                var tools = job.Value.Select(id => itemSheet.TryGetRow(id, out var item)
+                    ? item.Name.ToString() : $"Item {id}");
+                ImGui.BulletText($"{jobName}：{string.Join(" / ", tools)}");
+            }
+            ImGui.TreePop();
         }
     }
 
