@@ -268,6 +268,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.ShowChatMessages = incoming.ShowChatMessages;
         target.WindowBackgroundOpacity = incoming.WindowBackgroundOpacity;
         target.CompactWindowBackgroundOpacity = incoming.CompactWindowBackgroundOpacity;
+        target.CompactMainMenu = incoming.CompactMainMenu;
         if (!string.IsNullOrWhiteSpace(incoming.LocalLinkKey)) target.LocalLinkKey = incoming.LocalLinkKey;
     }
 
@@ -309,6 +310,8 @@ internal sealed class SharedConfigurationStore : IDisposable
             target.WindowBackgroundOpacity = current.WindowBackgroundOpacity;
         if (Math.Abs(current.CompactWindowBackgroundOpacity - baseline.CompactWindowBackgroundOpacity) > 0.001f)
             target.CompactWindowBackgroundOpacity = current.CompactWindowBackgroundOpacity;
+        if (current.CompactMainMenu != baseline.CompactMainMenu)
+            target.CompactMainMenu = current.CompactMainMenu;
         if (current.LocalLinkKey != baseline.LocalLinkKey) target.LocalLinkKey = current.LocalLinkKey;
     }
 

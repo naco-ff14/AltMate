@@ -140,7 +140,7 @@ public sealed partial class MainWindow : Window
             return;
         }
 
-        var menuWidth = 184 * ImGuiHelpers.GlobalScale;
+        var menuWidth = (plugin.Configuration.CompactMainMenu ? 96 : 184) * ImGuiHelpers.GlobalScale;
 
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8 * ImGuiHelpers.GlobalScale);
         var backgroundOpacity = plugin.Configuration.WindowBackgroundOpacity;
@@ -271,8 +271,9 @@ public sealed partial class MainWindow : Window
 
     private void DrawMainMenu()
     {
+        var narrow = plugin.Configuration.CompactMainMenu;
         ImGui.Spacing();
-        var iconSize = 128 * ImGuiHelpers.GlobalScale;
+        var iconSize = (narrow ? 58 : 128) * ImGuiHelpers.GlobalScale;
         var icon = Plugin.TextureProvider.GetFromFile(plugin.IconPath).GetWrapOrDefault();
         if (icon is not null)
         {
@@ -281,23 +282,30 @@ public sealed partial class MainWindow : Window
             ImGui.Image(icon.Handle, new Vector2(iconSize, iconSize));
         }
         ImGui.Spacing();
-        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), "AltMate");
-        ImGui.TextDisabled("MULTI CHARACTER TOOL");
+        if (!narrow)
+        {
+            ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), "AltMate");
+            ImGui.TextDisabled("MULTI CHARACTER TOOL");
+        }
         ImGui.Spacing();
         ImGui.Separator();
         ImGui.Spacing();
 
         DrawMenuButton(Loc.T("Home"), MainSection.Home);
-        DrawMenuButton(Loc.T("Link"), MainSection.CharacterLink, detail: GetCharacterLinkMenuDetail());
-        DrawMenuButton(Loc.T("Animation"), MainSection.Animations);
-        DrawMenuButton(Loc.T("Housing"), MainSection.Housing, GetHousingAttentionCount());
+        DrawMenuButton(Loc.T("Link"), MainSection.CharacterLink,
+            detail: narrow ? null : GetCharacterLinkMenuDetail());
+        DrawMenuButton(narrow ? Loc.L("アニメ", "Emotes") : Loc.T("Animation"), MainSection.Animations);
+        DrawMenuButton(narrow ? Loc.L("住宅", "Housing") : Loc.T("Housing"), MainSection.Housing,
+            GetHousingAttentionCount());
         DrawMenuButton(Loc.T("Gil"), MainSection.Gil);
-        DrawMenuButton(Loc.L("お得意様", "Custom Deliveries"), MainSection.CustomDeliveries);
-        DrawMenuButton(Loc.L("潜水艦管理", "Submersibles"), MainSection.Submarines);
+        DrawMenuButton(narrow ? Loc.L("お得意", "Delivery") : Loc.L("お得意様", "Custom Deliveries"),
+            MainSection.CustomDeliveries);
+        DrawMenuButton(narrow ? Loc.L("潜水艦", "Subs") : Loc.L("潜水艦管理", "Submersibles"),
+            MainSection.Submarines);
         var bottomY = ImGui.GetWindowHeight() - 62 * ImGuiHelpers.GlobalScale;
         if (ImGui.GetCursorPosY() < bottomY)
             ImGui.SetCursorPosY(bottomY);
-        DrawMenuButton(Loc.T("Settings"), MainSection.Settings);
+        DrawMenuButton(narrow ? Loc.L("設定", "Settings") : Loc.T("Settings"), MainSection.Settings);
     }
 
     private void EnterCompactMode()
@@ -447,7 +455,8 @@ public sealed partial class MainWindow : Window
             ImGui.PushStyleColor(ImGuiCol.Button, section == selectedSection
                 ? new Vector4(0.12f, 0.42f, 0.62f, 0.95f)
                 : new Vector4(0.12f, 0.14f, 0.19f, 0.96f));
-            if (ImGui.Button($"{label}##compact-{section}", new Vector2(buttonWidth, 29 * scale)))
+            var buttonLabel = section == MainSection.Home && HasHomeAttention() ? $"{label} !" : label;
+            if (ImGui.Button($"{buttonLabel}##compact-{section}", new Vector2(buttonWidth, 29 * scale)))
                 OpenSection(section);
             ImGui.PopStyleColor();
             if (section != items[^1].Section)
@@ -1231,6 +1240,17 @@ public sealed partial class MainWindow : Window
             "最小化したコントロールバーに適用されます。",
             "Applied to the compact control bar."));
         ImGui.Spacing();
+        var compactMainMenu = plugin.Configuration.CompactMainMenu;
+        if (ImGui.Checkbox(Loc.L("通常表示の左メニューを小さくする", "Use compact sidebar in expanded view"),
+                ref compactMainMenu))
+        {
+            plugin.Configuration.CompactMainMenu = compactMainMenu;
+            plugin.SaveSharedSettings();
+        }
+        ImGui.TextDisabled(Loc.L(
+            "機能はそのままに、ロゴとメニュー幅を縮小します。",
+            "Reduces the logo and sidebar width without hiding any features."));
+        ImGui.Spacing();
         ImGui.TextUnformatted(Loc.T("Command"));
         ImGui.TextDisabled("/altmate");
         ImGui.Spacing();
@@ -1810,6 +1830,20 @@ public sealed partial class MainWindow : Window
             (cycle.Phase == LotteryPhase.Entry
                 ? !cycle.HasEntry(record)
                 : cycle.HasEntry(record) && !record.ResultChecked));
+    }
+
+    private bool HasHomeAttention()
+    {
+        if (GetHousingAttentionCount() > 0 || plugin.CharacterLink.RuntimeStopped)
+            return true;
+
+        var demolitionWarning = GetHousingDisplayEntries().Any(x =>
+            x.LastEntry?.LastEnteredAt is { } entered &&
+            entered.AddDays(HousingDemolitionTracker.DemolitionPeriodDays) - DateTime.Now <= TimeSpan.FromDays(10));
+        if (demolitionWarning)
+            return true;
+
+        return plugin.Configuration.CustomDeliveryCharacters.Values.Any(x => x.RemainingWeeklyAllowances > 0);
     }
 
     private void DrawLotteryStatusTab()
