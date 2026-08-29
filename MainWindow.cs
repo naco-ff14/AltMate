@@ -285,15 +285,15 @@ public sealed partial class MainWindow : Window
     private void ApplyCompactMode()
     {
         compactMode = true;
-        BgAlpha = 0.58f;
+        BgAlpha = 0.96f;
         Flags = expandedWindowFlags | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize |
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
         SizeConstraints = new WindowSizeConstraints
         {
-            MinimumSize = new Vector2(400, 70),
-            MaximumSize = new Vector2(500, 82),
+            MinimumSize = new Vector2(620, 112),
+            MaximumSize = new Vector2(720, 128),
         };
-        Size = new Vector2(440, 74);
+        Size = new Vector2(650, 118);
         SizeCondition = ImGuiCond.Always;
         clearForcedSize = true;
     }
@@ -313,21 +313,37 @@ public sealed partial class MainWindow : Window
 
     private void DrawCompactMenu()
     {
-        var iconSize = 28 * ImGuiHelpers.GlobalScale;
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8 * scale);
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 6 * scale);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.055f, 0.07f, 0.095f, 0.98f));
+        ImGui.BeginChild("compact-header", new Vector2(0, 52 * scale), false,
+            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
+        ImGui.SetCursorPos(new Vector2(10 * scale, 8 * scale));
+        var iconSize = 36 * scale;
         var icon = Plugin.TextureProvider.GetFromFile(plugin.IconPath).GetWrapOrDefault();
         if (icon is not null)
             ImGui.Image(icon.Handle, new Vector2(iconSize, iconSize));
         else
             ImGui.Dummy(new Vector2(iconSize, iconSize));
         ImGui.SameLine();
-        ImGui.SetCursorPosY(ImGui.GetCursorPosY() + 3 * ImGuiHelpers.GlobalScale);
+        ImGui.SetCursorPosY(9 * scale);
+        ImGui.BeginGroup();
+        ImGui.TextColored(new Vector4(0.45f, 0.84f, 1f, 1f), "AltMate");
+        ImGui.TextColored(plugin.Configuration.LinkEnabled
+                ? new Vector4(0.45f, 0.9f, 0.55f, 1f)
+                : new Vector4(0.68f, 0.7f, 0.76f, 1f),
+            plugin.Configuration.LinkEnabled ? Loc.L("● 連携中", "● Linked") : Loc.L("● 待機中", "● Standby"));
+        ImGui.EndGroup();
+        ImGui.SameLine();
+        ImGui.SetCursorPosY(12 * scale);
         var linkEnabled = plugin.Configuration.LinkEnabled;
         ImGui.PushStyleColor(ImGuiCol.Button, linkEnabled
             ? new Vector4(0.72f, 0.14f, 0.12f, 0.95f)
             : new Vector4(0.12f, 0.52f, 0.28f, 0.95f));
-        if (ImGui.SmallButton(linkEnabled
+        if (ImGui.Button(linkEnabled
                 ? Loc.L("連携停止##compact-link", "Stop link##compact-link")
-                : Loc.L("連携開始##compact-link", "Start link##compact-link")))
+                : Loc.L("連携開始##compact-link", "Start link##compact-link"), new Vector2(92 * scale, 30 * scale)))
         {
             plugin.Configuration.LinkEnabled = !linkEnabled;
             plugin.Configuration.Save();
@@ -339,28 +355,51 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.72f, 0.08f, 0.08f, 0.95f));
         ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.9f, 0.12f, 0.12f, 1f));
-        if (ImGui.SmallButton($"{Loc.T("EmergencyStop")}##compact-stop"))
+        if (ImGui.Button($"{Loc.T("EmergencyStop")}##compact-stop", new Vector2(92 * scale, 30 * scale)))
         {
             plugin.CharacterLink.EmergencyStop();
             plugin.CustomDeliveries.Automation.Stop();
         }
         ImGui.PopStyleColor(2);
         ImGui.SameLine();
-        if (ImGui.SmallButton("⛶##compact-expand"))
+        if (ImGui.Button("⛶##compact-expand", new Vector2(34 * scale, 30 * scale)))
             ExitCompactMode();
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip(Loc.T("Maximize"));
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
 
-        ImGui.SetCursorPosY(42 * ImGuiHelpers.GlobalScale);
-        ImGui.TextDisabled($"{Loc.T("Status")}：");
-        ImGui.SameLine(0, 2 * ImGuiHelpers.GlobalScale);
-        var statusColor = plugin.CharacterLink.RuntimeStopped || !plugin.Configuration.LinkEnabled
-            ? new Vector4(1f, 0.32f, 0.28f, 1f)
-            : new Vector4(0.42f, 0.82f, 1f, 1f);
-        var status = !plugin.Configuration.LinkEnabled
-            ? Loc.L("連携停止中", "Link stopped")
-            : Loc.Status(GetDisplayedStatus(plugin.CharacterLink.LastAction, x => x.LastAction));
-        ImGui.TextColored(statusColor, status);
+        ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.075f, 0.09f, 0.12f, 0.96f));
+        ImGui.BeginChild("compact-navigation", new Vector2(0, 44 * scale), false,
+            ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
+        ImGui.SetCursorPos(new Vector2(7 * scale, 7 * scale));
+        var items = new (string Label, MainSection Section)[]
+        {
+            (Loc.L("ホーム", "Home"), MainSection.Home),
+            (Loc.L("連携", "Link"), MainSection.CharacterLink),
+            (Loc.L("アニメ", "Emotes"), MainSection.Animations),
+            (Loc.L("住宅", "Housing"), MainSection.Housing),
+            (Loc.L("ギル", "Gil"), MainSection.Gil),
+            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
+            (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
+            (Loc.L("設定", "Settings"), MainSection.Settings),
+        };
+        var gap = ImGui.GetStyle().ItemSpacing.X;
+        var buttonWidth = (ImGui.GetContentRegionAvail().X - gap * (items.Length - 1)) / items.Length;
+        foreach (var (label, section) in items)
+        {
+            ImGui.PushStyleColor(ImGuiCol.Button, section == selectedSection
+                ? new Vector4(0.12f, 0.42f, 0.62f, 0.95f)
+                : new Vector4(0.12f, 0.14f, 0.19f, 0.96f));
+            if (ImGui.Button($"{label}##compact-{section}", new Vector2(buttonWidth, 29 * scale)))
+                OpenSection(section);
+            ImGui.PopStyleColor();
+            if (section != items[^1].Section)
+                ImGui.SameLine();
+        }
+        ImGui.EndChild();
+        ImGui.PopStyleColor();
+        ImGui.PopStyleVar(2);
     }
 
     private void DrawMenuButton(string label, MainSection section, int badge = 0, string? detail = null)
