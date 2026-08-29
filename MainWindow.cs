@@ -455,9 +455,10 @@ public sealed partial class MainWindow : Window
             ImGui.PushStyleColor(ImGuiCol.Button, section == selectedSection
                 ? new Vector4(0.12f, 0.42f, 0.62f, 0.95f)
                 : new Vector4(0.12f, 0.14f, 0.19f, 0.96f));
-            var buttonLabel = section == MainSection.Home && HasHomeAttention() ? $"{label} !" : label;
-            if (ImGui.Button($"{buttonLabel}##compact-{section}", new Vector2(buttonWidth, 29 * scale)))
+            var buttonPosition = ImGui.GetCursorScreenPos();
+            if (ImGui.Button($"{label}##compact-{section}", new Vector2(buttonWidth, 29 * scale)))
                 OpenSection(section);
+            DrawCompactAttentionBadge(section, buttonPosition, buttonWidth);
             ImGui.PopStyleColor();
             if (section != items[^1].Section)
                 ImGui.SameLine();
@@ -465,6 +466,29 @@ public sealed partial class MainWindow : Window
         ImGui.EndChild();
         ImGui.PopStyleColor();
         ImGui.PopStyleVar(2);
+    }
+
+    private void DrawCompactAttentionBadge(MainSection section, Vector2 buttonPosition, float buttonWidth)
+    {
+        var (count, tooltip) = GetCompactSectionAttention(section);
+        if (count == 0)
+            return;
+
+        var scale = ImGuiHelpers.GlobalScale;
+        var radius = 9 * scale;
+        var center = new Vector2(buttonPosition.X + buttonWidth - 7 * scale,
+            buttonPosition.Y + 7 * scale);
+        var draw = ImGui.GetWindowDrawList();
+        draw.AddCircleFilled(center, radius, ImGui.GetColorU32(new Vector4(0.92f, 0.2f, 0.16f, 1f)));
+        draw.AddCircle(center, radius, ImGui.GetColorU32(new Vector4(1f, 0.72f, 0.28f, 1f)), 20, 1.5f * scale);
+
+        var badgeText = count > 9 ? "9+" : count.ToString(CultureInfo.InvariantCulture);
+        var textSize = ImGui.CalcTextSize(badgeText);
+        draw.AddText(center - textSize / 2,
+            ImGui.GetColorU32(new Vector4(1f, 1f, 1f, 1f)), badgeText);
+
+        if (ImGui.IsMouseHoveringRect(center - new Vector2(radius), center + new Vector2(radius)))
+            ImGui.SetTooltip(tooltip);
     }
 
     private void DrawMenuButton(string label, MainSection section, int badge = 0, string? detail = null)
@@ -1832,18 +1856,39 @@ public sealed partial class MainWindow : Window
                 : cycle.HasEntry(record) && !record.ResultChecked));
     }
 
-    private bool HasHomeAttention()
+    private (int Count, string Tooltip) GetCompactSectionAttention(MainSection section)
     {
-        if (GetHousingAttentionCount() > 0 || plugin.CharacterLink.RuntimeStopped)
-            return true;
+        if (section == MainSection.CharacterLink && plugin.CharacterLink.RuntimeStopped)
+            return (1, Loc.L("連携が緊急停止中", "Link is emergency-stopped"));
 
-        var demolitionWarning = GetHousingDisplayEntries().Any(x =>
+        if (section == MainSection.CustomDeliveries)
+        {
+            var incomplete = plugin.Configuration.CustomDeliveryCharacters.Values.Count(x =>
+                x.RemainingWeeklyAllowances > 0);
+            return incomplete > 0
+                ? (incomplete, Loc.L($"お得意様の未消化：{incomplete}人",
+                    $"Custom deliveries remaining: {incomplete}"))
+                : (0, string.Empty);
+        }
+
+        if (section != MainSection.Housing)
+            return (0, string.Empty);
+
+        var lotteryAttention = GetHousingAttentionCount();
+        var demolitionWarnings = GetHousingDisplayEntries().Count(x =>
             x.LastEntry?.LastEnteredAt is { } entered &&
             entered.AddDays(HousingDemolitionTracker.DemolitionPeriodDays) - DateTime.Now <= TimeSpan.FromDays(10));
-        if (demolitionWarning)
-            return true;
-
-        return plugin.Configuration.CustomDeliveryCharacters.Values.Any(x => x.RemainingWeeklyAllowances > 0);
+        var total = lotteryAttention + demolitionWarnings;
+        if (total == 0)
+            return (0, string.Empty);
+        var details = new System.Collections.Generic.List<string>();
+        if (lotteryAttention > 0)
+            details.Add(Loc.L($"抽選の確認が必要：{lotteryAttention}件",
+                $"Lottery attention required: {lotteryAttention}"));
+        if (demolitionWarnings > 0)
+            details.Add(Loc.L($"住宅の保持期限が接近：{demolitionWarnings}件",
+                $"Estate deadlines approaching: {demolitionWarnings}"));
+        return (total, string.Join("\n", details));
     }
 
     private void DrawLotteryStatusTab()
