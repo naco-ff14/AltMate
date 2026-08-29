@@ -44,6 +44,7 @@ public sealed partial class MainWindow : Window
     private bool compactMode;
     private bool requestCompactMode;
     private bool requestExpandedMode;
+    private MainSection? requestedExpandedSection;
     private bool clearForcedSize;
     private AnimationEmote[] animationEmotes = [];
     private AnimationEmote[] gameEmotes = [];
@@ -55,7 +56,6 @@ public sealed partial class MainWindow : Window
     private DateTime treasureMonth = new(DateTime.Now.Year, DateTime.Now.Month, 1);
     private Vector2 expandedWindowSize = new(940, 520);
     private ImGuiWindowFlags expandedWindowFlags;
-    private float? expandedBackgroundAlpha;
     private static readonly string[] SizeFilters = { "ALL", "S", "S-M", "M", "M-L", "L" };
 
     private static string[] FpsLimitLabels() => Loc.IsEnglish
@@ -114,6 +114,11 @@ public sealed partial class MainWindow : Window
             requestExpandedMode = false;
             if (compactMode)
                 ExitCompactMode();
+            if (requestedExpandedSection is { } section)
+            {
+                requestedExpandedSection = null;
+                SelectSection(section);
+            }
         }
         if (clearForcedSize)
         {
@@ -124,6 +129,11 @@ public sealed partial class MainWindow : Window
             Position = null;
             clearForcedSize = false;
         }
+        // Keep the window alpha in sync with the persisted setting. Shared
+        // configuration can be refreshed by another client between frames.
+        BgAlpha = compactMode
+            ? plugin.Configuration.CompactWindowBackgroundOpacity
+            : plugin.Configuration.WindowBackgroundOpacity;
         if (compactMode)
         {
             DrawCompactMenu();
@@ -187,8 +197,14 @@ public sealed partial class MainWindow : Window
     private void OpenSection(MainSection section)
     {
         if (compactMode)
-            ExitCompactMode();
-        SelectSection(section);
+        {
+            requestedExpandedSection = section;
+            requestExpandedMode = true;
+        }
+        else
+        {
+            SelectSection(section);
+        }
         IsOpen = true;
         RequestFocus = true;
     }
@@ -196,8 +212,14 @@ public sealed partial class MainWindow : Window
     internal void OpenSettings()
     {
         if (compactMode)
-            ExitCompactMode();
-        SelectSection(MainSection.Settings);
+        {
+            requestedExpandedSection = MainSection.Settings;
+            requestExpandedMode = true;
+        }
+        else
+        {
+            SelectSection(MainSection.Settings);
+        }
         IsOpen = true;
         RequestFocus = true;
     }
@@ -288,7 +310,6 @@ public sealed partial class MainWindow : Window
         plugin.Configuration.ExpandedWindowWidth = expandedWindowSize.X;
         plugin.Configuration.ExpandedWindowHeight = expandedWindowSize.Y;
         expandedWindowFlags = Flags;
-        expandedBackgroundAlpha = BgAlpha;
         ApplyCompactMode();
         plugin.Configuration.WindowCompactMode = true;
         plugin.Configuration.Save();
@@ -398,7 +419,7 @@ public sealed partial class MainWindow : Window
         ImGui.SameLine();
         ImGui.SetCursorPosY(12 * scale);
         if (ImGui.Button("⛶##compact-expand", new Vector2(34 * scale, 30 * scale)))
-            ExitCompactMode();
+            requestExpandedMode = true;
         if (ImGui.IsItemHovered())
             ImGui.SetTooltip(Loc.T("Maximize"));
         ImGui.EndChild();
