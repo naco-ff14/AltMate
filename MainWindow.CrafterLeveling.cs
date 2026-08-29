@@ -17,6 +17,9 @@ public sealed partial class MainWindow
     private int crafterPresetMaxLevel = 20;
     private int crafterPresetRecipeId;
     private int crafterPresetCraftCount = 20;
+    private string crafterRecipeSearch = string.Empty;
+    private IReadOnlyList<(uint RecipeId, string ProductName)> crafterRecipeSearchResults = [];
+    private string crafterCatalogMessage = string.Empty;
     private string crafterStorageMessage = string.Empty;
 
     private void DrawCrafterLeveling()
@@ -69,7 +72,7 @@ public sealed partial class MainWindow
             }
         }
 
-        if (ImGui.CollapsingHeader(Loc.L("Recipe Preset", "Recipe presets"),
+        if (ImGui.CollapsingHeader(Loc.L("レベリング製作品", "Leveling recipes"),
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPresetEditor(settings);
 
@@ -297,23 +300,87 @@ public sealed partial class MainWindow
     private void DrawCrafterPresetEditor(CrafterLevelingSettings settings)
     {
         ImGui.TextDisabled(Loc.L(
-            "素材数はRecipe IDと最大製作数からゲームデータを使って自動展開します。",
-            "Materials are expanded from game data using Recipe ID and maximum craft count."));
-        ImGui.SetNextItemWidth(90 * ImGuiHelpers.GlobalScale);
-        ImGui.InputInt(Loc.L("ジョブID", "Job ID"), ref crafterPresetJobId);
+            "製作品を名前で検索して登録します。必要素材はゲームデータから自動集計します。",
+            "Search and register a crafted item by name. Required materials are calculated from game data."));
+
+        if (ImGui.Button(Loc.L("標準Lv1～20リストを作成", "Create standard Lv1-20 list")))
+        {
+            var result = CrafterLevelingCatalog.ApplyLevel1To20(settings);
+            crafterCatalogMessage = result.Unresolved.Count == 0
+                ? Loc.L($"{result.Added}件追加、{result.Skipped}件登録済み。",
+                    $"Added {result.Added}; {result.Skipped} already registered.")
+                : Loc.L($"{result.Added}件追加。未解決：{string.Join("、", result.Unresolved)}",
+                    $"Added {result.Added}. Unresolved: {string.Join(", ", result.Unresolved)}");
+            SaveCrafterSettings();
+            var service = new CrafterPreparationService();
+            crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+        }
+        ImGui.SameLine();
+        ImGui.TextDisabled(Loc.L("各製作品20個の初期案。数量は後から調整できます。",
+            "Initial draft: 20 of each product. Quantities can be adjusted later."));
+        if (!string.IsNullOrWhiteSpace(crafterCatalogMessage))
+            ImGui.TextWrapped(crafterCatalogMessage);
+
+        ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##crafter-recipe-search",
+            Loc.L("製作品名（例：ブロンズインゴット）", "Product name (e.g. Bronze Ingot)"),
+            ref crafterRecipeSearch, 100);
+        ImGui.SameLine();
+        if (ImGui.Button(Loc.L("検索", "Search")))
+        {
+            var query = crafterRecipeSearch.Trim();
+            crafterRecipeSearchResults = string.IsNullOrWhiteSpace(query)
+                ? []
+                : Plugin.DataManager.GetExcelSheet<Recipe>()
+                    .Where(recipe => recipe.ItemResult.RowId != 0)
+                    .Select(recipe => (recipe.RowId, recipe.ItemResult.Value.Name.ToString()))
+                    .Where(recipe => recipe.Item2.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                    .DistinctBy(recipe => recipe.RowId)
+                    .OrderBy(recipe => recipe.Item2, StringComparer.CurrentCultureIgnoreCase)
+                    .Take(40)
+                    .ToArray();
+        }
+        if (crafterRecipeSearchResults.Count > 0)
+        {
+            ImGui.TextDisabled(Loc.L("候補を選択してください。同名品は登録後のジョブ表示で確認できます。",
+                "Select a result. For duplicate names, verify the job shown after registration."));
+            if (ImGui.BeginListBox("##crafter-recipe-results", new Vector2(420 * ImGuiHelpers.GlobalScale,
+                    Math.Min(150, 24 + crafterRecipeSearchResults.Count * 22) * ImGuiHelpers.GlobalScale)))
+            {
+                foreach (var result in crafterRecipeSearchResults)
+                {
+                    var selected = crafterPresetRecipeId == result.RecipeId;
+                    if (ImGui.Selectable($"{result.ProductName}##recipe-{result.RecipeId}", selected))
+                        crafterPresetRecipeId = (int)result.RecipeId;
+                    if (ImGui.IsItemHovered())
+                        ImGui.SetTooltip(Loc.L($"内部Recipe ID: {result.RecipeId}",
+                            $"Internal Recipe ID: {result.RecipeId}"));
+                }
+                ImGui.EndListBox();
+            }
+        }
+
+        var craftingJobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        var jobLabels = Enumerable.Range(8, 8)
+            .Select(jobId => craftingJobs.TryGetRow((uint)jobId, out var job)
+                ? job.Abbreviation.ToString()
+                : $"Job {jobId}")
+            .ToArray();
+        var jobIndex = Math.Clamp(crafterPresetJobId - 8, 0, 7);
+        ImGui.SetNextItemWidth(110 * ImGuiHelpers.GlobalScale);
+        if (ImGui.Combo(Loc.L("製作職", "Crafting job"), ref jobIndex, jobLabels, jobLabels.Length))
+            crafterPresetJobId = jobIndex + 8;
         ImGui.SameLine();
         ImGui.SetNextItemWidth(90 * ImGuiHelpers.GlobalScale);
         ImGui.InputInt(Loc.L("開始Lv", "Min Lv"), ref crafterPresetMinLevel);
         ImGui.SameLine();
         ImGui.SetNextItemWidth(90 * ImGuiHelpers.GlobalScale);
         ImGui.InputInt(Loc.L("終了Lv", "Max Lv"), ref crafterPresetMaxLevel);
-        ImGui.SetNextItemWidth(130 * ImGuiHelpers.GlobalScale);
-        ImGui.InputInt("Recipe ID", ref crafterPresetRecipeId);
-        ImGui.SameLine();
         ImGui.SetNextItemWidth(110 * ImGuiHelpers.GlobalScale);
         ImGui.InputInt(Loc.L("最大製作数", "Max crafts"), ref crafterPresetCraftCount);
         ImGui.SameLine();
-        if (ImGui.Button(Loc.L("Preset追加", "Add preset")))
+        ImGui.BeginDisabled(crafterPresetRecipeId <= 0);
+        if (ImGui.Button(Loc.L("製作品を追加", "Add recipe")))
         {
             settings.RecipePresets.Add(new CrafterRecipePreset
             {
@@ -326,15 +393,61 @@ public sealed partial class MainWindow
             });
             SaveCrafterSettings();
         }
+        ImGui.EndDisabled();
 
+        if (crafterPresetRecipeId > 0 &&
+            Plugin.DataManager.GetExcelSheet<Recipe>().TryGetRow((uint)crafterPresetRecipeId, out var selectedRecipe))
+        {
+            ImGui.SameLine();
+            ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f),
+                Loc.L($"選択中：{selectedRecipe.ItemResult.Value.Name}",
+                    $"Selected: {selectedRecipe.ItemResult.Value.Name}"));
+        }
+
+        var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
+        var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        if (settings.RecipePresets.Count > 0 && ImGui.BeginTable("crafter-leveling-recipes", 6,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
+        {
+            foreach (var heading in new[] { Loc.L("製作品", "Product"), Loc.L("ジョブ", "Job"),
+                         Loc.L("レシピLv", "Recipe Lv"), Loc.L("使用Lv帯", "Level range"),
+                         Loc.L("最大製作数", "Max crafts"), string.Empty })
+                ImGui.TableSetupColumn(heading);
+            ImGui.TableHeadersRow();
         for (var index = 0; index < settings.RecipePresets.Count; index++)
         {
             var preset = settings.RecipePresets[index];
-            ImGui.BulletText($"Job {preset.JobId} / Lv{preset.MinLevel}-{preset.MaxLevel} / Recipe {preset.RecipeId} × {preset.MaxCraftCount}");
-            ImGui.SameLine();
+            var productName = recipeSheet.TryGetRow(preset.RecipeId, out var recipe)
+                ? recipe.ItemResult.Value.Name.ToString()
+                : Loc.L("不明な製作品", "Unknown product");
+            var jobName = jobSheet.TryGetRow(preset.JobId, out var job)
+                ? job.Abbreviation.ToString()
+                : $"Job {preset.JobId}";
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(productName);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Recipe ID: {preset.RecipeId}");
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(jobName);
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(recipeSheet.TryGetRow(preset.RecipeId, out var levelRecipe)
+                ? $"Lv{levelRecipe.RecipeLevelTable.Value.ClassJobLevel}"
+                : "—");
+            ImGui.TableNextColumn(); ImGui.TextUnformatted($"Lv{preset.MinLevel}–{preset.MaxLevel}");
+            ImGui.TableNextColumn();
+            var craftCount = preset.MaxCraftCount;
+            ImGui.SetNextItemWidth(85 * ImGuiHelpers.GlobalScale);
+            if (ImGui.InputInt($"##crafter-count-{index}", ref craftCount, 1, 10))
+            {
+                preset.MaxCraftCount = Math.Clamp(craftCount, 1, 9999);
+                SaveCrafterSettings();
+                var service = new CrafterPreparationService();
+                crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+            }
+            ImGui.TableNextColumn();
             if (!ImGui.SmallButton($"{Loc.L("削除", "Remove")}##crafter-preset-{index}")) continue;
             settings.RecipePresets.RemoveAt(index--);
             SaveCrafterSettings();
+        }
+            ImGui.EndTable();
         }
     }
 
@@ -362,27 +475,27 @@ public sealed partial class MainWindow
 
         foreach (var error in crafterPreparationErrors)
             ImGui.TextColored(new Vector4(1f, 0.35f, 0.3f, 1f),
-                Loc.L($"無効なPreset：{error}", $"Invalid preset: {error}"));
+                Loc.L($"無効な製作品：{error}", $"Invalid recipe: {error}"));
         if (settings.RecipePresets.Count == 0)
             ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
-                Loc.L("Recipe Presetが未登録です。準備完了にはなりません。",
-                    "No recipe presets are registered; preparation cannot complete."));
+                Loc.L("レベリング製作品が未登録です。先に製作品名で検索して追加してください。",
+                    "No leveling recipes are registered. Search by product name and add one first."));
 
         var rows = settings.ShowMissingOnly
             ? crafterPreparationItems.Where(x => x.MissingCount > 0).ToArray()
             : crafterPreparationItems.ToArray();
-        if (!ImGui.BeginTable("crafter-preparation", 6,
+        if (!ImGui.BeginTable("crafter-preparation", 5,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, 260 * ImGuiHelpers.GlobalScale))) return;
-        foreach (var heading in new[] { "ID", Loc.L("アイテム", "Item"), Loc.L("分類", "Type"),
+        foreach (var heading in new[] { Loc.L("アイテム", "Item"), Loc.L("分類", "Type"),
                      Loc.L("必要", "Required"), Loc.L("所持", "Owned"), Loc.L("不足", "Missing") })
             ImGui.TableSetupColumn(heading);
         ImGui.TableHeadersRow();
         foreach (var item in rows)
         {
             ImGui.TableNextRow();
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(item.ItemId.ToString());
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.Name);
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Item ID: {item.ItemId}");
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.IsGear ? Loc.L("装備", "Gear") :
                 item.IsCrystal ? Loc.L("クリスタル", "Crystal") : Loc.L("素材", "Material"));
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.RequiredCount.ToString("N0"));
