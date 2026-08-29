@@ -19,8 +19,7 @@ public sealed partial class MainWindow
     private int crafterPresetCraftCount = 20;
     private string crafterRecipeSearch = string.Empty;
     private IReadOnlyList<(uint RecipeId, string ProductName)> crafterRecipeSearchResults = [];
-    private string crafterCatalogMessage = string.Empty;
-    private string crafterGearMessage = string.Empty;
+    private string crafterListMessage = string.Empty;
 
     private void DrawCrafterLeveling()
     {
@@ -70,14 +69,21 @@ public sealed partial class MainWindow
                 settings.StopAtLevel50 = stopAt50;
                 SaveCrafterSettings();
             }
+
+            ImGui.Spacing();
+            if (ImGui.Button(Loc.L("リスト作成・更新", "Build/update list"),
+                    new Vector2(220 * ImGuiHelpers.GlobalScale, 34 * ImGuiHelpers.GlobalScale)))
+                BuildCrafterLevelingList(settings);
+            ImGui.SameLine();
+            ImGui.TextDisabled(Loc.L(
+                "製作品・装備候補・必要素材・所持数をまとめて更新します。",
+                "Updates recipes, gear, required items, and owned counts together."));
+            if (!string.IsNullOrWhiteSpace(crafterListMessage))
+                ImGui.TextWrapped(crafterListMessage);
         }
 
-        if (ImGui.CollapsingHeader(Loc.L("レベリング製作品", "Leveling recipes"),
-                ImGuiTreeNodeFlags.DefaultOpen))
+        if (ImGui.CollapsingHeader(Loc.L("製作品の詳細設定（任意）", "Recipe details (optional)")))
             DrawCrafterPresetEditor(settings);
-
-        if (ImGui.CollapsingHeader(Loc.L("装備Tier", "Gear tiers"), ImGuiTreeNodeFlags.DefaultOpen))
-            DrawCrafterGearTiers(settings);
 
         if (ImGui.CollapsingHeader(Loc.L("リテイナー保管設定", "Retainer storage"),
                 ImGuiTreeNodeFlags.DefaultOpen))
@@ -87,15 +93,21 @@ public sealed partial class MainWindow
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPreparationList(settings);
 
-        if (ImGui.CollapsingHeader(Loc.L("実行状態", "Progress")))
-        {
-            ImGui.TextUnformatted($"{Loc.L("状態", "State")}：{settings.Progress.State}");
-            if (!string.IsNullOrWhiteSpace(settings.Progress.LastError))
-                ImGui.TextColored(new Vector4(1f, 0.35f, 0.3f, 1f), settings.Progress.LastError);
-            ImGui.BeginDisabled();
-            ImGui.Button(Loc.L("自動レベリング開始（Phase 4以降）", "Start auto-leveling (Phase 4+)"));
-            ImGui.EndDisabled();
-        }
+    }
+
+    private void BuildCrafterLevelingList(CrafterLevelingSettings settings)
+    {
+        var catalog = CrafterLevelingCatalog.ApplyStandard(settings);
+        var gear = CrafterGearCatalog.BuildStandard(settings);
+        CrafterRetainerScanner.RefreshOwnedTotals(settings);
+        var service = new CrafterPreparationService();
+        crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+        crafterListMessage = catalog.Unresolved.Count == 0 && gear.Missing.Count == 0
+            ? Loc.L($"リストを更新しました（製作品{settings.RecipePresets.Count}件）。不足数と所在を下で確認してください。",
+                $"List updated ({settings.RecipePresets.Count} recipes). Review missing counts and locations below.")
+            : Loc.L($"リストを更新しました。未解決：製作品{catalog.Unresolved.Count}件、装備{gear.Missing.Count}件。",
+                $"List updated. Unresolved: {catalog.Unresolved.Count} recipes, {gear.Missing.Count} gear slots.");
+        SaveCrafterSettings();
     }
 
     private void DrawCrafterStorageSettings(CrafterLevelingSettings settings)
@@ -164,45 +176,6 @@ public sealed partial class MainWindow
         }
     }
 
-    private void DrawCrafterGearTiers(CrafterLevelingSettings settings)
-    {
-        ImGui.TextDisabled(Loc.L(
-            "育成途中で着替えるクラフター装備候補を作成します。共通防具・アクセサリと、選択中の職だけの主道具・副道具を準備リストへ追加します。",
-            "Creates crafting gear candidates used while leveling. Adds shared gear and tools for selected jobs to the preparation list."));
-        if (ImGui.Button(Loc.L("選択職用の装備候補を作成・更新", "Create/update gear for selected jobs")))
-        {
-            var result = CrafterGearCatalog.BuildStandard(settings);
-            crafterGearMessage = result.Missing.Count == 0
-                ? Loc.L($"{result.TierCount}段階の装備リストを作成しました。",
-                    $"Created {result.TierCount} gear tiers.")
-                : Loc.L($"装備リストを作成しました。未解決{result.Missing.Count}件。",
-                    $"Created gear tiers with {result.Missing.Count} unresolved slots.");
-            SaveCrafterSettings();
-        }
-        if (!string.IsNullOrWhiteSpace(crafterGearMessage)) ImGui.TextWrapped(crafterGearMessage);
-
-        var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
-        var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        foreach (var tier in settings.GearPresets.OrderBy(x => x.TierLevel))
-        {
-            if (!ImGui.TreeNode($"Lv{tier.TierLevel}##crafter-gear-tier-{tier.TierLevel}")) continue;
-            var shared = tier.SharedItemIds.Select(id => itemSheet.TryGetRow(id, out var item)
-                    ? item.Name.ToString() : $"Item {id}")
-                .GroupBy(x => x).Select(x => x.Count() > 1 ? $"{x.Key} ×{x.Count()}" : x.Key);
-            ImGui.TextWrapped($"{Loc.L("共通装備", "Shared gear")}：{string.Join("、", shared)}");
-            foreach (var job in tier.JobItemIds.Where(x => settings.EnabledJobIds.Contains(x.Key))
-                         .OrderBy(x => x.Key))
-            {
-                var jobName = jobSheet.TryGetRow(job.Key, out var classJob)
-                    ? classJob.Abbreviation.ToString() : $"Job {job.Key}";
-                var tools = job.Value.Select(id => itemSheet.TryGetRow(id, out var item)
-                    ? item.Name.ToString() : $"Item {id}");
-                ImGui.BulletText($"{jobName}：{string.Join(" / ", tools)}");
-            }
-            ImGui.TreePop();
-        }
-    }
-
     private void DrawCrafterJobSelection(CrafterLevelingSettings settings)
     {
         var sheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
@@ -226,26 +199,9 @@ public sealed partial class MainWindow
             "製作品を名前で検索して登録します。必要素材はゲームデータから自動集計します。",
             "Search and register a crafted item by name. Required materials are calculated from game data."));
 
-        var standardUpperLevel = Math.Min(settings.TargetLevel, 50);
-        if (ImGui.Button(Loc.L($"標準Lv1～{standardUpperLevel}リストを作成",
-                $"Create standard Lv1-{standardUpperLevel} list")))
-        {
-            var result = CrafterLevelingCatalog.ApplyStandard(settings);
-            crafterCatalogMessage = result.Unresolved.Count == 0
-                ? Loc.L($"{result.Added}件追加、{result.Skipped}件登録済み。",
-                    $"Added {result.Added}; {result.Skipped} already registered.")
-                : Loc.L($"{result.Added}件追加。未解決：{string.Join("、", result.Unresolved)}",
-                    $"Added {result.Added}. Unresolved: {string.Join(", ", result.Unresolved)}");
-            SaveCrafterSettings();
-            var service = new CrafterPreparationService();
-            crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
-        }
-        ImGui.SameLine();
         ImGui.TextDisabled(Loc.L(
-            "Lv20までは既定リスト、Lv21～50は5レベル帯ごとにゲームデータから選定します。数量は後から調整できます。",
-            "Uses the curated list through Lv20, then game data in five-level bands through Lv50. Quantities remain editable."));
-        if (!string.IsNullOrWhiteSpace(crafterCatalogMessage))
-            ImGui.TextWrapped(crafterCatalogMessage);
+            "通常は変更不要です。独自の製作品を追加したい場合だけ使用してください。",
+            "Usually no changes are needed. Use this only to add custom recipes."));
 
         ImGui.SetNextItemWidth(300 * ImGuiHelpers.GlobalScale);
         ImGui.InputTextWithHint("##crafter-recipe-search",
@@ -382,13 +338,6 @@ public sealed partial class MainWindow
 
     private void DrawCrafterPreparationList(CrafterLevelingSettings settings)
     {
-        if (ImGui.Button(Loc.L("準備リスト生成", "Build preparation list")))
-        {
-            var service = new CrafterPreparationService();
-            crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
-            plugin.Configuration.Save();
-        }
-        ImGui.SameLine();
         var missingOnly = settings.ShowMissingOnly;
         if (ImGui.Checkbox(Loc.L("不足のみ表示", "Missing only"), ref missingOnly))
         {
