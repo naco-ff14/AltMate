@@ -267,6 +267,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.Language = incoming.Language;
         target.ShowChatMessages = incoming.ShowChatMessages;
         target.WindowBackgroundOpacity = incoming.WindowBackgroundOpacity;
+        target.CompactWindowBackgroundOpacity = incoming.CompactWindowBackgroundOpacity;
         if (!string.IsNullOrWhiteSpace(incoming.LocalLinkKey)) target.LocalLinkKey = incoming.LocalLinkKey;
     }
 
@@ -306,6 +307,8 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.ShowChatMessages != baseline.ShowChatMessages) target.ShowChatMessages = current.ShowChatMessages;
         if (Math.Abs(current.WindowBackgroundOpacity - baseline.WindowBackgroundOpacity) > 0.001f)
             target.WindowBackgroundOpacity = current.WindowBackgroundOpacity;
+        if (Math.Abs(current.CompactWindowBackgroundOpacity - baseline.CompactWindowBackgroundOpacity) > 0.001f)
+            target.CompactWindowBackgroundOpacity = current.CompactWindowBackgroundOpacity;
         if (current.LocalLinkKey != baseline.LocalLinkKey) target.LocalLinkKey = current.LocalLinkKey;
     }
 

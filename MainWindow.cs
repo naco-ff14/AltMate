@@ -287,7 +287,7 @@ public sealed partial class MainWindow : Window
     private void ApplyCompactMode()
     {
         compactMode = true;
-        BgAlpha = plugin.Configuration.WindowBackgroundOpacity;
+        BgAlpha = plugin.Configuration.CompactWindowBackgroundOpacity;
         Flags = expandedWindowFlags | ImGuiWindowFlags.NoTitleBar | ImGuiWindowFlags.NoResize |
                 ImGuiWindowFlags.NoCollapse | ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse;
         SizeConstraints = new WindowSizeConstraints
@@ -322,7 +322,7 @@ public sealed partial class MainWindow : Window
         var scale = ImGuiHelpers.GlobalScale;
         ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 8 * scale);
         ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 6 * scale);
-        var backgroundOpacity = plugin.Configuration.WindowBackgroundOpacity;
+        var backgroundOpacity = plugin.Configuration.CompactWindowBackgroundOpacity;
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.055f, 0.07f, 0.095f, backgroundOpacity));
         ImGui.BeginChild("compact-header", new Vector2(0, 52 * scale), false,
             ImGuiWindowFlags.NoScrollbar | ImGuiWindowFlags.NoScrollWithMouse);
@@ -1153,7 +1153,7 @@ public sealed partial class MainWindow : Window
             "無効時もAltMateのログファイルへの記録と画面内ステータスは継続します。",
             "Disabling this does not affect AltMate log files or in-window status messages."));
         ImGui.Spacing();
-        ImGui.TextUnformatted(Loc.L("背景の透明度", "Background opacity"));
+        ImGui.TextUnformatted(Loc.L("通常表示の背景透明度", "Expanded view background opacity"));
         var opacityPercent = (int)MathF.Round(plugin.Configuration.WindowBackgroundOpacity * 100f);
         ImGui.SetNextItemWidth(280 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderInt("##window-background-opacity", ref opacityPercent, 20, 100, "%d%%",
@@ -1165,8 +1165,24 @@ public sealed partial class MainWindow : Window
             plugin.SaveSharedSettings();
         }
         ImGui.TextDisabled(Loc.L(
-            "通常表示と最小化表示の両方に適用されます。",
-            "Applied to both expanded and compact views."));
+            "最大化した通常画面に適用されます。",
+            "Applied to the expanded window."));
+        ImGui.Spacing();
+        ImGui.TextUnformatted(Loc.L("最小化表示の背景透明度", "Compact view background opacity"));
+        var compactOpacityPercent = (int)MathF.Round(plugin.Configuration.CompactWindowBackgroundOpacity * 100f);
+        ImGui.SetNextItemWidth(280 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderInt("##compact-window-background-opacity", ref compactOpacityPercent, 20, 100, "%d%%",
+                ImGuiSliderFlags.AlwaysClamp))
+        {
+            var compactOpacity = compactOpacityPercent / 100f;
+            plugin.Configuration.CompactWindowBackgroundOpacity = compactOpacity;
+            if (compactMode)
+                BgAlpha = compactOpacity;
+            plugin.SaveSharedSettings();
+        }
+        ImGui.TextDisabled(Loc.L(
+            "最小化したコントロールバーに適用されます。",
+            "Applied to the compact control bar."));
         ImGui.Spacing();
         ImGui.TextUnformatted(Loc.T("Command"));
         ImGui.TextDisabled("/altmate");
