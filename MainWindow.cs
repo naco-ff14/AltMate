@@ -35,6 +35,10 @@ public sealed partial class MainWindow : Window
 
     private static readonly CultureInfo JapaneseCulture = CultureInfo.GetCultureInfo("ja-JP");
     private static readonly CultureInfo EnglishCulture = CultureInfo.GetCultureInfo("en-US");
+    private static readonly Vector4 ThemeAccent = new(0.34f, 0.78f, 1f, 1f);
+    private static readonly Vector4 ThemeAccentSoft = new(0.12f, 0.36f, 0.54f, 0.82f);
+    private const int UnifiedThemeColorCount = 23;
+    private const int UnifiedThemeVarCount = 7;
     private readonly Plugin plugin;
     private string scanMessage = string.Empty;
     private int sizeFilterIndex;
@@ -136,10 +140,12 @@ public sealed partial class MainWindow : Window
         BgAlpha = compactMode
             ? plugin.Configuration.CompactWindowBackgroundOpacity
             : plugin.Configuration.WindowBackgroundOpacity;
+        PushUnifiedTheme();
         if (compactMode)
         {
             UpdateCompactLayoutSize();
             DrawCompactMenu();
+            PopUnifiedTheme();
             return;
         }
 
@@ -160,6 +166,49 @@ public sealed partial class MainWindow : Window
         ImGui.EndChild();
         ImGui.PopStyleColor();
         ImGui.PopStyleVar();
+        PopUnifiedTheme();
+    }
+
+    private static void PushUnifiedTheme()
+    {
+        var scale = ImGuiHelpers.GlobalScale;
+        ImGui.PushStyleVar(ImGuiStyleVar.FrameRounding, 6 * scale);
+        ImGui.PushStyleVar(ImGuiStyleVar.GrabRounding, 6 * scale);
+        ImGui.PushStyleVar(ImGuiStyleVar.ChildRounding, 10 * scale);
+        ImGui.PushStyleVar(ImGuiStyleVar.PopupRounding, 8 * scale);
+        ImGui.PushStyleVar(ImGuiStyleVar.ScrollbarRounding, 8 * scale);
+        ImGui.PushStyleVar(ImGuiStyleVar.FramePadding, new Vector2(9, 6) * scale);
+        ImGui.PushStyleVar(ImGuiStyleVar.ItemSpacing, new Vector2(8, 7) * scale);
+
+        ImGui.PushStyleColor(ImGuiCol.Text, new Vector4(0.91f, 0.94f, 0.98f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.TextDisabled, new Vector4(0.55f, 0.62f, 0.7f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.Border, new Vector4(0.2f, 0.29f, 0.38f, 0.7f));
+        ImGui.PushStyleColor(ImGuiCol.FrameBg, new Vector4(0.08f, 0.11f, 0.15f, 0.92f));
+        ImGui.PushStyleColor(ImGuiCol.FrameBgHovered, new Vector4(0.12f, 0.2f, 0.27f, 0.96f));
+        ImGui.PushStyleColor(ImGuiCol.FrameBgActive, new Vector4(0.14f, 0.27f, 0.37f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.CheckMark, ThemeAccent);
+        ImGui.PushStyleColor(ImGuiCol.SliderGrab, ThemeAccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.SliderGrabActive, ThemeAccent);
+        ImGui.PushStyleColor(ImGuiCol.Button, new Vector4(0.1f, 0.16f, 0.22f, 0.92f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.14f, 0.3f, 0.42f, 0.98f));
+        ImGui.PushStyleColor(ImGuiCol.ButtonActive, ThemeAccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.Header, new Vector4(0.1f, 0.2f, 0.28f, 0.9f));
+        ImGui.PushStyleColor(ImGuiCol.HeaderHovered, new Vector4(0.14f, 0.31f, 0.43f, 0.96f));
+        ImGui.PushStyleColor(ImGuiCol.HeaderActive, ThemeAccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.Separator, new Vector4(0.18f, 0.33f, 0.44f, 0.72f));
+        ImGui.PushStyleColor(ImGuiCol.TableHeaderBg, new Vector4(0.1f, 0.2f, 0.28f, 0.96f));
+        ImGui.PushStyleColor(ImGuiCol.TableBorderStrong, new Vector4(0.2f, 0.33f, 0.43f, 0.78f));
+        ImGui.PushStyleColor(ImGuiCol.TableBorderLight, new Vector4(0.15f, 0.24f, 0.32f, 0.58f));
+        ImGui.PushStyleColor(ImGuiCol.Tab, new Vector4(0.08f, 0.14f, 0.2f, 0.94f));
+        ImGui.PushStyleColor(ImGuiCol.TabHovered, new Vector4(0.15f, 0.34f, 0.48f, 1f));
+        ImGui.PushStyleColor(ImGuiCol.TabActive, ThemeAccentSoft);
+        ImGui.PushStyleColor(ImGuiCol.ScrollbarGrab, new Vector4(0.2f, 0.34f, 0.44f, 0.85f));
+    }
+
+    private static void PopUnifiedTheme()
+    {
+        ImGui.PopStyleColor(UnifiedThemeColorCount);
+        ImGui.PopStyleVar(UnifiedThemeVarCount);
     }
 
     internal void OpenHousingLottery()
@@ -331,7 +380,7 @@ public sealed partial class MainWindow : Window
         }
 
         ImGui.Spacing();
-        ImGui.TextDisabled(label);
+        ImGui.TextColored(new Vector4(0.47f, 0.65f, 0.78f, 1f), label);
     }
 
     private void EnterCompactMode()
@@ -949,8 +998,19 @@ public sealed partial class MainWindow : Window
 
     private static void DrawPageTitle(string title, string description)
     {
-        ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), title);
+        var scale = ImGuiHelpers.GlobalScale;
+        var position = ImGui.GetCursorScreenPos();
+        ImGui.GetWindowDrawList().AddRectFilled(
+            position,
+            position + new Vector2(3 * scale, 38 * scale),
+            ImGui.GetColorU32(ThemeAccent),
+            2 * scale);
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 11 * scale);
+        ImGui.TextColored(ThemeAccent, title);
+        ImGui.SetCursorPosX(ImGui.GetCursorPosX() + 11 * scale);
         ImGui.TextDisabled(description);
+        ImGui.Spacing();
+        ImGui.Separator();
         ImGui.Spacing();
     }
 
