@@ -22,8 +22,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private int requestedCraftCount;
     private int requestProductCount;
     private int creditedCraftCount;
-    private bool stopRequested;
-    private int requestStopLevel;
     private uint pendingJobId;
     private DateTime jobChangeRequestedAtUtc;
 
@@ -69,8 +67,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         requestedCraftCount = 0;
         requestProductCount = 0;
         creditedCraftCount = 0;
-        stopRequested = false;
-        requestStopLevel = 0;
         pendingJobId = 0;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
@@ -130,19 +126,10 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         bool artisanBusy;
         try
         {
-            var artisanEndurance =
-                Plugin.PluginInterface.GetIpcSubscriber<bool>("Artisan.GetEnduranceStatus").InvokeFunc();
-            var activelyCrafting = Plugin.Condition[ConditionFlag.Crafting];
-            var preparingToCraft = Plugin.Condition[ConditionFlag.PreparingToCraft];
-            // PreparingToCraft remains set while the crafting log is open. Once an endurance
-            // stop was requested, treating that flag as busy prevents the recipe transition
-            // forever even though Artisan has already stopped.
-            // After AltMate requested a boundary stop, Artisan can leave its endurance flag on
-            // even though the character is idle. At that point only an actual synthesis must
-            // finish; both the stale endurance flag and the open-log preparation flag are ignored.
-            artisanBusy = stopRequested
-                ? activelyCrafting
-                : artisanEndurance || activelyCrafting || preparingToCraft;
+            // Follow ICE's integration pattern and use Artisan's own complete busy state. Do not
+            // turn Endurance off when a level boundary is crossed; interrupting it between the
+            // finish transition and its next task leaves Artisan stuck in the old recipe state.
+            artisanBusy = Plugin.PluginInterface.GetIpcSubscriber<bool>("Artisan.IsBusy").InvokeFunc();
         }
         catch (Exception ex)
         {
@@ -155,24 +142,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         {
             artisanBecameBusy = true;
             CreditCompletedCrafts();
-            var switchLevel = requestStopLevel > 0 ? requestStopLevel : NextSwitchLevel();
-            if (!stopRequested && Plugin.PlayerState.Level >= switchLevel)
-            {
-                try
-                {
-                    Plugin.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetEnduranceStatus")
-                        .InvokeAction(false);
-                    stopRequested = true;
-                    Status = Loc.L($"Lv{switchLevel}到達：現在の製作完了後に停止します。",
-                        $"Reached Lv{switchLevel}; stopping after the current craft.");
-                }
-                catch (Exception ex)
-                {
-                    Stop(Loc.L($"Artisanの連続製作を停止できませんでした：{ex.Message}",
-                        $"Could not stop Artisan endurance crafting: {ex.Message}"));
-                }
-                return;
-            }
             Status = Loc.L(
                 $"製作中：{RecipeName(queue[index].RecipeId)}（レシピ段階 {index + 1}/{queue.Count}・{NextSwitchLabel()}）",
                 $"Crafting: {RecipeName(queue[index].RecipeId)} (recipe stage {index + 1}/{queue.Count}; {NextSwitchLabel(false)})");
@@ -194,7 +163,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             plugin.Configuration.Save();
             requestSent = false;
             artisanBecameBusy = false;
-            stopRequested = false;
         }
 
         var currentLevel = Plugin.PlayerState.Level;
@@ -276,8 +244,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             }
             requestProductCount = CrafterInventoryLocator.PlayerInventoryCount(RecipeProductId(preset.RecipeId));
             creditedCraftCount = 0;
-            stopRequested = false;
-            requestStopLevel = CalculateNextStopLevel(Plugin.PlayerState.Level);
             Plugin.PluginInterface.GetIpcSubscriber<ushort, int, object>("Artisan.CraftItem")
                 .InvokeAction((ushort)preset.RecipeId, requestedCraftCount);
             requestSent = true;
@@ -411,8 +377,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         LoadQueue(settings, changedJobId, Plugin.PlayerState.Level);
         requestSent = false;
         artisanBecameBusy = false;
-        stopRequested = false;
-        requestStopLevel = 0;
         lastStylistLevel = -1;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
         settings.Progress.CurrentJobId = changedJobId;
@@ -469,15 +433,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
     private string NextSwitchLabel(bool japanese = true)
     {
-        var targetLevel = requestSent && requestStopLevel > 0
-            ? requestStopLevel
-            : CalculateNextStopLevel(Plugin.PlayerState.Level);
+        var targetLevel = CalculateNextStopLevel(Plugin.PlayerState.Level);
         return japanese ? $"次の判定 Lv{targetLevel}" : $"next check at Lv{targetLevel}";
     }
-
-    private int NextSwitchLevel() => requestStopLevel > 0
-        ? requestStopLevel
-        : CalculateNextStopLevel(Plugin.PlayerState.Level);
 
     private int CalculateNextStopLevel(int currentLevel)
     {
