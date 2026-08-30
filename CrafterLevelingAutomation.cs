@@ -32,6 +32,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private bool waitingForCraftExit;
     private int craftExitAttempts;
     private DateTime nextCraftExitAttemptUtc;
+    private bool? previousRespectCloseHotkey;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -97,6 +98,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (!IsRunning && reason is null)
             return;
         IsRunning = false;
+        RestoreAltMateCloseHotkey();
         Status = reason ?? Loc.L("停止しました。", "Stopped.");
         var settings = plugin.GetCrafterLevelingSettings();
         settings.Progress.State = reason is null ? CrafterLevelingState.Paused : CrafterLevelingState.Error;
@@ -218,11 +220,17 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 {
                     if (craftExitAttempts >= 5)
                     {
+                        RestoreAltMateCloseHotkey();
                         Stop(Loc.L("製作手帳を自動で閉じられませんでした。ESCで閉じてから再開してください。",
                             "Could not close the crafting log automatically. Close it with Escape, then resume."));
                         return;
                     }
-                    SendEscapeToCurrentGame();
+                    if (!SendEscapeToCurrentGame())
+                    {
+                        Status = Loc.L("このFFXIVを前面にすると製作手帳を閉じて再開します。",
+                            "Bring this FFXIV window to the foreground to close the crafting log and resume.");
+                        return;
+                    }
                     craftExitAttempts++;
                     nextCraftExitAttemptUtc = DateTime.UtcNow.AddMilliseconds(750);
                 }
@@ -230,6 +238,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                     $"Closing the previous crafting log ({craftExitAttempts}/5).");
                 return;
             }
+            RestoreAltMateCloseHotkey();
             if (Plugin.Condition[ConditionFlag.Crafting] ||
                 Plugin.Condition[ConditionFlag.PreparingToCraft])
             {
@@ -243,11 +252,12 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         // Artisan may leave the previous recipe selected in an open crafting log after an
         // endurance stop. Close it before selecting the next recipe; otherwise CraftItem can
         // consider the old recipe state active and refuse to continue.
-        if (CloseRecipeLogIfOpen())
+        if (IsRecipeLogOpen())
         {
+            SuppressAltMateCloseHotkey();
             waitingForCraftExit = true;
-            craftExitAttempts = 1;
-            nextCraftExitAttemptUtc = DateTime.UtcNow.AddMilliseconds(750);
+            craftExitAttempts = 0;
+            nextCraftExitAttemptUtc = DateTime.MinValue;
             return;
         }
 
@@ -355,25 +365,46 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         return addon != null && addon->IsVisible;
     }
 
-    private static bool CloseRecipeLogIfOpen()
+    private unsafe bool SendEscapeToCurrentGame()
     {
-        if (!IsRecipeLogOpen())
+        var window = Process.GetCurrentProcess().MainWindowHandle;
+        if (window == IntPtr.Zero || GetForegroundWindow() != window)
             return false;
-        SendEscapeToCurrentGame();
+
+        var recipeNote = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("RecipeNote").Address;
+        if (recipeNote == null || !recipeNote->IsVisible)
+            return false;
+        recipeNote->Focus();
+
+        // FFXIV does not consume posted WM_KEY messages for this UI. keybd_event injects the
+        // same foreground keyboard path as a physical Escape press, which is the operation
+        // already confirmed to close the crafting log in game.
+        keybd_event(0x1B, 0x01, 0, UIntPtr.Zero);
+        keybd_event(0x1B, 0x01, 0x0002, UIntPtr.Zero);
         return true;
     }
 
-    private static void SendEscapeToCurrentGame()
+    private void SuppressAltMateCloseHotkey()
     {
-        var window = Process.GetCurrentProcess().MainWindowHandle;
-        if (window == IntPtr.Zero)
+        if (previousRespectCloseHotkey.HasValue)
             return;
-        PostMessage(window, 0x0100, (IntPtr)0x1B, (IntPtr)0x00010001); // WM_KEYDOWN / VK_ESCAPE
-        PostMessage(window, 0x0101, (IntPtr)0x1B, (IntPtr)unchecked((int)0xC0010001)); // WM_KEYUP
+        previousRespectCloseHotkey = plugin.MainWindow.RespectCloseHotkey;
+        plugin.MainWindow.RespectCloseHotkey = false;
+    }
+
+    private void RestoreAltMateCloseHotkey()
+    {
+        if (!previousRespectCloseHotkey.HasValue)
+            return;
+        plugin.MainWindow.RespectCloseHotkey = previousRespectCloseHotkey.Value;
+        previousRespectCloseHotkey = null;
     }
 
     [DllImport("user32.dll", SetLastError = true)]
-    private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
 
     private void Complete()
     {
