@@ -74,6 +74,16 @@ public sealed partial class MainWindow
                 settings.StopAtLevel50 = stopAt50;
                 SaveCrafterSettings();
             }
+            var useTheCollector = settings.UseTheCollectorForRestoration;
+            if (ImGui.Checkbox(Loc.L("復興品をTheCollectorで自動納品", "Turn in restoration items with TheCollector"),
+                    ref useTheCollector))
+            {
+                settings.UseTheCollectorForRestoration = useTheCollector;
+                SaveCrafterSettings();
+            }
+            ImGui.TextDisabled(Loc.L(
+                "TheCollector側でFirmamentモードを選択してください（Lifestream・vnavmeshが必要）。失敗時は手動納品待ちで停止します。",
+                "Select Firmament mode in TheCollector (requires Lifestream and vnavmesh). Failures pause for manual turn-in."));
 
             ImGui.Spacing();
             if (ImGui.Button(Loc.L("リスト作成・更新", "Build/update list"),
@@ -87,8 +97,8 @@ public sealed partial class MainWindow
                 "製作数は現在Lv・EXPから事前計算します。Lv20以降の復興品は最低収集価値での納品EXPも含みます。",
                 "Craft counts are precomputed from current level/EXP. Restoration items after Lv20 also include minimum-rating turn-in EXP."));
             ImGui.TextDisabled(Loc.L(
-                "品質・初回・EXPバフは含めません。復興品は予定数完成後に蒼天街で手動納品し、リストを更新してください。",
-                "Quality, first-craft and EXP buffs are excluded. Turn in completed restoration items manually, then rebuild the list."));
+                "品質・初回・EXPバフは含めません。復興品は予定数完成後、TheCollector連携が有効なら自動納品します。",
+                "Quality, first-craft and EXP buffs are excluded. Completed restoration batches are handed to TheCollector when enabled."));
             if (!string.IsNullOrWhiteSpace(crafterListMessage))
                 ImGui.TextWrapped(crafterListMessage);
         }

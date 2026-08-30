@@ -28,6 +28,11 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private int requestBoundaryLevel;
     private bool awaitingStylistUpdate;
     private DateTime stylistUpdateRequestedAtUtc;
+    private bool collectorTurnInRequested;
+    private bool collectorBecameBusy;
+    private DateTime collectorRequestedAtUtc;
+    private uint collectorRecipeId;
+    private uint collectorProductItemId;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -76,6 +81,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         requestBoundaryLevel = 0;
         awaitingStylistUpdate = false;
         stylistUpdateRequestedAtUtc = DateTime.MinValue;
+        ResetCollectorTurnIn();
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -92,6 +98,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (!IsRunning && reason is null)
             return;
         IsRunning = false;
+        ResetCollectorTurnIn();
         Status = reason ?? Loc.L("停止しました。", "Stopped.");
         var settings = plugin.GetCrafterLevelingSettings();
         settings.Progress.State = reason is null ? CrafterLevelingState.Paused : CrafterLevelingState.Error;
@@ -119,6 +126,11 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             return;
         if (DateTime.UtcNow < waitUntilUtc)
             return;
+        if (collectorTurnInRequested)
+        {
+            ContinueCollectorTurnIn();
+            return;
+        }
         if (!Plugin.PlayerState.IsLoaded)
         {
             Stop(Loc.L("ログアウトしたため停止しました。", "Stopped because the character logged out."));
@@ -307,9 +319,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             {
                 if (preset.Route == CrafterLevelingRoute.Restoration)
                 {
-                    PauseForManualTurnIn(Loc.L(
-                        "予定数の復興品を製作しました。蒼天街で納品後、リストを更新して再開してください。",
-                        "The planned restoration items are complete. Turn them in at the Firmament, rebuild the list, then resume."));
+                    BeginCollectorTurnIn(preset, settings);
                     return;
                 }
                 requestedCraftCount = CrafterExperiencePlanner.CraftsNeededNow(preset, settings.TargetLevel);
@@ -341,6 +351,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
     private void PauseForManualTurnIn(string reason)
     {
+        ResetCollectorTurnIn();
         IsRunning = false;
         Status = reason;
         var settings = plugin.GetCrafterLevelingSettings();
@@ -348,6 +359,122 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         settings.Progress.LastError = string.Empty;
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
+    }
+
+    private void BeginCollectorTurnIn(CrafterRecipePreset preset, CrafterLevelingSettings settings)
+    {
+        if (!settings.UseTheCollectorForRestoration)
+        {
+            PauseForManualTurnIn(Loc.L(
+                "予定数の復興品を製作しました。蒼天街で納品後、リストを更新して再開してください。",
+                "The planned restoration items are complete. Turn them in at the Firmament, rebuild the list, then resume."));
+            return;
+        }
+        if (!CustomDeliveryService.IsPluginLoaded("TheCollector"))
+        {
+            PauseForManualTurnIn(Loc.L(
+                "TheCollectorが読み込まれていないため、自動納品できません。蒼天街で手動納品してください。",
+                "TheCollector is not loaded. Turn the restoration items in manually at the Firmament."));
+            return;
+        }
+
+        try
+        {
+            collectorRecipeId = preset.RecipeId;
+            collectorProductItemId = RecipeProductId(preset.RecipeId);
+            collectorRequestedAtUtc = DateTime.UtcNow;
+            collectorBecameBusy = false;
+            collectorTurnInRequested = true;
+            settings.Progress.State = CrafterLevelingState.TurningInRestoration;
+            settings.Progress.UpdatedAt = DateTime.Now;
+            plugin.Configuration.Save();
+            Plugin.PluginInterface.GetIpcSubscriber<object>("TheCollector.Collect").InvokeAction();
+            Status = Loc.L("TheCollectorへ復興品の自動納品を依頼しました。",
+                "Requested automatic restoration turn-in from TheCollector.");
+        }
+        catch (Exception ex)
+        {
+            PauseForManualTurnIn(Loc.L(
+                $"TheCollectorを開始できませんでした：{ex.Message}。蒼天街で手動納品してください。",
+                $"Could not start TheCollector: {ex.Message}. Turn the items in manually at the Firmament."));
+        }
+    }
+
+    private void ContinueCollectorTurnIn()
+    {
+        if (DateTime.UtcNow - collectorRequestedAtUtc > TimeSpan.FromMinutes(10))
+        {
+            PauseForManualTurnIn(Loc.L(
+                "TheCollectorの納品完了待ちがタイムアウトしました。状態を確認して手動納品してください。",
+                "Timed out waiting for TheCollector. Check its state and turn the items in manually."));
+            return;
+        }
+
+        try
+        {
+            var busy = Plugin.PluginInterface.GetIpcSubscriber<bool>("TheCollector.IsRunning").InvokeFunc();
+            var state = Plugin.PluginInterface.GetIpcSubscriber<string>("TheCollector.GetStateText").InvokeFunc();
+            if (busy)
+            {
+                collectorBecameBusy = true;
+                Status = Loc.L($"TheCollectorで復興品を納品中：{state}",
+                    $"TheCollector is turning in restoration items: {state}");
+                return;
+            }
+
+            // Collect() starts its task queue asynchronously, so allow it time to become busy.
+            if (!collectorBecameBusy)
+            {
+                if (DateTime.UtcNow - collectorRequestedAtUtc <= TimeSpan.FromSeconds(10))
+                    return;
+                PauseForManualTurnIn(Loc.L(
+                    "TheCollectorが納品を開始しませんでした。Firmamentモードと依存プラグインを確認し、手動納品してください。",
+                    "TheCollector did not start. Check Firmament mode and its dependencies, then turn the items in manually."));
+                return;
+            }
+
+            if (!Plugin.PlayerState.IsLoaded)
+            {
+                Status = Loc.L("エリア移動の完了を待っています。", "Waiting for area travel to finish.");
+                return;
+            }
+            var remaining = CrafterInventoryLocator.PlayerInventoryCount(collectorProductItemId);
+            if (remaining > 0)
+            {
+                PauseForManualTurnIn(Loc.L(
+                    $"TheCollector終了後も{RecipeName(collectorRecipeId)}が{remaining}個残っています。収集価値・蒼天街振興券上限を確認し、手動納品してください。",
+                    $"{remaining} {RecipeName(collectorRecipeId)} remain after TheCollector finished. Check collectability and scrip limits, then turn them in manually."));
+                return;
+            }
+
+            var settings = plugin.GetCrafterLevelingSettings();
+            settings.PlannedCraftCounts.Remove(collectorRecipeId);
+            settings.CompletedCraftCounts.Remove(collectorRecipeId);
+            CrafterExperiencePlanner.EnsurePlans(settings);
+            settings.Progress.State = CrafterLevelingState.CraftingRestoration;
+            settings.Progress.LastError = string.Empty;
+            settings.Progress.UpdatedAt = DateTime.Now;
+            ResetCollectorTurnIn();
+            plugin.Configuration.Save();
+            waitUntilUtc = DateTime.UtcNow.AddSeconds(1);
+            Status = Loc.L("復興品の納品が完了しました。現在レベルから製作数を再計算します。",
+                "Restoration turn-in completed. Recalculating crafts from the current level.");
+        }
+        catch (Exception ex)
+        {
+            PauseForManualTurnIn(Loc.L(
+                $"TheCollectorの状態を確認できませんでした：{ex.Message}。手動納品してください。",
+                $"Could not read TheCollector state: {ex.Message}. Turn the items in manually."));
+        }
+    }
+
+    private void ResetCollectorTurnIn()
+    {
+        collectorTurnInRequested = false;
+        collectorBecameBusy = false;
+        collectorRequestedAtUtc = DateTime.MinValue;
+        collectorRecipeId = 0;
+        collectorProductItemId = 0;
     }
 
     private void Complete()

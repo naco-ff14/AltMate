@@ -38,6 +38,7 @@ public sealed class CrafterLevelingSettings
     public int TargetLevel { get; set; } = 100;
     public CrafterLevelingRoute Level50To80Route { get; set; } = CrafterLevelingRoute.Collectable;
     public bool StopAtLevel50 { get; set; } = true;
+    public bool UseTheCollectorForRestoration { get; set; } = true;
     public bool ShowMissingOnly { get; set; }
     public List<CrafterRecipePreset> RecipePresets { get; set; } = new();
     public List<CrafterGearPreset> GearPresets { get; set; } = new();
