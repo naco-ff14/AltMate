@@ -26,6 +26,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private DateTime jobChangeRequestedAtUtc;
     private bool artisanExitRequested;
     private int requestBoundaryLevel;
+    private bool awaitingStylistUpdate;
+    private DateTime stylistUpdateRequestedAtUtc;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -72,6 +74,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         pendingJobId = 0;
         artisanExitRequested = false;
         requestBoundaryLevel = 0;
+        awaitingStylistUpdate = false;
+        stylistUpdateRequestedAtUtc = DateTime.MinValue;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -202,6 +206,43 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
         var settingsForGear = plugin.GetCrafterLevelingSettings();
         var stylistLevel = AvailableGearUpdateLevel(settingsForGear, Plugin.PlayerState.ClassJob.RowId, currentLevel);
+        if (awaitingStylistUpdate)
+        {
+            try
+            {
+                // Stylist starts its task queue asynchronously; do not interpret an immediate
+                // false IsBusy result on the following frame as completion.
+                if (DateTime.UtcNow - stylistUpdateRequestedAtUtc < TimeSpan.FromMilliseconds(750))
+                {
+                    Status = Loc.L("Stylistの装備更新開始を待っています。",
+                        "Waiting for Stylist to begin updating gear.");
+                    return;
+                }
+                var stylistBusy = Plugin.PluginInterface.GetIpcSubscriber<bool>("Stylist.IsBusy").InvokeFunc();
+                if (stylistBusy || Plugin.Condition[ConditionFlag.Crafting] ||
+                    Plugin.Condition[ConditionFlag.PreparingToCraft])
+                {
+                    if (DateTime.UtcNow - stylistUpdateRequestedAtUtc > TimeSpan.FromSeconds(20))
+                        Stop(Loc.L("Stylistの装備更新完了待ちがタイムアウトしました。",
+                            "Timed out waiting for Stylist to finish updating gear."));
+                    else
+                        Status = Loc.L("Stylistの装備更新完了と製作準備状態の解除を待っています。",
+                            "Waiting for Stylist to finish and for the crafting preparation state to clear.");
+                    return;
+                }
+                awaitingStylistUpdate = false;
+                waitUntilUtc = DateTime.UtcNow.AddMilliseconds(500);
+                Status = Loc.L("装備更新が完了しました。次の処理を待っています。",
+                    "Gear update completed; waiting for the next step.");
+                return;
+            }
+            catch (Exception ex)
+            {
+                Stop(Loc.L($"Stylistの装備更新状態を確認できませんでした：{ex.Message}",
+                    $"Could not check Stylist gear-update state: {ex.Message}"));
+                return;
+            }
+        }
         // ICE leaves RecipeNote open and lets Artisan select the next recipe itself. Updating a
         // gearset while PreparingToCraft would require closing that log, so defer Stylist until
         // the character is naturally out of crafting stance (job change/start/completion).
@@ -220,7 +261,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 Plugin.PluginInterface.GetIpcSubscriber<bool?, bool?, object>("Stylist.UpdateCurrentGearsetEx")
                     .InvokeAction(true, true);
                 lastStylistLevel = stylistLevel;
-                waitUntilUtc = DateTime.UtcNow.AddSeconds(2);
+                awaitingStylistUpdate = true;
+                stylistUpdateRequestedAtUtc = DateTime.UtcNow;
                 Status = Loc.L($"StylistでLv{stylistLevel}までの装備へ更新します。",
                     $"Updating gear available through Lv{stylistLevel} with Stylist.");
                 return;
@@ -344,6 +386,26 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (targetJobId == 0)
             return false;
 
+        // Artisan's supported stop flow and Stylist are asynchronous. Never attempt a gearset
+        // change until both plugins and the game have completely left the crafting transition.
+        try
+        {
+            if (Plugin.Condition[ConditionFlag.Crafting] ||
+                Plugin.Condition[ConditionFlag.PreparingToCraft] ||
+                Plugin.PluginInterface.GetIpcSubscriber<bool>("Stylist.IsBusy").InvokeFunc())
+            {
+                Status = Loc.L("製作状態の解除とStylistの完了を待ってから次の職へ切り替えます。",
+                    "Waiting for crafting and Stylist to finish before changing jobs.");
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Stop(Loc.L($"次職への切替準備を確認できませんでした：{ex.Message}",
+                $"Could not verify readiness for the next job: {ex.Message}"));
+            return true;
+        }
+
         var gearsets = RaptureGearsetModule.Instance();
         if (gearsets == null)
         {
@@ -418,6 +480,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         requestSent = false;
         artisanBecameBusy = false;
         requestBoundaryLevel = 0;
+        awaitingStylistUpdate = false;
         if (artisanExitRequested)
             ReleaseArtisanExitRequest();
         lastStylistLevel = -1;
