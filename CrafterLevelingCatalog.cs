@@ -12,6 +12,7 @@ internal static class CrafterLevelingCatalog
         string EnglishName, int MaxCraftCount);
 
     internal sealed record ApplyResult(int Added, int Skipped, IReadOnlyList<string> Unresolved);
+    private sealed record LevelBand(int MinLevel, int MaxLevel);
 
     // Phase 1 draft from the agreed leveling route. IDs are deliberately not stored; the current
     // game data is resolved by product name so the user-facing plan remains readable.
@@ -177,6 +178,34 @@ internal static class CrafterLevelingCatalog
             added++;
         }
 
+        if (settings.TargetLevel > 50)
+        {
+            var routeEnd = Math.Min(80, settings.TargetLevel);
+            var routeBands = BuildBands(50, routeEnd, 10);
+            switch (settings.Level50To80Route)
+            {
+                case CrafterLevelingRoute.Restoration:
+                    AddDataDrivenPresets(settings, recipes, routeBands, CrafterLevelingRoute.Restoration,
+                        RestorationItemIds(), unresolved, ref added, ref skipped);
+                    break;
+                case CrafterLevelingRoute.Collectable:
+                    AddDataDrivenPresets(settings, recipes, routeBands, CrafterLevelingRoute.Collectable,
+                        CollectableItemIds(), unresolved, ref added, ref skipped);
+                    break;
+                default:
+                    AddDataDrivenPresets(settings, recipes, routeBands, CrafterLevelingRoute.Normal,
+                        null, unresolved, ref added, ref skipped);
+                    break;
+            }
+        }
+
+        if (settings.TargetLevel > 80)
+        {
+            var end = Math.Min(100, settings.TargetLevel);
+            AddDataDrivenPresets(settings, recipes, BuildBands(80, end, 5),
+                CrafterLevelingRoute.Collectable, CollectableItemIds(), unresolved, ref added, ref skipped);
+        }
+
         settings.RecipePresets.Sort((left, right) =>
         {
             var job = left.JobId.CompareTo(right.JobId);
@@ -184,6 +213,111 @@ internal static class CrafterLevelingCatalog
         });
 
         return new ApplyResult(added, skipped, unresolved);
+    }
+
+    private static IReadOnlyList<LevelBand> BuildBands(int start, int end, int width)
+    {
+        var result = new List<LevelBand>();
+        for (var min = start; min < end; min += width)
+            result.Add(new LevelBand(min, Math.Min(end - 1, min + width - 1)));
+        return result;
+    }
+
+    private static HashSet<uint> CollectableItemIds() =>
+        Plugin.DataManager.GetSubrowExcelSheet<CollectablesShopItem>()
+            .SelectMany(row => row)
+            .Where(row => row.Item.RowId != 0)
+            .Select(row => row.Item.RowId)
+            .ToHashSet();
+
+    private static HashSet<uint> RestorationItemIds() =>
+        Plugin.DataManager.GetExcelSheet<HWDCrafterSupply>()
+            .SelectMany(row => row.HWDCrafterSupplyParams)
+            .Where(entry => entry.ItemTradeIn.RowId != 0)
+            .Select(entry => entry.ItemTradeIn.RowId)
+            .ToHashSet();
+
+    private static void AddDataDrivenPresets(CrafterLevelingSettings settings,
+        IEnumerable<Recipe> recipes, IReadOnlyList<LevelBand> bands, CrafterLevelingRoute route,
+        HashSet<uint>? allowedItemIds, List<string> unresolved, ref int added, ref int skipped)
+    {
+        foreach (var jobId in settings.EnabledJobIds.Where(x => x is >= 8 and <= 15))
+        {
+            var candidates = recipes.Where(recipe =>
+                    recipe.ItemResult.RowId != 0 && recipe.CraftType.RowId + 8 == jobId &&
+                    recipe.RecipeLevelTable.Value.ClassJobLevel is >= 1 and <= 100 &&
+                    recipe.SecretRecipeBook.RowId == 0 && recipe.Quest.RowId == 0 && !recipe.IsExpert &&
+                    (allowedItemIds == null || allowedItemIds.Contains(recipe.ItemResult.RowId)) &&
+                    (route != CrafterLevelingRoute.Normal ||
+                     (!recipe.ItemResult.Value.IsCollectable && recipe.ItemResult.Value.EquipSlotCategory.RowId == 0)))
+                .ToArray();
+
+            CrafterRecipePreset? previous = null;
+            foreach (var band in bands)
+            {
+                // A recipe must already be available at the beginning of its band. Prefer the
+                // highest-level recipe, then fewer ingredient types/units for unattended use.
+                var selected = candidates
+                    .Where(recipe => recipe.RecipeLevelTable.Value.ClassJobLevel <= band.MinLevel)
+                    .OrderByDescending(recipe => recipe.RecipeLevelTable.Value.ClassJobLevel)
+                    .ThenBy(recipe => IngredientTypeCount(recipe))
+                    .ThenBy(recipe => IngredientUnitCount(recipe))
+                    .ThenBy(recipe => recipe.RowId)
+                    .FirstOrDefault();
+                if (selected.RowId == 0)
+                {
+                    unresolved.Add($"{JobName(jobId)} Lv{band.MinLevel}-{band.MaxLevel} ({route})");
+                    continue;
+                }
+
+                if (previous != null && previous.RecipeId == selected.RowId)
+                {
+                    previous.MaxLevel = band.MaxLevel;
+                    continue;
+                }
+                if (settings.RecipePresets.Any(x => x.JobId == jobId && x.RecipeId == selected.RowId))
+                {
+                    skipped++;
+                    continue;
+                }
+
+                previous = new CrafterRecipePreset
+                {
+                    JobId = jobId,
+                    MinLevel = band.MinLevel,
+                    MaxLevel = band.MaxLevel,
+                    RecipeId = selected.RowId,
+                    MaxCraftCount = 100_000,
+                    Route = route,
+                    RequiredUnlock = route switch
+                    {
+                        CrafterLevelingRoute.Restoration => "Towards the Firmament",
+                        CrafterLevelingRoute.Collectable => "Inscrutable Tastes",
+                        _ => string.Empty,
+                    },
+                    IsCatalogGenerated = true,
+                };
+                settings.RecipePresets.Add(previous);
+                added++;
+            }
+        }
+    }
+
+    private static int IngredientTypeCount(Recipe recipe) =>
+        recipe.Ingredient.Count(item => item.RowId != 0);
+
+    private static int IngredientUnitCount(Recipe recipe)
+    {
+        var total = 0;
+        for (var index = 0; index < recipe.AmountIngredient.Count; index++)
+            total += recipe.AmountIngredient[index];
+        return total;
+    }
+
+    private static string JobName(uint jobId)
+    {
+        var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        return jobs.TryGetRow(jobId, out var job) ? job.Abbreviation.ToString() : $"Job {jobId}";
     }
 
     private static IEnumerable<Recipe> Find(Dictionary<string, Recipe[]> recipes, string name) =>
