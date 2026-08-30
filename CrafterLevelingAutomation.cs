@@ -206,14 +206,23 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 return;
             }
             CreditCompletedCrafts();
-            var settings = plugin.GetCrafterLevelingSettings();
-            settings.Progress.UpdatedAt = DateTime.Now;
+            var completedSettings = plugin.GetCrafterLevelingSettings();
+            completedSettings.Progress.UpdatedAt = DateTime.Now;
             plugin.Configuration.Save();
             requestSent = false;
             artisanBecameBusy = false;
-            if (index < queue.Count && queue[index].Route == CrafterLevelingRoute.Restoration &&
-                requestedCraftCount > 0 && creditedCraftCount >= requestedCraftCount)
-                pendingRestorationRecipeId = queue[index].RecipeId;
+            if (index < queue.Count && queue[index].Route == CrafterLevelingRoute.Restoration)
+            {
+                var completedPreset = queue[index];
+                completedSettings.PlannedCraftCounts.TryGetValue(completedPreset.RecipeId, out var plannedCrafts);
+                completedSettings.CompletedCraftCounts.TryGetValue(completedPreset.RecipeId, out var completedCrafts);
+                var heldProducts = CrafterInventoryLocator.PlayerInventoryCount(
+                    RecipeProductId(completedPreset.RecipeId));
+                var batchSize = Math.Clamp(completedSettings.RestorationTurnInBatchSize, 1, 999);
+                if ((completedSettings.UseTheCollectorForRestoration && heldProducts >= batchSize) ||
+                    (plannedCrafts > 0 && completedCrafts >= plannedCrafts))
+                    pendingRestorationRecipeId = completedPreset.RecipeId;
+            }
         }
 
         var currentLevel = Plugin.PlayerState.Level;
@@ -313,6 +322,15 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         }
 
         var preset = queue[index];
+        var settings = plugin.GetCrafterLevelingSettings();
+        var productId = RecipeProductId(preset.RecipeId);
+        var heldProductCount = CrafterInventoryLocator.PlayerInventoryCount(productId);
+        if (preset.Route == CrafterLevelingRoute.Restoration && settings.UseTheCollectorForRestoration &&
+            heldProductCount >= Math.Clamp(settings.RestorationTurnInBatchSize, 1, 999))
+        {
+            BeginCollectorTurnIn(preset, settings);
+            return;
+        }
         var missingIngredients = MissingIngredients(preset.RecipeId);
         if (missingIngredients.Count > 0)
         {
@@ -328,7 +346,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         }
         try
         {
-            var settings = plugin.GetCrafterLevelingSettings();
             settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var plannedCrafts);
             settings.CompletedCraftCounts.TryGetValue(preset.RecipeId, out var completedCrafts);
             requestedCraftCount = Math.Max(1, plannedCrafts - completedCrafts);
@@ -343,9 +360,14 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 settings.PlannedCraftCounts[preset.RecipeId] = checked(plannedCrafts + requestedCraftCount);
             }
             if (preset.Route == CrafterLevelingRoute.Restoration && settings.UseTheCollectorForRestoration)
-                requestedCraftCount = Math.Min(requestedCraftCount,
-                    Math.Clamp(settings.RestorationTurnInBatchSize, 1, 999));
-            requestProductCount = CrafterInventoryLocator.PlayerInventoryCount(RecipeProductId(preset.RecipeId));
+            {
+                var remainingItemsToBatch = Math.Max(1,
+                    Math.Clamp(settings.RestorationTurnInBatchSize, 1, 999) - heldProductCount);
+                var craftsToBatch = (remainingItemsToBatch + RecipeResultAmount(preset.RecipeId) - 1) /
+                                    RecipeResultAmount(preset.RecipeId);
+                requestedCraftCount = Math.Min(requestedCraftCount, craftsToBatch);
+            }
+            requestProductCount = heldProductCount;
             creditedCraftCount = 0;
             requestBoundaryLevel = CalculateNextStopLevel(Plugin.PlayerState.Level);
             if (artisanExitRequested)
