@@ -11,6 +11,7 @@ internal sealed class CrafterPreparationService
     internal IReadOnlyList<CrafterPreparationItem> Build(CrafterLevelingSettings settings,
         out IReadOnlyList<string> errors)
     {
+        CrafterExperiencePlanner.EnsurePlans(settings);
         var required = new Dictionary<uint, (int Count, bool Crystal, bool Gear)>();
         var problems = new List<string>();
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
@@ -26,11 +27,7 @@ internal sealed class CrafterPreparationService
                 continue;
             }
 
-            if (!settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var plannedCrafts))
-            {
-                plannedCrafts = RemainingCraftCount(preset, JobLevel(preset.JobId));
-                settings.PlannedCraftCounts[preset.RecipeId] = plannedCrafts;
-            }
+            settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var plannedCrafts);
             settings.CompletedCraftCounts.TryGetValue(preset.RecipeId, out var completedCrafts);
             var craftCount = Math.Max(0, plannedCrafts - completedCrafts);
             for (var index = 0; index < recipe.Ingredient.Count; index++)
@@ -79,15 +76,6 @@ internal sealed class CrafterPreparationService
     }
 
     private static bool IsCrystal(uint itemId) => itemId is >= 2 and <= 19;
-
-    private static int RemainingCraftCount(CrafterRecipePreset preset, int jobLevel)
-    {
-        if (jobLevel <= preset.MinLevel)
-            return preset.MaxCraftCount;
-        var totalLevels = Math.Max(1, preset.MaxLevel - preset.MinLevel + 1);
-        var remainingLevels = Math.Max(1, preset.MaxLevel - jobLevel + 1);
-        return Math.Max(1, (int)Math.Ceiling(preset.MaxCraftCount * remainingLevels / (double)totalLevels));
-    }
 
     private static unsafe int JobLevel(uint jobId)
     {

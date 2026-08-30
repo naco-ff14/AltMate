@@ -84,8 +84,8 @@ public sealed partial class MainWindow
                 "製作品・装備候補・必要素材・所持数をまとめて更新します。",
                 "Updates recipes, gear, required items, and owned counts together."));
             ImGui.TextDisabled(Loc.L(
-                "製作数は公開レベリングガイドの目安です。経験値ボーナスや初回製作で実際の必要数は前後します。",
-                "Craft counts are public-guide estimates and vary with EXP bonuses and first-time crafting."));
+                "製作数は現在Lv・現在EXP・各レシピの基礎EXPから事前計算します。品質・初回・EXPバフは準備数に含めません。",
+                "Craft counts are precomputed from current level/EXP and each recipe's base EXP. Quality, first-craft and EXP buffs are excluded."));
             if (!string.IsNullOrWhiteSpace(crafterListMessage))
                 ImGui.TextWrapped(crafterListMessage);
         }
@@ -310,7 +310,7 @@ public sealed partial class MainWindow
         {
             foreach (var heading in new[] { Loc.L("製作品", "Product"), Loc.L("ジョブ", "Job"),
                          Loc.L("レシピLv", "Recipe Lv"), Loc.L("使用Lv帯", "Level range"),
-                         Loc.L("最大製作数", "Max crafts"), string.Empty })
+                         Loc.L("完了 / 予定", "Done / planned"), string.Empty })
                 ImGui.TableSetupColumn(heading);
             ImGui.TableHeadersRow();
         foreach (var entry in visiblePresets)
@@ -333,15 +333,9 @@ public sealed partial class MainWindow
                 : "—");
             ImGui.TableNextColumn(); ImGui.TextUnformatted($"Lv{preset.MinLevel}–{preset.MaxLevel}");
             ImGui.TableNextColumn();
-            var craftCount = preset.MaxCraftCount;
-            ImGui.SetNextItemWidth(85 * ImGuiHelpers.GlobalScale);
-            if (ImGui.InputInt($"##crafter-count-{index}", ref craftCount, 1, 10))
-            {
-                preset.MaxCraftCount = Math.Clamp(craftCount, 1, 9999);
-                SaveCrafterSettings();
-                var service = new CrafterPreparationService();
-                crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
-            }
+            settings.CompletedCraftCounts.TryGetValue(preset.RecipeId, out var completedCrafts);
+            settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var plannedCrafts);
+            ImGui.TextUnformatted($"{completedCrafts} / {plannedCrafts}");
             ImGui.TableNextColumn();
             if (!ImGui.SmallButton($"{Loc.L("削除", "Remove")}##crafter-preset-{index}")) continue;
             settings.RecipePresets.RemoveAt(index);

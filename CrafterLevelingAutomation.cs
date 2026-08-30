@@ -246,7 +246,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             requestedCraftCount = Math.Max(1, plannedCrafts - completedCrafts);
             if (requestedCraftCount == 1 && plannedCrafts <= completedCrafts)
             {
-                requestedCraftCount = Math.Max(1, preset.MaxCraftCount);
+                requestedCraftCount = CrafterExperiencePlanner.CraftsNeededNow(preset, settings.TargetLevel);
                 settings.PlannedCraftCounts[preset.RecipeId] = checked(plannedCrafts + requestedCraftCount);
             }
             requestProductCount = CrafterInventoryLocator.PlayerInventoryCount(RecipeProductId(preset.RecipeId));
