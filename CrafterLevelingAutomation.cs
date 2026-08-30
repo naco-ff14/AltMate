@@ -24,6 +24,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private int creditedCraftCount;
     private uint pendingJobId;
     private DateTime jobChangeRequestedAtUtc;
+    private bool artisanExitRequested;
+    private int requestBoundaryLevel;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -68,6 +70,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         requestProductCount = 0;
         creditedCraftCount = 0;
         pendingJobId = 0;
+        artisanExitRequested = false;
+        requestBoundaryLevel = 0;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -92,6 +96,10 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         plugin.Configuration.Save();
         try
         {
+            if (artisanExitRequested)
+            {
+                ReleaseArtisanExitRequest();
+            }
             Plugin.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetEnduranceStatus")
                 .InvokeAction(false);
         }
@@ -142,6 +150,29 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         {
             artisanBecameBusy = true;
             CreditCompletedCrafts();
+            var switchLevel = requestBoundaryLevel > 0
+                ? requestBoundaryLevel
+                : CalculateNextStopLevel(Plugin.PlayerState.Level);
+            if (!artisanExitRequested && Plugin.PlayerState.Level >= switchLevel)
+            {
+                try
+                {
+                    // Unlike disabling Endurance directly, Artisan's stop request queues its own
+                    // TaskExitCraft after the current synthesis. This leaves it in IdleNormal so
+                    // Stylist can safely equip newly available gear.
+                    Plugin.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetStopRequest")
+                        .InvokeAction(true);
+                    artisanExitRequested = true;
+                    Status = Loc.L($"Lv{switchLevel}到達：Artisanの製作終了と装備更新を待っています。",
+                        $"Reached Lv{switchLevel}; waiting for Artisan to exit and update gear.");
+                }
+                catch (Exception ex)
+                {
+                    Stop(Loc.L($"Artisanへ製作終了を依頼できませんでした：{ex.Message}",
+                        $"Could not ask Artisan to exit crafting: {ex.Message}"));
+                }
+                return;
+            }
             Status = Loc.L(
                 $"製作中：{RecipeName(queue[index].RecipeId)}（レシピ段階 {index + 1}/{queue.Count}・{NextSwitchLabel()}）",
                 $"Crafting: {RecipeName(queue[index].RecipeId)} (recipe stage {index + 1}/{queue.Count}; {NextSwitchLabel(false)})");
@@ -244,6 +275,13 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             }
             requestProductCount = CrafterInventoryLocator.PlayerInventoryCount(RecipeProductId(preset.RecipeId));
             creditedCraftCount = 0;
+            requestBoundaryLevel = CalculateNextStopLevel(Plugin.PlayerState.Level);
+            if (artisanExitRequested)
+            {
+                // Releasing a stop request briefly restores Artisan's previous mode. Disable it
+                // synchronously before giving Artisan the new recipe so the old recipe cannot run.
+                ReleaseArtisanExitRequest();
+            }
             Plugin.PluginInterface.GetIpcSubscriber<ushort, int, object>("Artisan.CraftItem")
                 .InvokeAction((ushort)preset.RecipeId, requestedCraftCount);
             requestSent = true;
@@ -272,6 +310,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
     private void Complete()
     {
+        if (artisanExitRequested)
+            ReleaseArtisanExitRequest();
         IsRunning = false;
         Status = Loc.L("現在のクラフター職の製作が完了しました。", "Crafting for the current job is complete.");
         var settings = plugin.GetCrafterLevelingSettings();
@@ -377,6 +417,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         LoadQueue(settings, changedJobId, Plugin.PlayerState.Level);
         requestSent = false;
         artisanBecameBusy = false;
+        requestBoundaryLevel = 0;
+        if (artisanExitRequested)
+            ReleaseArtisanExitRequest();
         lastStylistLevel = -1;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
         settings.Progress.CurrentJobId = changedJobId;
@@ -384,6 +427,15 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         plugin.Configuration.Save();
         Status = Loc.L($"{JobName(changedJobId)}の製作を開始します。",
             $"Starting crafting for {JobName(changedJobId)}.");
+    }
+
+    private void ReleaseArtisanExitRequest()
+    {
+        Plugin.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetStopRequest")
+            .InvokeAction(false);
+        Plugin.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetEnduranceStatus")
+            .InvokeAction(false);
+        artisanExitRequested = false;
     }
 
     private static unsafe int ClassJobLevel(uint jobId)
@@ -433,7 +485,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
     private string NextSwitchLabel(bool japanese = true)
     {
-        var targetLevel = CalculateNextStopLevel(Plugin.PlayerState.Level);
+        var targetLevel = requestSent && requestBoundaryLevel > 0
+            ? requestBoundaryLevel
+            : CalculateNextStopLevel(Plugin.PlayerState.Level);
         return japanese ? $"次の判定 Lv{targetLevel}" : $"next check at Lv{targetLevel}";
     }
 
