@@ -7,7 +7,7 @@ namespace AltMate;
 
 internal static class CrafterGearCatalog
 {
-    internal static readonly int[] TierLevels = [21, 41, 53, 63, 71, 81, 91, 100];
+    internal static readonly int[] TierLevels = [20, 21, 41, 53, 63, 71, 81, 91, 100];
     internal sealed record Result(int TierCount, IReadOnlyList<string> Missing);
 
     internal static Result BuildStandard(CrafterLevelingSettings settings)

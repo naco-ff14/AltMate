@@ -195,13 +195,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         var currentLevel = Plugin.PlayerState.Level;
         while (index + 1 < queue.Count && currentLevel >= queue[index + 1].MinLevel)
             index++;
-        if (index >= queue.Count || currentLevel >= plugin.GetCrafterLevelingSettings().TargetLevel)
-        {
-            if (!BeginNextJob())
-                Complete();
-            return;
-        }
-
         var stylistTier = CrafterGearCatalog.TierLevels.Where(x => x <= currentLevel).DefaultIfEmpty(1).Max();
         if (stylistTier > lastStylistTier)
         {
@@ -227,6 +220,14 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                     $"Stylist could not update gear: {ex.Message}"));
                 return;
             }
+        }
+
+        // Save/equip the newly available tier before leaving a job that just reached target.
+        if (index >= queue.Count || currentLevel >= plugin.GetCrafterLevelingSettings().TargetLevel)
+        {
+            if (!BeginNextJob())
+                Complete();
+            return;
         }
 
         var preset = queue[index];
