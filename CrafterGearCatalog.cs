@@ -15,7 +15,7 @@ internal static class CrafterGearCatalog
         var items = Plugin.DataManager.GetExcelSheet<Item>()
             .Where(x => x.LevelEquip > 0 && x.EquipSlotCategory.RowId != 0 &&
                         !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
-                        !IsLegacyItem(x))
+                        IsUsableLevelingItem(x))
             .ToArray();
         var missing = new List<string>();
         foreach (var tier in TierLevels.Where(x => x <= settings.TargetLevel))
@@ -59,8 +59,10 @@ internal static class CrafterGearCatalog
         .ThenByDescending(x => x.RowId)
         .FirstOrDefault();
 
-    private static bool IsLegacyItem(Item item) =>
-        item.Name.ToString().TrimStart().StartsWith('†');
+    private static bool IsUsableLevelingItem(Item item) =>
+        // Untradable quest/event/legacy rewards (for example Wood Wailer's Jacket)
+        // cannot be prepared consistently and must never become standard leveling gear.
+        !item.IsUntradable && !item.Name.ToString().TrimStart().StartsWith('†');
 
     private static bool HasCraftingStats(Item item)
     {
