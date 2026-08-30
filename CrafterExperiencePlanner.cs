@@ -55,12 +55,12 @@ internal static class CrafterExperiencePlanner
                 {
                     // Existing plans are kept while crafting. Live completed counts reduce the
                     // remaining material total without moving the original starting baseline.
-                    SimulateExistingPlan(recipe, settings.PlannedCraftCounts[preset.RecipeId],
+                    SimulateExistingPlan(recipe, preset.Route, settings.PlannedCraftCounts[preset.RecipeId],
                         ref level, ref experience, stopLevel);
                     continue;
                 }
 
-                var count = CraftsToLevel(recipe, ref level, ref experience, stopLevel);
+                var count = CraftsToLevel(recipe, preset.Route, ref level, ref experience, stopLevel);
                 settings.PlannedCraftCounts[preset.RecipeId] = count;
             }
         }
@@ -72,15 +72,16 @@ internal static class CrafterExperiencePlanner
             return 1;
         var (level, experience) = JobProgress(preset.JobId);
         var stopLevel = Math.Min(targetLevel, preset.MaxLevel + 1);
-        return Math.Max(1, CraftsToLevel(recipe, ref level, ref experience, stopLevel));
+        return Math.Max(1, CraftsToLevel(recipe, preset.Route, ref level, ref experience, stopLevel));
     }
 
-    private static int CraftsToLevel(Recipe recipe, ref int level, ref int experience, int stopLevel)
+    private static int CraftsToLevel(Recipe recipe, CrafterLevelingRoute route, ref int level,
+        ref int experience, int stopLevel)
     {
         var count = 0;
         while (level < stopLevel && count < 100_000)
         {
-            var gained = BaseExperience(recipe, level);
+            var gained = ExperiencePerCraft(recipe, route, level);
             if (gained <= 0)
                 return Math.Max(1, count);
             experience = checked(experience + gained);
@@ -90,12 +91,12 @@ internal static class CrafterExperiencePlanner
         return Math.Max(1, count);
     }
 
-    private static void SimulateExistingPlan(Recipe recipe, int count, ref int level, ref int experience,
-        int stopLevel)
+    private static void SimulateExistingPlan(Recipe recipe, CrafterLevelingRoute route, int count,
+        ref int level, ref int experience, int stopLevel)
     {
         for (var index = 0; index < count && level < stopLevel; index++)
         {
-            experience = checked(experience + BaseExperience(recipe, level));
+            experience = checked(experience + ExperiencePerCraft(recipe, route, level));
             AdvanceLevels(ref level, ref experience, stopLevel);
         }
     }
@@ -111,14 +112,34 @@ internal static class CrafterExperiencePlanner
         }
     }
 
-    private static int BaseExperience(Recipe recipe, int playerLevel)
+    private static int ExperiencePerCraft(Recipe recipe, CrafterLevelingRoute route, int playerLevel)
     {
         var recipeLevel = (int)recipe.RecipeLevelTable.Value.ClassJobLevel;
         if (recipeLevel < 1 || recipeLevel > FirstCompletionExperience.Length)
             return 0;
         var difference = Math.Clamp(playerLevel - recipeLevel, 0, LevelDifferenceModifiers.Length - 1);
         var normalBase = FirstCompletionExperience[recipeLevel - 1] / 3;
-        return normalBase * LevelDifferenceModifiers[difference] / 100;
+        var synthesisExperience = normalBase * LevelDifferenceModifiers[difference] / 100;
+        return checked(synthesisExperience +
+                       (route == CrafterLevelingRoute.Restoration ? RestorationTurnInExperience(recipe) : 0));
+    }
+
+    private static int RestorationTurnInExperience(Recipe recipe)
+    {
+        var itemId = recipe.ItemResult.RowId;
+        var rewards = Plugin.DataManager.GetExcelSheet<HWDCrafterSupplyReward>();
+        foreach (var supply in Plugin.DataManager.GetExcelSheet<HWDCrafterSupply>())
+        foreach (var entry in supply.HWDCrafterSupplyParams)
+        {
+            if (entry.ItemTradeIn.RowId != itemId)
+                continue;
+            var rewardId = entry.BaseCollectableRewardPostPhase.RowId != 0
+                ? entry.BaseCollectableRewardPostPhase.RowId
+                : entry.BaseCollectableReward.RowId;
+            if (rewardId != 0 && rewards.TryGetRow(rewardId, out var reward))
+                return checked((int)reward.ExpReward);
+        }
+        return 0;
     }
 
     private static unsafe (int Level, int Experience) JobProgress(uint jobId)

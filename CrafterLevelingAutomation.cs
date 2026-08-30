@@ -246,6 +246,13 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             requestedCraftCount = Math.Max(1, plannedCrafts - completedCrafts);
             if (requestedCraftCount == 1 && plannedCrafts <= completedCrafts)
             {
+                if (preset.Route == CrafterLevelingRoute.Restoration)
+                {
+                    PauseForManualTurnIn(Loc.L(
+                        "予定数の復興品を製作しました。蒼天街で納品後、リストを更新して再開してください。",
+                        "The planned restoration items are complete. Turn them in at the Firmament, rebuild the list, then resume."));
+                    return;
+                }
                 requestedCraftCount = CrafterExperiencePlanner.CraftsNeededNow(preset, settings.TargetLevel);
                 settings.PlannedCraftCounts[preset.RecipeId] = checked(plannedCrafts + requestedCraftCount);
             }
@@ -266,6 +273,17 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             Stop(Loc.L($"Artisanへの製作依頼に失敗しました：{ex.Message}",
                 $"Failed to request crafting from Artisan: {ex.Message}"));
         }
+    }
+
+    private void PauseForManualTurnIn(string reason)
+    {
+        IsRunning = false;
+        Status = reason;
+        var settings = plugin.GetCrafterLevelingSettings();
+        settings.Progress.State = CrafterLevelingState.Paused;
+        settings.Progress.LastError = string.Empty;
+        settings.Progress.UpdatedAt = DateTime.Now;
+        plugin.Configuration.Save();
     }
 
     private void Complete()

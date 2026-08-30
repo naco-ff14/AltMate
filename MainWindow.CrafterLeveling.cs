@@ -84,8 +84,11 @@ public sealed partial class MainWindow
                 "製作品・装備候補・必要素材・所持数をまとめて更新します。",
                 "Updates recipes, gear, required items, and owned counts together."));
             ImGui.TextDisabled(Loc.L(
-                "製作数は現在Lv・現在EXP・各レシピの基礎EXPから事前計算します。品質・初回・EXPバフは準備数に含めません。",
-                "Craft counts are precomputed from current level/EXP and each recipe's base EXP. Quality, first-craft and EXP buffs are excluded."));
+                "製作数は現在Lv・EXPから事前計算します。Lv20以降の復興品は最低収集価値での納品EXPも含みます。",
+                "Craft counts are precomputed from current level/EXP. Restoration items after Lv20 also include minimum-rating turn-in EXP."));
+            ImGui.TextDisabled(Loc.L(
+                "品質・初回・EXPバフは含めません。復興品は予定数完成後に蒼天街で手動納品し、リストを更新してください。",
+                "Quality, first-craft and EXP buffs are excluded. Turn in completed restoration items manually, then rebuild the list."));
             if (!string.IsNullOrWhiteSpace(crafterListMessage))
                 ImGui.TextWrapped(crafterListMessage);
         }
