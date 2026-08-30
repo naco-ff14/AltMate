@@ -2,6 +2,7 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
@@ -18,7 +19,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private bool requestSent;
     private bool artisanBecameBusy;
     private DateTime requestAtUtc;
-    private int lastStylistTier = -1;
+    private int lastStylistLevel = -1;
     private DateTime waitUntilUtc;
     private int requestedCraftCount;
     private int requestProductCount;
@@ -66,7 +67,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         index = 0;
         requestSent = false;
         artisanBecameBusy = false;
-        lastStylistTier = -1;
+        lastStylistLevel = -1;
         requestedCraftCount = 0;
         requestProductCount = 0;
         creditedCraftCount = 0;
@@ -208,8 +209,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (CloseRecipeLogIfOpen())
             return;
 
-        var stylistTier = CrafterGearCatalog.TierLevels.Where(x => x <= currentLevel).DefaultIfEmpty(1).Max();
-        if (stylistTier > lastStylistTier)
+        var settingsForGear = plugin.GetCrafterLevelingSettings();
+        var stylistLevel = AvailableGearUpdateLevel(settingsForGear, Plugin.PlayerState.ClassJob.RowId, currentLevel);
+        if (stylistLevel > lastStylistLevel)
         {
             try
             {
@@ -221,10 +223,10 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 }
                 Plugin.PluginInterface.GetIpcSubscriber<bool?, bool?, object>("Stylist.UpdateCurrentGearsetEx")
                     .InvokeAction(true, true);
-                lastStylistTier = stylistTier;
+                lastStylistLevel = stylistLevel;
                 waitUntilUtc = DateTime.UtcNow.AddSeconds(2);
-                Status = Loc.L($"StylistでLv{stylistTier}装備へ更新します。",
-                    $"Updating to Lv{stylistTier} gear with Stylist.");
+                Status = Loc.L($"StylistでLv{stylistLevel}までの装備へ更新します。",
+                    $"Updating gear available through Lv{stylistLevel} with Stylist.");
                 return;
             }
             catch (Exception ex)
@@ -310,7 +312,19 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("RecipeNote").Address;
         if (addon == null || !addon->IsVisible)
             return false;
-        addon->Close(true);
+
+        // Closing only the addon can leave AgentRecipeNote active. Artisan then continues to
+        // see the old recipe even though AltMate is already waiting to select the next stage.
+        // Hide the owning agent as the game's close button does, with the addon close as a
+        // fallback for the frame in which the agent is being torn down.
+        var agentModule = AgentModule.Instance();
+        var agent = agentModule == null
+            ? null
+            : agentModule->GetAgentByInternalId(AgentId.RecipeNote);
+        if (agent != null)
+            agent->Hide();
+        else
+            addon->Close(false);
         return true;
     }
 
@@ -423,7 +437,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         artisanBecameBusy = false;
         stopRequested = false;
         requestStopLevel = 0;
-        lastStylistTier = -1;
+        lastStylistLevel = -1;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
         settings.Progress.CurrentJobId = changedJobId;
         settings.Progress.UpdatedAt = DateTime.Now;
@@ -493,11 +507,36 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     {
         var targetLevel = plugin.GetCrafterLevelingSettings().TargetLevel;
         var recipeLevel = index + 1 < queue.Count ? queue[index + 1].MinLevel : targetLevel;
-        var gearLevel = CrafterGearCatalog.TierLevels
-            .Where(level => level > currentLevel)
+        var gearLevel = NextGearUpdateLevel(plugin.GetCrafterLevelingSettings(),
+            Plugin.PlayerState.ClassJob.RowId, currentLevel, targetLevel);
+        return Math.Min(targetLevel, Math.Min(recipeLevel, gearLevel));
+    }
+
+    private static int AvailableGearUpdateLevel(CrafterLevelingSettings settings, uint jobId, int currentLevel) =>
+        GearUpdateLevels(settings, jobId)
+            .Where(level => level <= currentLevel)
+            .DefaultIfEmpty(1)
+            .Max();
+
+    private static int NextGearUpdateLevel(CrafterLevelingSettings settings, uint jobId,
+        int currentLevel, int targetLevel) =>
+        GearUpdateLevels(settings, jobId)
+            .Where(level => level > currentLevel && level <= targetLevel)
             .DefaultIfEmpty(targetLevel)
             .Min();
-        return Math.Min(targetLevel, Math.Min(recipeLevel, gearLevel));
+
+    private static IEnumerable<int> GearUpdateLevels(CrafterLevelingSettings settings, uint jobId)
+    {
+        var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
+        foreach (var preset in settings.GearPresets.Where(x => x.TierLevel <= settings.TargetLevel))
+        {
+            IEnumerable<uint> itemIds = preset.SharedItemIds;
+            if (preset.JobItemIds.TryGetValue(jobId, out var jobItems))
+                itemIds = itemIds.Concat(jobItems);
+            foreach (var itemId in itemIds.Distinct())
+                if (itemSheet.TryGetRow(itemId, out var item) && item.LevelEquip > 0)
+                    yield return item.LevelEquip;
+        }
     }
 
     private void CreditCompletedCrafts()
