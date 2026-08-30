@@ -3,6 +3,7 @@ using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -200,6 +201,13 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         var currentLevel = Plugin.PlayerState.Level;
         while (index + 1 < queue.Count && currentLevel >= queue[index + 1].MinLevel)
             index++;
+
+        // Artisan may leave the previous recipe selected in an open crafting log after an
+        // endurance stop. Close it before selecting the next recipe; otherwise CraftItem can
+        // consider the old recipe state active and refuse to continue.
+        if (CloseRecipeLogIfOpen())
+            return;
+
         var stylistTier = CrafterGearCatalog.TierLevels.Where(x => x <= currentLevel).DefaultIfEmpty(1).Max();
         if (stylistTier > lastStylistTier)
         {
@@ -295,6 +303,15 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         settings.Progress.LastError = string.Empty;
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
+    }
+
+    private static unsafe bool CloseRecipeLogIfOpen()
+    {
+        var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("RecipeNote").Address;
+        if (addon == null || !addon->IsVisible)
+            return false;
+        addon->Close(true);
+        return true;
     }
 
     private void Complete()
