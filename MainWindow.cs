@@ -299,22 +299,39 @@ public sealed partial class MainWindow : Window
         ImGui.Spacing();
 
         DrawMenuButton(Loc.T("Home"), MainSection.Home);
+
+        DrawMenuGroupLabel(Loc.L("自動化", "AUTOMATION"), narrow);
+        DrawMenuButton(narrow ? Loc.L("製作育成", "Craft") : Loc.L("クラフター育成", "Crafter Leveling"),
+            MainSection.CrafterLeveling);
+        DrawMenuButton(narrow ? Loc.L("お得意", "Delivery") : Loc.L("お得意様", "Custom Deliveries"),
+            MainSection.CustomDeliveries);
+
+        DrawMenuGroupLabel(Loc.L("キャラクター", "CHARACTER"), narrow);
         DrawMenuButton(Loc.T("Link"), MainSection.CharacterLink,
             detail: narrow ? null : GetCharacterLinkMenuDetail());
         DrawMenuButton(narrow ? Loc.L("アニメ", "Emotes") : Loc.T("Animation"), MainSection.Animations);
-        DrawMenuButton(narrow ? Loc.L("住宅", "Housing") : Loc.T("Housing"), MainSection.Housing,
-            GetHousingAttentionCount());
-        DrawMenuButton(Loc.T("Gil"), MainSection.Gil);
-        DrawMenuButton(narrow ? Loc.L("お得意", "Delivery") : Loc.L("お得意様", "Custom Deliveries"),
-            MainSection.CustomDeliveries);
+
+        DrawMenuGroupLabel(Loc.L("管理", "MANAGEMENT"), narrow);
+        DrawMenuButton(narrow ? Loc.L("住宅", "Housing") : Loc.T("Housing"), MainSection.Housing);
         DrawMenuButton(narrow ? Loc.L("潜水艦", "Subs") : Loc.L("潜水艦管理", "Submersibles"),
             MainSection.Submarines);
-        DrawMenuButton(narrow ? Loc.L("製作育成", "Craft") : Loc.L("クラフター育成", "Crafter Leveling"),
-            MainSection.CrafterLeveling);
+        DrawMenuButton(Loc.T("Gil"), MainSection.Gil);
         var bottomY = ImGui.GetWindowHeight() - 62 * ImGuiHelpers.GlobalScale;
         if (ImGui.GetCursorPosY() < bottomY)
             ImGui.SetCursorPosY(bottomY);
         DrawMenuButton(narrow ? Loc.L("設定", "Settings") : Loc.T("Settings"), MainSection.Settings);
+    }
+
+    private static void DrawMenuGroupLabel(string label, bool narrow)
+    {
+        if (narrow)
+        {
+            ImGui.Spacing();
+            return;
+        }
+
+        ImGui.Spacing();
+        ImGui.TextDisabled(label);
     }
 
     private void EnterCompactMode()
@@ -478,13 +495,13 @@ public sealed partial class MainWindow : Window
         new (string Label, MainSection Section)[]
         {
             (Loc.L("ホーム", "Home"), MainSection.Home),
+            (Loc.L("製作育成", "Craft"), MainSection.CrafterLeveling),
+            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
             (Loc.L("連携", "Link"), MainSection.CharacterLink),
             (Loc.L("アニメ", "Emotes"), MainSection.Animations),
             (Loc.L("住宅", "Housing"), MainSection.Housing),
-            (Loc.L("ギル", "Gil"), MainSection.Gil),
-            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
-            (Loc.L("製作育成", "Craft"), MainSection.CrafterLeveling),
+            (Loc.L("ギル", "Gil"), MainSection.Gil),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         }.Where(item => !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section)).ToArray();
 
@@ -534,7 +551,7 @@ public sealed partial class MainWindow : Window
             ImGui.SetTooltip(tooltip);
     }
 
-    private void DrawMenuButton(string label, MainSection section, int badge = 0, string? detail = null)
+    private void DrawMenuButton(string label, MainSection section, string? detail = null)
     {
         var selected = selectedSection == section;
         if (selected)
@@ -548,10 +565,9 @@ public sealed partial class MainWindow : Window
             ImGui.PushStyleColor(ImGuiCol.ButtonHovered, new Vector4(0.17f, 0.2f, 0.26f, 0.9f));
         }
 
-        var text = badge > 0 ? $"{label}    {badge}" : label;
         var buttonHeight = detail is null ? 46 : 54;
         var buttonPosition = ImGui.GetCursorScreenPos();
-        if (ImGui.Button($"{text}{(detail is null ? string.Empty : "\n ")}##main-{section}",
+        if (ImGui.Button($"{label}{(detail is null ? string.Empty : "\n ")}##main-{section}",
                 new Vector2(-1, buttonHeight * ImGuiHelpers.GlobalScale)))
             SelectSection(section);
         if (detail is not null)
@@ -1325,13 +1341,13 @@ public sealed partial class MainWindow : Window
         var compactMenuItems = new (string Label, MainSection Section)[]
         {
             (Loc.L("ホーム", "Home"), MainSection.Home),
+            (Loc.L("製作育成", "Craft"), MainSection.CrafterLeveling),
+            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
             (Loc.L("連携", "Link"), MainSection.CharacterLink),
             (Loc.L("アニメ", "Emotes"), MainSection.Animations),
             (Loc.L("住宅", "Housing"), MainSection.Housing),
-            (Loc.L("ギル", "Gil"), MainSection.Gil),
-            (Loc.L("お得意", "Delivery"), MainSection.CustomDeliveries),
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
-            (Loc.L("製作育成", "Craft"), MainSection.CrafterLeveling),
+            (Loc.L("ギル", "Gil"), MainSection.Gil),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         };
         for (var index = 0; index < compactMenuItems.Length; index++)
