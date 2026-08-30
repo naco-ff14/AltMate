@@ -57,24 +57,24 @@ internal static class CrafterLevelingCatalog
 
     // The Lv20/Lv40 Grade 4 restoration recipes are intentionally explicit. Choosing an
     // arbitrary recipe near the player's level can select furnishings or obsolete gear.
-    internal static readonly IReadOnlyList<Entry> RestorationLevel21To50 =
+    internal static readonly IReadOnlyList<Entry> RestorationLevel20To50 =
     [
-        new(8, 21, 40, "第四次復興用の合板", "Grade 4 Skybuilders' Plywood", 25),
-        new(9, 21, 40, "第四次復興用の合金", "Grade 4 Skybuilders' Alloy", 25),
-        new(10, 21, 40, "第四次復興用の金属板", "Grade 4 Skybuilders' Steel Plate", 25),
-        new(11, 21, 40, "第四次復興用の地金", "Grade 4 Skybuilders' Ingot", 25),
-        new(12, 21, 40, "第四次復興用のなめし革", "Grade 4 Skybuilders' Leather", 25),
-        new(13, 21, 40, "第四次復興用の荒縄", "Grade 4 Skybuilders' Rope", 25),
-        new(14, 21, 40, "第四次復興用のインク", "Grade 4 Skybuilders' Ink", 25),
-        new(15, 21, 40, "第四次復興用のヘンプミルク", "Grade 4 Skybuilders' Hemp Milk", 25),
-        new(8, 41, 50, "第四次復興用の木箱", "Grade 4 Skybuilders' Crate", 20),
-        new(9, 41, 50, "第四次復興用の鉄釘", "Grade 4 Skybuilders' Nails", 20),
-        new(10, 41, 50, "第四次復興用のリベット", "Grade 4 Skybuilders' Rivets", 20),
-        new(11, 41, 50, "第四次復興用の鉄環", "Grade 4 Skybuilders' Rings", 20),
-        new(12, 41, 50, "第四次復興用の革紐", "Grade 4 Skybuilders' Leather Straps", 20),
-        new(13, 41, 50, "第四次復興用の生地", "Grade 4 Skybuilders' Cloth", 20),
-        new(14, 41, 50, "第四次復興用の植物油", "Grade 4 Skybuilders' Plant Oil", 20),
-        new(15, 41, 50, "第四次復興用のセサミクッキー", "Grade 4 Skybuilders' Sesame Cookie", 20),
+        new(8, 20, 39, "第四次復興用の合板", "Grade 4 Skybuilders' Plywood", 25),
+        new(9, 20, 39, "第四次復興用の合金", "Grade 4 Skybuilders' Alloy", 25),
+        new(10, 20, 39, "第四次復興用の金属板", "Grade 4 Skybuilders' Steel Plate", 25),
+        new(11, 20, 39, "第四次復興用の地金", "Grade 4 Skybuilders' Ingot", 25),
+        new(12, 20, 39, "第四次復興用のなめし革", "Grade 4 Skybuilders' Leather", 25),
+        new(13, 20, 39, "第四次復興用の荒縄", "Grade 4 Skybuilders' Rope", 25),
+        new(14, 20, 39, "第四次復興用のインク", "Grade 4 Skybuilders' Ink", 25),
+        new(15, 20, 39, "第四次復興用のヘンプミルク", "Grade 4 Skybuilders' Hemp Milk", 25),
+        new(8, 40, 49, "第四次復興用の木箱", "Grade 4 Skybuilders' Crate", 20),
+        new(9, 40, 49, "第四次復興用の鉄釘", "Grade 4 Skybuilders' Nails", 20),
+        new(10, 40, 49, "第四次復興用のリベット", "Grade 4 Skybuilders' Rivets", 20),
+        new(11, 40, 49, "第四次復興用の鉄環", "Grade 4 Skybuilders' Rings", 20),
+        new(12, 40, 49, "第四次復興用の革紐", "Grade 4 Skybuilders' Leather Straps", 20),
+        new(13, 40, 49, "第四次復興用の生地", "Grade 4 Skybuilders' Cloth", 20),
+        new(14, 40, 49, "第四次復興用の植物油", "Grade 4 Skybuilders' Plant Oil", 20),
+        new(15, 40, 49, "第四次復興用のセサミクッキー", "Grade 4 Skybuilders' Sesame Cookie", 20),
     ];
 
     internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
@@ -110,7 +110,7 @@ internal static class CrafterLevelingCatalog
                 }
                 var recipe = matches[0];
                 var recipeLevel = recipe.RecipeLevelTable.Value.ClassJobLevel;
-                if (recipeLevel < settings.TargetLevel)
+                if (recipeLevel < settings.TargetLevel && recipeLevel < 20)
                     resolved.Add((entry, recipe, recipeLevel));
             }
 
@@ -126,12 +126,12 @@ internal static class CrafterLevelingCatalog
 
                 var nextLevel = index + 1 < resolved.Count
                     ? resolved[index + 1].RecipeLevel
-                    : Math.Min(21, settings.TargetLevel + 1);
+                    : Math.Min(20, settings.TargetLevel + 1);
                 settings.RecipePresets.Add(new CrafterRecipePreset
                 {
                     JobId = entry.JobId,
                     MinLevel = Math.Clamp(recipeLevel, 1, 20),
-                    MaxLevel = Math.Clamp(nextLevel - 1, 1, Math.Min(20, settings.TargetLevel)),
+                    MaxLevel = Math.Clamp(nextLevel - 1, 1, Math.Min(19, settings.TargetLevel)),
                     RecipeId = recipe.RowId,
                     MaxCraftCount = entry.MaxCraftCount,
                     Route = CrafterLevelingRoute.Normal,
@@ -141,7 +141,7 @@ internal static class CrafterLevelingCatalog
             }
         }
 
-        foreach (var entry in RestorationLevel21To50
+        foreach (var entry in RestorationLevel20To50
                      .Where(x => settings.EnabledJobIds.Contains(x.JobId) && x.MinLevel < settings.TargetLevel))
         {
             var matches = Find(byName, entry.JapaneseName).Concat(Find(byName, entry.EnglishName))
