@@ -580,11 +580,16 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             settings.Progress.State = CrafterLevelingState.CraftingRestoration;
             settings.Progress.LastError = string.Empty;
             settings.Progress.UpdatedAt = DateTime.Now;
+            // Turn-in EXP can cross one or more equipment thresholds while AltMate is away.
+            // Force the normal Stylist gate to evaluate the returned level before crafting resumes.
+            lastStylistLevel = -1;
+            awaitingStylistUpdate = false;
+            stylistUpdateRequestedAtUtc = DateTime.MinValue;
             ResetCollectorTurnIn();
             plugin.Configuration.Save();
             waitUntilUtc = DateTime.UtcNow.AddSeconds(1);
-            Status = Loc.L("復興品の納品が完了しました。現在レベルから製作数を再計算します。",
-                "Restoration turn-in completed. Recalculating crafts from the current level.");
+            Status = Loc.L("復興品の納品が完了しました。現在レベルから制作数と装備更新を再判定します。",
+                "Restoration turn-in completed. Rechecking craft counts and gear for the current level.");
         }
         catch (Exception ex)
         {
