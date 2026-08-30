@@ -137,7 +137,12 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             // PreparingToCraft remains set while the crafting log is open. Once an endurance
             // stop was requested, treating that flag as busy prevents the recipe transition
             // forever even though Artisan has already stopped.
-            artisanBusy = artisanEndurance || activelyCrafting || (!stopRequested && preparingToCraft);
+            // After AltMate requested a boundary stop, Artisan can leave its endurance flag on
+            // even though the character is idle. At that point only an actual synthesis must
+            // finish; both the stale endurance flag and the open-log preparation flag are ignored.
+            artisanBusy = stopRequested
+                ? activelyCrafting
+                : artisanEndurance || activelyCrafting || preparingToCraft;
         }
         catch (Exception ex)
         {
