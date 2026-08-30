@@ -2,7 +2,6 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
-using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
@@ -28,6 +27,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private int requestStopLevel;
     private uint pendingJobId;
     private DateTime jobChangeRequestedAtUtc;
+    private bool waitingForCraftExit;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -74,6 +74,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         stopRequested = false;
         requestStopLevel = 0;
         pendingJobId = 0;
+        waitingForCraftExit = false;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -203,11 +204,25 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         while (index + 1 < queue.Count && currentLevel >= queue[index + 1].MinLevel)
             index++;
 
+        if (waitingForCraftExit)
+        {
+            if (Plugin.Condition[ConditionFlag.Crafting] ||
+                Plugin.Condition[ConditionFlag.PreparingToCraft])
+            {
+                Status = Loc.L("前の製作姿勢を終了しています。", "Exiting the previous crafting state.");
+                return;
+            }
+            waitingForCraftExit = false;
+        }
+
         // Artisan may leave the previous recipe selected in an open crafting log after an
         // endurance stop. Close it before selecting the next recipe; otherwise CraftItem can
         // consider the old recipe state active and refuse to continue.
         if (CloseRecipeLogIfOpen())
+        {
+            waitingForCraftExit = true;
             return;
+        }
 
         var settingsForGear = plugin.GetCrafterLevelingSettings();
         var stylistLevel = AvailableGearUpdateLevel(settingsForGear, Plugin.PlayerState.ClassJob.RowId, currentLevel);
@@ -313,18 +328,11 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (addon == null || !addon->IsVisible)
             return false;
 
-        // Closing only the addon can leave AgentRecipeNote active. Artisan then continues to
-        // see the old recipe even though AltMate is already waiting to select the next stage.
-        // Hide the owning agent as the game's close button does, with the addon close as a
-        // fallback for the frame in which the agent is being torn down.
-        var agentModule = AgentModule.Instance();
-        var agent = agentModule == null
-            ? null
-            : agentModule->GetAgentByInternalId(AgentId.RecipeNote);
-        if (agent != null)
-            agent->Hide();
-        else
-            addon->Close(false);
+        // This is the same exit callback Artisan's TaskExitCraft uses. Addon.Close/Agent.Hide
+        // only affect visibility and can leave PreparingToCraft and the old recipe active.
+        AtkValue exit = default;
+        exit.SetInt(-1);
+        addon->FireCallback(1, &exit, true);
         return true;
     }
 
@@ -437,6 +445,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         artisanBecameBusy = false;
         stopRequested = false;
         requestStopLevel = 0;
+        waitingForCraftExit = false;
         lastStylistLevel = -1;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
         settings.Progress.CurrentJobId = changedJobId;
