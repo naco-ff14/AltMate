@@ -167,6 +167,43 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         {
             artisanBecameBusy = true;
             CreditCompletedCrafts();
+            if (index < queue.Count && queue[index].Route == CrafterLevelingRoute.Restoration)
+            {
+                var activeSettings = plugin.GetCrafterLevelingSettings();
+                if (activeSettings.UseTheCollectorForRestoration)
+                {
+                    var activePreset = queue[index];
+                    var heldProducts = CrafterInventoryLocator.PlayerInventoryCount(
+                        RecipeProductId(activePreset.RecipeId));
+                    var batchSize = Math.Clamp(activeSettings.RestorationTurnInBatchSize, 1, 999);
+                    if (heldProducts >= batchSize)
+                    {
+                        pendingRestorationRecipeId = activePreset.RecipeId;
+                        if (!artisanExitRequested)
+                        {
+                            try
+                            {
+                                Plugin.PluginInterface.GetIpcSubscriber<bool, object>("Artisan.SetStopRequest")
+                                    .InvokeAction(true);
+                                artisanExitRequested = true;
+                            }
+                            catch (Exception ex)
+                            {
+                                Stop(Loc.L($"納品前にArtisanを停止できませんでした：{ex.Message}",
+                                    $"Could not stop Artisan before turn-in: {ex.Message}"));
+                                return;
+                            }
+                        }
+                        Status = Loc.L(
+                            $"復興品 {heldProducts}/{batchSize}個：現在の制作完了後にTheCollectorで納品します。",
+                            $"Restoration items {heldProducts}/{batchSize}: turning in with TheCollector after the current craft.");
+                        return;
+                    }
+                    Status = Loc.L(
+                        $"製作中：{RecipeName(activePreset.RecipeId)}（復興品 {heldProducts}/{batchSize}個）",
+                        $"Crafting: {RecipeName(activePreset.RecipeId)} (restoration items {heldProducts}/{batchSize})");
+                }
+            }
             var switchLevel = requestBoundaryLevel > 0
                 ? requestBoundaryLevel
                 : CalculateNextStopLevel(Plugin.PlayerState.Level);
@@ -302,6 +339,12 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
         if (pendingRestorationRecipeId != 0)
         {
+            if (Plugin.Condition[ConditionFlag.Crafting] || Plugin.Condition[ConditionFlag.PreparingToCraft])
+            {
+                Status = Loc.L("TheCollector開始前に制作状態が解除されるのを待っています。",
+                    "Waiting for the crafting state to clear before starting TheCollector.");
+                return;
+            }
             var turnInPreset = queue.FirstOrDefault(x => x.RecipeId == pendingRestorationRecipeId);
             if (turnInPreset is null)
             {
