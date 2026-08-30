@@ -59,14 +59,32 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             return Fail(settings, Loc.L("お得意様取引の自動処理を先に停止してください。",
                 "Stop custom-delivery automation first."));
 
-        var jobId = Plugin.PlayerState.ClassJob.RowId;
-        if (jobId is < 8 or > 15 || !settings.EnabledJobIds.Contains(jobId))
-            return Fail(settings, Loc.L("選択したクラフター職に着替えてから開始してください。",
-                "Switch to one of the selected crafting jobs before starting."));
+        if (!Plugin.PlayerState.IsLoaded)
+            return Fail(settings, Loc.L("キャラクター情報を取得できません。ログイン後に開始してください。",
+                "Character data is unavailable. Start after logging in."));
+        if (Plugin.Condition[ConditionFlag.Crafting] || Plugin.Condition[ConditionFlag.PreparingToCraft])
+            return Fail(settings, Loc.L("制作状態を終了してから開始してください。",
+                "Exit the crafting state before starting."));
 
-        var level = Plugin.PlayerState.Level;
-        LoadQueue(settings, jobId, level);
-        if (queue.Count == 0)
+        var currentJobId = Plugin.PlayerState.ClassJob.RowId;
+        var useCurrentJob = currentJobId is >= 8 and <= 15 &&
+                            settings.EnabledJobIds.Contains(currentJobId) &&
+                            ClassJobLevel(currentJobId) < settings.TargetLevel;
+        var startingJobId = useCurrentJob
+            ? currentJobId
+            : settings.EnabledJobIds
+                .Where(x => x is >= 8 and <= 15 && ClassJobLevel(x) < settings.TargetLevel)
+                .OrderBy(x => x)
+                .FirstOrDefault();
+        if (startingJobId == 0)
+            return Fail(settings, Loc.L("選択したクラフター職はすべて目標レベルに到達しています。",
+                "All selected crafting jobs have reached the target level."));
+
+        if (startingJobId == currentJobId)
+            LoadQueue(settings, startingJobId, Plugin.PlayerState.Level);
+        else
+            queue = [];
+        if (startingJobId == currentJobId && queue.Count == 0)
             return Fail(settings, Loc.L("現在レベルから目標レベルまでの製作品がありません。",
                 "No recipes apply between the current and target levels."));
 
@@ -86,10 +104,19 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
-        settings.Progress.CurrentJobId = jobId;
+        settings.Progress.CurrentJobId = startingJobId;
         settings.Progress.LastError = string.Empty;
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
+        if (startingJobId != currentJobId)
+        {
+            if (!TryRequestJobChange(settings, startingJobId, out var reason))
+            {
+                Stop(reason);
+                return false;
+            }
+            return true;
+        }
         Status = Loc.L("Artisanへ最初の製作を依頼します。", "Sending the first craft to Artisan.");
         return true;
     }
@@ -633,11 +660,20 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             return true;
         }
 
+        if (!TryRequestJobChange(settings, targetJobId, out var reason))
+            Stop(reason);
+        return true;
+    }
+
+    private unsafe bool TryRequestJobChange(CrafterLevelingSettings settings, uint targetJobId,
+        out string reason)
+    {
+        reason = string.Empty;
         var gearsets = RaptureGearsetModule.Instance();
         if (gearsets == null)
         {
-            Stop(Loc.L("ギアセット一覧を取得できませんでした。", "Could not read the gearset list."));
-            return true;
+            reason = Loc.L("ギアセット一覧を取得できませんでした。", "Could not read the gearset list.");
+            return false;
         }
         var gearsetIndex = -1;
         for (var candidate = 0; candidate < gearsets->NumGearsets; candidate++)
@@ -652,10 +688,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         }
         if (gearsetIndex < 0)
         {
-            var jobName = JobName(targetJobId);
-            Stop(Loc.L($"{jobName}のギアセットがありません。先に登録してください。",
-                $"No gearset exists for {jobName}. Register one first."));
-            return true;
+            reason = Loc.L($"{JobName(targetJobId)}のギアセットがありません。先に登録してください。",
+                $"No gearset exists for {JobName(targetJobId)}. Register one first.");
+            return false;
         }
 
         try
@@ -665,17 +700,18 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             pendingJobId = targetJobId;
             jobChangeRequestedAtUtc = DateTime.UtcNow;
             settings.Progress.State = CrafterLevelingState.ChangingJob;
+            settings.Progress.CurrentJobId = targetJobId;
             settings.Progress.UpdatedAt = DateTime.Now;
             plugin.Configuration.Save();
-            Status = Loc.L($"次の職：{JobName(targetJobId)}へ着替え中です。",
-                $"Changing to the next job: {JobName(targetJobId)}.");
+            Status = Loc.L($"{JobName(targetJobId)}へ着替えてから制作を開始します。",
+                $"Changing to {JobName(targetJobId)} before starting crafting.");
             return true;
         }
         catch (Exception ex)
         {
-            Stop(Loc.L($"Stylistで次の職へ着替えられませんでした：{ex.Message}",
-                $"Stylist could not change to the next job: {ex.Message}"));
-            return true;
+            reason = Loc.L($"Stylistで{JobName(targetJobId)}へ着替えられませんでした：{ex.Message}",
+                $"Stylist could not change to {JobName(targetJobId)}: {ex.Message}");
+            return false;
         }
     }
 
