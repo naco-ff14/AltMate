@@ -130,9 +130,14 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         bool artisanBusy;
         try
         {
-            artisanBusy = Plugin.PluginInterface.GetIpcSubscriber<bool>("Artisan.GetEnduranceStatus").InvokeFunc() ||
-                          Plugin.Condition[ConditionFlag.Crafting] ||
-                          Plugin.Condition[ConditionFlag.PreparingToCraft];
+            var artisanEndurance =
+                Plugin.PluginInterface.GetIpcSubscriber<bool>("Artisan.GetEnduranceStatus").InvokeFunc();
+            var activelyCrafting = Plugin.Condition[ConditionFlag.Crafting];
+            var preparingToCraft = Plugin.Condition[ConditionFlag.PreparingToCraft];
+            // PreparingToCraft remains set while the crafting log is open. Once an endurance
+            // stop was requested, treating that flag as busy prevents the recipe transition
+            // forever even though Artisan has already stopped.
+            artisanBusy = artisanEndurance || activelyCrafting || (!stopRequested && preparingToCraft);
         }
         catch (Exception ex)
         {
