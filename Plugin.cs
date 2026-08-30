@@ -70,7 +70,6 @@ public sealed class Plugin : IDalamudPlugin
     internal CustomDeliveryService CustomDeliveries { get; }
     internal CrafterRetainerScanner CrafterRetainers { get; }
     internal CrafterLevelingAutomation CrafterLeveling { get; }
-    internal MainWindow MainWindow => mainWindow;
     internal string IconPath { get; }
 
     internal Configuration Configuration { get; }

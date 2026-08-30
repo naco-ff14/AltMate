@@ -3,12 +3,9 @@ using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
-using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
-using System.Runtime.InteropServices;
 
 namespace AltMate;
 
@@ -29,10 +26,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private int requestStopLevel;
     private uint pendingJobId;
     private DateTime jobChangeRequestedAtUtc;
-    private bool waitingForCraftExit;
-    private int craftExitAttempts;
-    private DateTime nextCraftExitAttemptUtc;
-    private bool? previousRespectCloseHotkey;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -79,9 +72,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         stopRequested = false;
         requestStopLevel = 0;
         pendingJobId = 0;
-        waitingForCraftExit = false;
-        craftExitAttempts = 0;
-        nextCraftExitAttemptUtc = DateTime.MinValue;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -98,7 +88,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (!IsRunning && reason is null)
             return;
         IsRunning = false;
-        RestoreAltMateCloseHotkey();
         Status = reason ?? Loc.L("停止しました。", "Stopped.");
         var settings = plugin.GetCrafterLevelingSettings();
         settings.Progress.State = reason is null ? CrafterLevelingState.Paused : CrafterLevelingState.Error;
@@ -212,58 +201,14 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         while (index + 1 < queue.Count && currentLevel >= queue[index + 1].MinLevel)
             index++;
 
-        if (waitingForCraftExit)
-        {
-            if (IsRecipeLogOpen())
-            {
-                if (DateTime.UtcNow >= nextCraftExitAttemptUtc)
-                {
-                    if (craftExitAttempts >= 5)
-                    {
-                        RestoreAltMateCloseHotkey();
-                        Stop(Loc.L("製作手帳を自動で閉じられませんでした。ESCで閉じてから再開してください。",
-                            "Could not close the crafting log automatically. Close it with Escape, then resume."));
-                        return;
-                    }
-                    if (!SendEscapeToCurrentGame())
-                    {
-                        Status = Loc.L("このFFXIVを前面にすると製作手帳を閉じて再開します。",
-                            "Bring this FFXIV window to the foreground to close the crafting log and resume.");
-                        return;
-                    }
-                    craftExitAttempts++;
-                    nextCraftExitAttemptUtc = DateTime.UtcNow.AddMilliseconds(750);
-                }
-                Status = Loc.L($"前の製作手帳を閉じています（{craftExitAttempts}/5）。",
-                    $"Closing the previous crafting log ({craftExitAttempts}/5).");
-                return;
-            }
-            RestoreAltMateCloseHotkey();
-            if (Plugin.Condition[ConditionFlag.Crafting] ||
-                Plugin.Condition[ConditionFlag.PreparingToCraft])
-            {
-                Status = Loc.L("製作姿勢の解除を待っています。", "Waiting for the crafting state to clear.");
-                return;
-            }
-            waitingForCraftExit = false;
-            craftExitAttempts = 0;
-        }
-
-        // Artisan may leave the previous recipe selected in an open crafting log after an
-        // endurance stop. Close it before selecting the next recipe; otherwise CraftItem can
-        // consider the old recipe state active and refuse to continue.
-        if (IsRecipeLogOpen())
-        {
-            SuppressAltMateCloseHotkey();
-            waitingForCraftExit = true;
-            craftExitAttempts = 0;
-            nextCraftExitAttemptUtc = DateTime.MinValue;
-            return;
-        }
-
         var settingsForGear = plugin.GetCrafterLevelingSettings();
         var stylistLevel = AvailableGearUpdateLevel(settingsForGear, Plugin.PlayerState.ClassJob.RowId, currentLevel);
-        if (stylistLevel > lastStylistLevel)
+        // ICE leaves RecipeNote open and lets Artisan select the next recipe itself. Updating a
+        // gearset while PreparingToCraft would require closing that log, so defer Stylist until
+        // the character is naturally out of crafting stance (job change/start/completion).
+        if (stylistLevel > lastStylistLevel &&
+            !Plugin.Condition[ConditionFlag.Crafting] &&
+            !Plugin.Condition[ConditionFlag.PreparingToCraft])
         {
             try
             {
@@ -358,53 +303,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         settings.Progress.UpdatedAt = DateTime.Now;
         plugin.Configuration.Save();
     }
-
-    private static unsafe bool IsRecipeLogOpen()
-    {
-        var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("RecipeNote").Address;
-        return addon != null && addon->IsVisible;
-    }
-
-    private unsafe bool SendEscapeToCurrentGame()
-    {
-        var window = Process.GetCurrentProcess().MainWindowHandle;
-        if (window == IntPtr.Zero || GetForegroundWindow() != window)
-            return false;
-
-        var recipeNote = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("RecipeNote").Address;
-        if (recipeNote == null || !recipeNote->IsVisible)
-            return false;
-        recipeNote->Focus();
-
-        // FFXIV does not consume posted WM_KEY messages for this UI. keybd_event injects the
-        // same foreground keyboard path as a physical Escape press, which is the operation
-        // already confirmed to close the crafting log in game.
-        keybd_event(0x1B, 0x01, 0, UIntPtr.Zero);
-        keybd_event(0x1B, 0x01, 0x0002, UIntPtr.Zero);
-        return true;
-    }
-
-    private void SuppressAltMateCloseHotkey()
-    {
-        if (previousRespectCloseHotkey.HasValue)
-            return;
-        previousRespectCloseHotkey = plugin.MainWindow.RespectCloseHotkey;
-        plugin.MainWindow.RespectCloseHotkey = false;
-    }
-
-    private void RestoreAltMateCloseHotkey()
-    {
-        if (!previousRespectCloseHotkey.HasValue)
-            return;
-        plugin.MainWindow.RespectCloseHotkey = previousRespectCloseHotkey.Value;
-        previousRespectCloseHotkey = null;
-    }
-
-    [DllImport("user32.dll", SetLastError = true)]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern void keybd_event(byte virtualKey, byte scanCode, uint flags, UIntPtr extraInfo);
 
     private void Complete()
     {
@@ -515,9 +413,6 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         artisanBecameBusy = false;
         stopRequested = false;
         requestStopLevel = 0;
-        waitingForCraftExit = false;
-        craftExitAttempts = 0;
-        nextCraftExitAttemptUtc = DateTime.MinValue;
         lastStylistLevel = -1;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
         settings.Progress.CurrentJobId = changedJobId;
