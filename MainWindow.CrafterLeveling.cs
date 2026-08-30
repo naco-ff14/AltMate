@@ -139,9 +139,14 @@ public sealed partial class MainWindow
         var service = new CrafterPreparationService();
         crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
         nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
+        var activeRecipeCount = settings.RecipePresets.Count(x =>
+            settings.EnabledJobIds.Contains(x.JobId) &&
+            CrafterPreparationService.JobLevel(x.JobId) < settings.TargetLevel &&
+            x.MinLevel < settings.TargetLevel &&
+            x.MaxLevel >= CrafterPreparationService.JobLevel(x.JobId));
         crafterListMessage = catalog.Unresolved.Count == 0 && gear.Missing.Count == 0
-            ? Loc.L($"リストを更新しました（製作品{settings.RecipePresets.Count}件）。不足数と所在を下で確認してください。",
-                $"List updated ({settings.RecipePresets.Count} recipes). Review missing counts and locations below.")
+            ? Loc.L($"リストを更新しました（現在レベル以降の製作品{activeRecipeCount}件）。不足数と所在を下で確認してください。",
+                $"List updated ({activeRecipeCount} recipes from current levels onward). Review missing counts and locations below.")
             : Loc.L($"リストを更新しました。未解決：製作品{catalog.Unresolved.Count}件、装備{gear.Missing.Count}件。",
                 $"List updated. Unresolved: {catalog.Unresolved.Count} recipes, {gear.Missing.Count} gear slots.");
         SaveCrafterSettings();
@@ -325,12 +330,11 @@ public sealed partial class MainWindow
 
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        var currentJobId = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.ClassJob.RowId : 0;
-        var currentLevel = Plugin.PlayerState.IsLoaded ? Plugin.PlayerState.Level : 0;
         var visiblePresets = settings.RecipePresets.Select((preset, index) => (Preset: preset, Index: index))
             .Where(x => settings.EnabledJobIds.Contains(x.Preset.JobId) &&
                         x.Preset.MinLevel < settings.TargetLevel &&
-                        (x.Preset.JobId != currentJobId || x.Preset.MaxLevel >= currentLevel)).ToArray();
+                        CrafterPreparationService.JobLevel(x.Preset.JobId) < settings.TargetLevel &&
+                        x.Preset.MaxLevel >= CrafterPreparationService.JobLevel(x.Preset.JobId)).ToArray();
         if (visiblePresets.Length > 0 && ImGui.BeginTable("crafter-leveling-recipes", 6,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp))
         {

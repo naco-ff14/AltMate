@@ -77,7 +77,7 @@ internal sealed class CrafterPreparationService
 
     private static bool IsCrystal(uint itemId) => itemId is >= 2 and <= 19;
 
-    private static unsafe int JobLevel(uint jobId)
+    internal static unsafe int JobLevel(uint jobId)
     {
         if (!Plugin.PlayerState.IsLoaded) return 0;
         if (Plugin.PlayerState.ClassJob.RowId == jobId) return Plugin.PlayerState.Level;
