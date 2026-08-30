@@ -81,6 +81,19 @@ public sealed partial class MainWindow
                 settings.UseTheCollectorForRestoration = useTheCollector;
                 SaveCrafterSettings();
             }
+            if (useTheCollector)
+            {
+                var batchSize = Math.Clamp(settings.RestorationTurnInBatchSize, 1, 999);
+                ImGui.SetNextItemWidth(120 * ImGuiHelpers.GlobalScale);
+                if (ImGui.InputInt(Loc.L("復興品の納品単位", "Restoration turn-in batch"), ref batchSize))
+                {
+                    settings.RestorationTurnInBatchSize = Math.Clamp(batchSize, 1, 999);
+                    SaveCrafterSettings();
+                }
+                ImGui.TextDisabled(Loc.L(
+                    "指定数を製作するたびに納品し、獲得EXPを反映して残り制作数を再計算します。",
+                    "Turns in after each batch and recalculates remaining crafts from the awarded EXP."));
+            }
             ImGui.TextDisabled(Loc.L(
                 "TheCollector側でFirmamentモードを選択してください（Lifestream・vnavmeshが必要）。失敗時は手動納品待ちで停止します。",
                 "Select Firmament mode in TheCollector (requires Lifestream and vnavmesh). Failures pause for manual turn-in."));

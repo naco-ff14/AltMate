@@ -33,6 +33,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private DateTime collectorRequestedAtUtc;
     private uint collectorRecipeId;
     private uint collectorProductItemId;
+    private uint pendingRestorationRecipeId;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -210,6 +211,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             plugin.Configuration.Save();
             requestSent = false;
             artisanBecameBusy = false;
+            if (index < queue.Count && queue[index].Route == CrafterLevelingRoute.Restoration &&
+                requestedCraftCount > 0 && creditedCraftCount >= requestedCraftCount)
+                pendingRestorationRecipeId = queue[index].RecipeId;
         }
 
         var currentLevel = Plugin.PlayerState.Level;
@@ -287,6 +291,19 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             }
         }
 
+        if (pendingRestorationRecipeId != 0)
+        {
+            var turnInPreset = queue.FirstOrDefault(x => x.RecipeId == pendingRestorationRecipeId);
+            if (turnInPreset is null)
+            {
+                Stop(Loc.L("納品対象の復興品レシピを確認できませんでした。",
+                    "Could not identify the restoration recipe to turn in."));
+                return;
+            }
+            BeginCollectorTurnIn(turnInPreset, plugin.GetCrafterLevelingSettings());
+            return;
+        }
+
         // Save/equip the newly available tier before leaving a job that just reached target.
         if (index >= queue.Count || currentLevel >= plugin.GetCrafterLevelingSettings().TargetLevel)
         {
@@ -325,6 +342,9 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 requestedCraftCount = CrafterExperiencePlanner.CraftsNeededNow(preset, settings.TargetLevel);
                 settings.PlannedCraftCounts[preset.RecipeId] = checked(plannedCrafts + requestedCraftCount);
             }
+            if (preset.Route == CrafterLevelingRoute.Restoration && settings.UseTheCollectorForRestoration)
+                requestedCraftCount = Math.Min(requestedCraftCount,
+                    Math.Clamp(settings.RestorationTurnInBatchSize, 1, 999));
             requestProductCount = CrafterInventoryLocator.PlayerInventoryCount(RecipeProductId(preset.RecipeId));
             creditedCraftCount = 0;
             requestBoundaryLevel = CalculateNextStopLevel(Plugin.PlayerState.Level);
@@ -380,6 +400,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
         try
         {
+            pendingRestorationRecipeId = 0;
             collectorRecipeId = preset.RecipeId;
             collectorProductItemId = RecipeProductId(preset.RecipeId);
             collectorRequestedAtUtc = DateTime.UtcNow;
@@ -475,6 +496,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         collectorRequestedAtUtc = DateTime.MinValue;
         collectorRecipeId = 0;
         collectorProductItemId = 0;
+        pendingRestorationRecipeId = 0;
     }
 
     private void Complete()
