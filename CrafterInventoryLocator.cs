@@ -6,12 +6,29 @@ namespace AltMate;
 
 internal static unsafe class CrafterInventoryLocator
 {
+    private static readonly InventoryType[] PlayerBagContainers =
+    {
+        InventoryType.Inventory1, InventoryType.Inventory2,
+        InventoryType.Inventory3, InventoryType.Inventory4,
+        InventoryType.Crystals,
+    };
+
     internal static int PlayerInventoryCount(uint itemId)
     {
         var inventory = InventoryManager.Instance();
         if (inventory == null) return 0;
-        var normal = inventory->GetInventoryItemCount(itemId, false, false, false);
-        var highQuality = inventory->GetInventoryItemCount(itemId, true, false, false);
+        var bags = 0;
+        foreach (var type in PlayerBagContainers)
+        {
+            var container = inventory->GetInventoryContainer(type);
+            if (container == null || !container->IsLoaded) continue;
+            for (var slotIndex = 0; slotIndex < container->Size; slotIndex++)
+            {
+                var slot = container->GetInventorySlot(slotIndex);
+                if (slot == null || slot->ItemId != itemId || slot->Quantity == 0) continue;
+                bags = checked(bags + (int)slot->Quantity);
+            }
+        }
         var equipped = 0;
         var equippedContainer = inventory->GetInventoryContainer(InventoryType.EquippedItems);
         if (equippedContainer != null && equippedContainer->IsLoaded)
@@ -23,7 +40,7 @@ internal static unsafe class CrafterInventoryLocator
                     equipped = checked(equipped + Math.Max(1, (int)slot->Quantity));
             }
         }
-        return checked(normal + highQuality + equipped);
+        return checked(bags + equipped);
     }
 
     internal static IReadOnlyList<string> GetLocations(CrafterLevelingSettings settings, uint itemId)

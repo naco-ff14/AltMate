@@ -356,6 +356,19 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             return;
         }
 
+        var currentSettings = plugin.GetCrafterLevelingSettings();
+        if (currentSettings.UseTheCollectorForRestoration)
+        {
+            var heldRestoration = FindHeldRestorationPreset(currentSettings,
+                Plugin.PlayerState.ClassJob.RowId,
+                Math.Clamp(currentSettings.RestorationTurnInBatchSize, 1, 999));
+            if (heldRestoration is not null)
+            {
+                BeginCollectorTurnIn(heldRestoration, currentSettings);
+                return;
+            }
+        }
+
         // Save/equip the newly available tier before leaving a job that just reached target.
         if (index >= queue.Count || currentLevel >= plugin.GetCrafterLevelingSettings().TargetLevel)
         {
@@ -838,6 +851,18 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         var sheet = Plugin.DataManager.GetExcelSheet<Recipe>();
         return sheet.TryGetRow(recipeId, out var recipe) ? Math.Max(1, (int)recipe.AmountResult) : 1;
     }
+
+    private static CrafterRecipePreset? FindHeldRestorationPreset(CrafterLevelingSettings settings,
+        uint jobId, int minimumCount) =>
+        settings.RecipePresets
+            .Where(x => x.JobId == jobId && x.Route == CrafterLevelingRoute.Restoration)
+            .OrderBy(x => x.MinLevel)
+            .FirstOrDefault(x =>
+            {
+                var productId = RecipeProductId(x.RecipeId);
+                return productId != 0 &&
+                       CrafterInventoryLocator.PlayerInventoryCount(productId) >= minimumCount;
+            });
 
     private static IReadOnlyList<string> MissingIngredients(uint recipeId)
     {
