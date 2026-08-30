@@ -1,3 +1,4 @@
+using Dalamud.Game;
 using Lumina.Excel.Sheets;
 using System;
 using System.Collections.Generic;
@@ -26,7 +27,7 @@ internal static class CrafterLevelingCatalog
         new(9, 1, 20, "アイアンリベット", "Iron Rivets", 30),
         new(10, 1, 20, "ブロンズプレート", "Bronze Plate", 30),
         new(10, 1, 20, "アイアンプレート", "Iron Plate", 30),
-        new(10, 1, 20, "イニシエートフライパン", "Initiate's Skillet", 30),
+        new(10, 1, 20, "イニシエートスキレット", "Initiate's Skillet", 30),
         new(10, 1, 20, "アイアンガントレット", "Iron Gauntlets", 80),
         new(11, 1, 20, "カッパーインゴット", "Copper Ingot", 1),
         new(11, 1, 20, "ラグストーン砥石", "Ragstone Whetstone", 30),
@@ -79,7 +80,11 @@ internal static class CrafterLevelingCatalog
     internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
     {
         var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
-        var byName = recipes.Where(x => x.ItemResult.RowId != 0)
+        // Product names are localized. Include the English sheet as a stable fallback so a
+        // translated catalog typo cannot silently remove an entire leveling stage.
+        var localizedRecipes = recipes.Concat(
+            Plugin.DataManager.GetExcelSheet<Recipe>(ClientLanguage.English));
+        var byName = localizedRecipes.Where(x => x.ItemResult.RowId != 0)
             .GroupBy(x => x.ItemResult.Value.Name.ToString(), StringComparer.CurrentCultureIgnoreCase)
             .ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.CurrentCultureIgnoreCase);
         var unresolved = new List<string>();
