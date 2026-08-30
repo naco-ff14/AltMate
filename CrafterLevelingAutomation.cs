@@ -6,7 +6,9 @@ using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Runtime.InteropServices;
 
 namespace AltMate;
 
@@ -28,6 +30,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private uint pendingJobId;
     private DateTime jobChangeRequestedAtUtc;
     private bool waitingForCraftExit;
+    private int craftExitAttempts;
+    private DateTime nextCraftExitAttemptUtc;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -75,6 +79,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         requestStopLevel = 0;
         pendingJobId = 0;
         waitingForCraftExit = false;
+        craftExitAttempts = 0;
+        nextCraftExitAttemptUtc = DateTime.MinValue;
         waitUntilUtc = DateTime.MinValue;
         IsRunning = true;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
@@ -206,13 +212,32 @@ internal sealed class CrafterLevelingAutomation : IDisposable
 
         if (waitingForCraftExit)
         {
+            if (IsRecipeLogOpen())
+            {
+                if (DateTime.UtcNow >= nextCraftExitAttemptUtc)
+                {
+                    if (craftExitAttempts >= 5)
+                    {
+                        Stop(Loc.L("製作手帳を自動で閉じられませんでした。ESCで閉じてから再開してください。",
+                            "Could not close the crafting log automatically. Close it with Escape, then resume."));
+                        return;
+                    }
+                    SendEscapeToCurrentGame();
+                    craftExitAttempts++;
+                    nextCraftExitAttemptUtc = DateTime.UtcNow.AddMilliseconds(750);
+                }
+                Status = Loc.L($"前の製作手帳を閉じています（{craftExitAttempts}/5）。",
+                    $"Closing the previous crafting log ({craftExitAttempts}/5).");
+                return;
+            }
             if (Plugin.Condition[ConditionFlag.Crafting] ||
                 Plugin.Condition[ConditionFlag.PreparingToCraft])
             {
-                Status = Loc.L("前の製作姿勢を終了しています。", "Exiting the previous crafting state.");
+                Status = Loc.L("製作姿勢の解除を待っています。", "Waiting for the crafting state to clear.");
                 return;
             }
             waitingForCraftExit = false;
+            craftExitAttempts = 0;
         }
 
         // Artisan may leave the previous recipe selected in an open crafting log after an
@@ -221,6 +246,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (CloseRecipeLogIfOpen())
         {
             waitingForCraftExit = true;
+            craftExitAttempts = 1;
+            nextCraftExitAttemptUtc = DateTime.UtcNow.AddMilliseconds(750);
             return;
         }
 
@@ -322,19 +349,31 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         plugin.Configuration.Save();
     }
 
-    private static unsafe bool CloseRecipeLogIfOpen()
+    private static unsafe bool IsRecipeLogOpen()
     {
         var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("RecipeNote").Address;
-        if (addon == null || !addon->IsVisible)
-            return false;
+        return addon != null && addon->IsVisible;
+    }
 
-        // This is the same exit callback Artisan's TaskExitCraft uses. Addon.Close/Agent.Hide
-        // only affect visibility and can leave PreparingToCraft and the old recipe active.
-        AtkValue exit = default;
-        exit.SetInt(-1);
-        addon->FireCallback(1, &exit, true);
+    private static bool CloseRecipeLogIfOpen()
+    {
+        if (!IsRecipeLogOpen())
+            return false;
+        SendEscapeToCurrentGame();
         return true;
     }
+
+    private static void SendEscapeToCurrentGame()
+    {
+        var window = Process.GetCurrentProcess().MainWindowHandle;
+        if (window == IntPtr.Zero)
+            return;
+        PostMessage(window, 0x0100, (IntPtr)0x1B, (IntPtr)0x00010001); // WM_KEYDOWN / VK_ESCAPE
+        PostMessage(window, 0x0101, (IntPtr)0x1B, (IntPtr)unchecked((int)0xC0010001)); // WM_KEYUP
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
 
     private void Complete()
     {
@@ -446,6 +485,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         stopRequested = false;
         requestStopLevel = 0;
         waitingForCraftExit = false;
+        craftExitAttempts = 0;
+        nextCraftExitAttemptUtc = DateTime.MinValue;
         lastStylistLevel = -1;
         settings.Progress.State = CrafterLevelingState.CraftingNormal;
         settings.Progress.CurrentJobId = changedJobId;
