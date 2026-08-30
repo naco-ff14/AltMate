@@ -40,8 +40,11 @@ internal static class CrafterLevelingCatalog
         new(12, 1, 20, "ゴートリストガード", "Goatskin Wristguards", 20),
         new(13, 1, 20, "草布", "Hempen Cloth", 30),
         new(13, 1, 20, "綿布", "Undyed Cotton Cloth", 30),
-        new(13, 1, 20, "コットンキャンバス", "Cotton Canvas", 30),
-        new(13, 1, 20, "デューヤーン", "Dew Thread", 10),
+        // Use the actual Japanese client item names. The previous translated labels were not
+        // present in the Japanese sheet, so these stages could be dropped and Undyed Cotton
+        // Cloth was incorrectly stretched all the way to the target level.
+        new(13, 1, 20, "綿帆布", "Cotton Canvas", 30),
+        new(13, 1, 20, "露糸", "Dew Thread", 10),
         new(13, 1, 20, "別珍", "Velveteen", 20),
         new(14, 1, 20, "蒸留水", "Distilled Water", 1),
         new(14, 1, 20, "ラバー", "Rubber", 10),
