@@ -24,6 +24,7 @@ public sealed partial class MainWindow
     private int crafterClipboardMinLevel = 1;
     private int crafterClipboardMaxLevel = 100;
     private string crafterClipboardMessage = string.Empty;
+    private IReadOnlyList<CrafterQuestItem> crafterQuestItems = [];
 
     private void DrawCrafterLeveling()
     {
@@ -41,6 +42,11 @@ public sealed partial class MainWindow
         if (ImGui.BeginTabItem(Loc.L("レシピ・装備データ", "Recipe and gear data")))
         {
             DrawCrafterClipboardData(settings);
+            ImGui.EndTabItem();
+        }
+        if (ImGui.BeginTabItem(Loc.L("クラフタークエスト", "Crafter quests")))
+        {
+            DrawCrafterQuestItems(settings);
             ImGui.EndTabItem();
         }
         ImGui.EndTabBar();
@@ -235,6 +241,50 @@ public sealed partial class MainWindow
         DrawCrafterClipboardRecipeTable(settings);
         ImGui.Spacing();
         DrawCrafterClipboardGearTable(settings);
+    }
+
+    private void DrawCrafterQuestItems(CrafterLevelingSettings settings)
+    {
+        if (crafterQuestItems.Count == 0) crafterQuestItems = CrafterQuestCatalog.BuildToLevel60();
+        ImGui.TextDisabled(Loc.L("Lv60までのクラフタークエスト納品物", "Crafter quest turn-ins through level 60"));
+        var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        if (!ImGui.BeginTable("crafter-quest-items", 9,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
+                new Vector2(0, -1))) return;
+        ImGui.TableSetupColumn("Lv", ImGuiTableColumnFlags.WidthFixed, 45 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("職", "Job"), ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("クエスト", "Quest"), ImGuiTableColumnFlags.WidthStretch, 2f);
+        ImGui.TableSetupColumn(Loc.L("アイテム", "Item"), ImGuiTableColumnFlags.WidthStretch, 3f);
+        ImGui.TableSetupColumn(Loc.L("コピー", "Copy"), ImGuiTableColumnFlags.WidthFixed, 72 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("必要", "Required"), ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("所持", "Owned"), ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("状態", "Status"), ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("所在", "Location"), ImGuiTableColumnFlags.WidthStretch, 2f);
+        ImGui.TableHeadersRow();
+        foreach (var row in crafterQuestItems)
+        {
+            settings.KnownOwnedItems.TryGetValue(row.ItemId, out var retainerOwned);
+            var owned = checked(retainerOwned + CrafterInventoryLocator.PlayerInventoryCount(row.ItemId));
+            var enough = owned >= row.RequiredCount;
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(row.Level.ToString());
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(jobs.TryGetRow(row.JobId, out var job) ? job.Abbreviation.ToString() : row.JobId.ToString());
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(row.QuestName);
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(row.ItemName + (row.RequiresHq ? " HQ" : string.Empty));
+            ImGui.TableNextColumn();
+            if (ImGui.SmallButton($"{Loc.L("コピー", "Copy")}##copy-quest-item-{row.JobId}-{row.Level}-{row.ItemId}"))
+                ImGui.SetClipboardText(row.ItemName);
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(row.RequiredCount.ToString("N0"));
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(owned.ToString("N0"));
+            ImGui.TableNextColumn();
+            ImGui.TextColored(enough ? new Vector4(0.35f, 0.9f, 0.5f, 1f) : new Vector4(1f, 0.35f, 0.3f, 1f),
+                enough ? Loc.L("所持済み", "Ready") : Loc.L("不足", "Missing"));
+            ImGui.TableNextColumn();
+            var locations = CrafterInventoryLocator.GetLocations(settings, row.ItemId);
+            ImGui.TextWrapped(locations.Count > 0 ? string.Join(" / ", locations) : Loc.L("所持なし", "Not owned"));
+        }
+        ImGui.EndTable();
     }
 
     private void DrawCrafterClipboardRecipeTable(CrafterLevelingSettings settings)
