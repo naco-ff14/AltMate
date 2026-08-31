@@ -619,11 +619,17 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L("該当項目なし", "No items"));
             return;
         }
-        if (!ImGui.BeginTable("crafter-products", 4,
+        if (!ImGui.BeginTable("crafter-products", 5,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
-        foreach (var heading in new[] { Loc.L("完成品", "Product"), Loc.L("コピー", "Copy"),
-                     Loc.L("対象職", "Job"), Loc.L("残り制作数", "Crafts remaining") })
-            ImGui.TableSetupColumn(heading);
+        ImGui.TableSetupColumn(Loc.L("完成品", "Product"), ImGuiTableColumnFlags.WidthStretch, 3f);
+        ImGui.TableSetupColumn(Loc.L("コピー", "Copy"), ImGuiTableColumnFlags.WidthFixed,
+            72 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("制作Lv", "Recipe Lv"), ImGuiTableColumnFlags.WidthFixed,
+            72 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("対象職", "Job"), ImGuiTableColumnFlags.WidthFixed,
+            68 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("残り制作数", "Crafts remaining"), ImGuiTableColumnFlags.WidthFixed,
+            100 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
         foreach (var preset in rows)
         {
@@ -637,6 +643,10 @@ public sealed partial class MainWindow
             ImGui.TableNextColumn();
             if (ImGui.SmallButton($"{Loc.L("コピー", "Copy")}##copy-product-{preset.JobId}-{preset.RecipeId}-{preset.MinLevel}"))
                 ImGui.SetClipboardText(name);
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(recipes.TryGetRow(preset.RecipeId, out var levelRecipe)
+                ? $"Lv{levelRecipe.RecipeLevelTable.Value.ClassJobLevel}"
+                : "—");
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(jobs.TryGetRow(preset.JobId, out var job)
                 ? job.Abbreviation.ToString()
@@ -660,13 +670,24 @@ public sealed partial class MainWindow
         if (!ImGui.BeginTable(id, columnCount,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, Math.Min(220, 30 + rows.Count * 24) * ImGuiHelpers.GlobalScale))) return;
-        var headings = gearTable
-            ? new[] { Loc.L("アイテム", "Item"), Loc.L("コピー", "Copy"), Loc.L("装備Lv", "Equip Lv"),
-                Loc.L("所持", "Owned"), Loc.L("所在", "Location") }
-            : new[] { Loc.L("アイテム", "Item"), Loc.L("コピー", "Copy"), Loc.L("必要", "Required"),
-                Loc.L("所持", "Owned"), Loc.L("不足", "Missing"), Loc.L("所在", "Location") };
-        foreach (var heading in headings)
-            ImGui.TableSetupColumn(heading);
+        ImGui.TableSetupColumn(Loc.L("アイテム", "Item"), ImGuiTableColumnFlags.WidthStretch, 3f);
+        ImGui.TableSetupColumn(Loc.L("コピー", "Copy"), ImGuiTableColumnFlags.WidthFixed,
+            72 * ImGuiHelpers.GlobalScale);
+        if (gearTable)
+        {
+            ImGui.TableSetupColumn(Loc.L("装備Lv", "Equip Lv"), ImGuiTableColumnFlags.WidthFixed,
+                72 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("所持", "Owned"), ImGuiTableColumnFlags.WidthFixed,
+                70 * ImGuiHelpers.GlobalScale);
+        }
+        else
+        {
+            foreach (var heading in new[] { Loc.L("必要", "Required"), Loc.L("所持", "Owned"),
+                         Loc.L("不足", "Missing") })
+                ImGui.TableSetupColumn(heading, ImGuiTableColumnFlags.WidthFixed,
+                    70 * ImGuiHelpers.GlobalScale);
+        }
+        ImGui.TableSetupColumn(Loc.L("所在", "Location"), ImGuiTableColumnFlags.WidthStretch, 2f);
         ImGui.TableHeadersRow();
         foreach (var item in rows)
         {
