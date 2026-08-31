@@ -200,8 +200,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 if (activeSettings.UseTheCollectorForRestoration)
                 {
                     var activePreset = queue[index];
-                    var heldProducts = CrafterInventoryLocator.PlayerInventoryCount(
-                        RecipeProductId(activePreset.RecipeId));
+                    var heldProducts = TurnInEligibleRestorationCount(activePreset.RecipeId);
                     var batchSize = Math.Clamp(activeSettings.RestorationTurnInBatchSize, 1, 999);
                     if (heldProducts >= batchSize)
                     {
@@ -280,8 +279,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                 var completedPreset = queue[index];
                 completedSettings.PlannedCraftCounts.TryGetValue(completedPreset.RecipeId, out var plannedCrafts);
                 completedSettings.CompletedCraftCounts.TryGetValue(completedPreset.RecipeId, out var completedCrafts);
-                var heldProducts = CrafterInventoryLocator.PlayerInventoryCount(
-                    RecipeProductId(completedPreset.RecipeId));
+                var heldProducts = TurnInEligibleRestorationCount(completedPreset.RecipeId);
                 var batchSize = Math.Clamp(completedSettings.RestorationTurnInBatchSize, 1, 999);
                 if ((completedSettings.UseTheCollectorForRestoration && heldProducts >= batchSize) ||
                     (plannedCrafts > 0 && completedCrafts >= plannedCrafts))
@@ -503,11 +501,31 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             return;
         }
 
+
+        var productId = RecipeProductId(preset.RecipeId);
+        var totalProducts = CrafterInventoryLocator.PlayerInventoryCount(productId);
+        var eligibleProducts = TurnInEligibleRestorationCount(preset.RecipeId);
+        if (totalProducts > eligibleProducts)
+        {
+            var minimumCollectability = RestorationMinimumCollectability(productId);
+            PauseForManualTurnIn(Loc.L(
+                $"収集価値が納品条件（{minimumCollectability}以上）に届かない{totalProducts - eligibleProducts}個が混在しています。TheCollectorは開始していません。対象品を整理し、製作設定を確認してから再開してください。",
+                $"{totalProducts - eligibleProducts} item(s) are below the minimum collectability of {minimumCollectability}. TheCollector was not started. Remove those items and check your crafting setup before resuming."));
+            return;
+        }
+        if (eligibleProducts <= 0)
+        {
+            PauseForManualTurnIn(Loc.L(
+                "納品条件を満たす復興品がないため、TheCollectorは開始していません。収集価値と製作設定を確認してください。",
+                "TheCollector was not started because no restoration items meet the turn-in requirement. Check collectability and your crafting setup."));
+            return;
+        }
+
         try
         {
             pendingRestorationRecipeId = 0;
             collectorRecipeId = preset.RecipeId;
-            collectorProductItemId = RecipeProductId(preset.RecipeId);
+            collectorProductItemId = productId;
             collectorRequestedAtUtc = DateTime.UtcNow;
             collectorBecameBusy = false;
             collectorTurnInRequested = true;
@@ -902,8 +920,30 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             {
                 var productId = RecipeProductId(x.RecipeId);
                 return productId != 0 &&
-                       CrafterInventoryLocator.PlayerInventoryCount(productId) >= minimumCount;
+                       CrafterInventoryLocator.PlayerInventoryCount(productId) ==
+                       TurnInEligibleRestorationCount(x.RecipeId) &&
+                       TurnInEligibleRestorationCount(x.RecipeId) >= minimumCount;
             });
+
+    private static int TurnInEligibleRestorationCount(uint recipeId)
+    {
+        var productId = RecipeProductId(recipeId);
+        if (productId == 0)
+            return 0;
+        var minimum = RestorationMinimumCollectability(productId);
+        return minimum <= 0
+            ? CrafterInventoryLocator.PlayerInventoryCount(productId)
+            : CrafterInventoryLocator.PlayerInventoryCount(productId, (short)Math.Min(short.MaxValue, minimum));
+    }
+
+    private static int RestorationMinimumCollectability(uint productItemId)
+    {
+        foreach (var supply in Plugin.DataManager.GetExcelSheet<HWDCrafterSupply>())
+        foreach (var entry in supply.HWDCrafterSupplyParams)
+            if (entry.ItemTradeIn.RowId == productItemId)
+                return entry.BaseCollectableRating;
+        return 0;
+    }
 
     private static IReadOnlyList<string> MissingIngredients(uint recipeId)
     {

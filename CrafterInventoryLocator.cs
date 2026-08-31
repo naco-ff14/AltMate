@@ -43,6 +43,14 @@ internal static unsafe class CrafterInventoryLocator
         return checked(bags + equipped);
     }
 
+    internal static int PlayerInventoryCount(uint itemId, short minimumCollectability)
+    {
+        var inventory = InventoryManager.Instance();
+        return inventory == null
+            ? 0
+            : inventory->GetInventoryItemCount(itemId, false, false, false, minimumCollectability);
+    }
+
     internal static IReadOnlyList<string> GetLocations(CrafterLevelingSettings settings, uint itemId)
     {
         var locations = new List<string>();
