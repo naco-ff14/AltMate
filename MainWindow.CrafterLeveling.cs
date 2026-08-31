@@ -48,24 +48,31 @@ public sealed partial class MainWindow
 
     private void DrawCrafterLevelingMain(CrafterLevelingSettings settings)
     {
+        if (Plugin.PlayerState.IsLoaded && Plugin.PlayerState.ClassJob.RowId is >= 8 and <= 15)
+            ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f),
+                Loc.L($"現在：{Plugin.PlayerState.ClassJob.Value.Abbreviation} Lv{Plugin.PlayerState.Level}",
+                    $"Current: {Plugin.PlayerState.ClassJob.Value.Abbreviation} Lv{Plugin.PlayerState.Level}"));
+        var targetLevel = settings.TargetLevel;
+        ImGui.SetNextItemWidth(260 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderInt(Loc.L("目標レベル", "Target level"), ref targetLevel, 1, 100))
+        {
+            settings.TargetLevel = targetLevel;
+            SaveCrafterSettings();
+        }
+        if (ImGui.IsItemDeactivatedAfterEdit()) BuildCrafterLevelingList(settings);
+        ImGui.SameLine();
+        if (ImGui.SmallButton(Loc.L("再計算", "Refresh"))) BuildCrafterLevelingList(settings);
         DrawCrafterExecutionControls(settings);
+        if (!string.IsNullOrWhiteSpace(crafterListMessage)) ImGui.TextWrapped(crafterListMessage);
         ImGui.Separator();
 
-        if (ImGui.CollapsingHeader(Loc.L("1. 育成条件", "1. Leveling plan"), ImGuiTreeNodeFlags.DefaultOpen))
+        ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("不足アイテム", "Required items"));
+        DrawCrafterPreparationList(settings);
+
+        if (ImGui.CollapsingHeader(Loc.L("詳細設定", "Advanced settings")))
         {
             ImGui.TextUnformatted(Loc.L("対象職", "Jobs"));
             DrawCrafterJobSelection(settings);
-            if (Plugin.PlayerState.IsLoaded && Plugin.PlayerState.ClassJob.RowId is >= 8 and <= 15)
-                ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f),
-                    Loc.L($"現在：{Plugin.PlayerState.ClassJob.Value.Abbreviation} Lv{Plugin.PlayerState.Level}",
-                        $"Current: {Plugin.PlayerState.ClassJob.Value.Abbreviation} Lv{Plugin.PlayerState.Level}"));
-            var targetLevel = settings.TargetLevel;
-            ImGui.SetNextItemWidth(180 * ImGuiHelpers.GlobalScale);
-            if (ImGui.SliderInt(Loc.L("目標レベル", "Target level"), ref targetLevel, 1, 100))
-            {
-                settings.TargetLevel = targetLevel;
-                SaveCrafterSettings();
-            }
             var route = (int)settings.Level50To80Route;
             var routeLabels = new[]
             {
@@ -79,6 +86,7 @@ public sealed partial class MainWindow
             {
                 settings.Level50To80Route = (CrafterLevelingRoute)route;
                 SaveCrafterSettings();
+                BuildCrafterLevelingList(settings);
             }
             var stopAt50 = settings.StopAtLevel50;
             if (ImGui.Checkbox(Loc.L("Lv50到達時に一旦停止", "Pause at level 50"), ref stopAt50))
@@ -107,24 +115,15 @@ public sealed partial class MainWindow
                     "TheCollector: Firmament mode (requires Lifestream and vnavmesh)"));
             }
 
-            ImGui.Spacing();
-            if (ImGui.Button(Loc.L("準備リストを更新", "Update preparation list"),
-                    new Vector2(220 * ImGuiHelpers.GlobalScale, 34 * ImGuiHelpers.GlobalScale)))
-                BuildCrafterLevelingList(settings);
-            if (!string.IsNullOrWhiteSpace(crafterListMessage))
-                ImGui.TextWrapped(crafterListMessage);
-        }
-
-        if (ImGui.CollapsingHeader(Loc.L("2. 素材の保管場所", "2. Material storage"),
-                ImGuiTreeNodeFlags.DefaultOpen))
+            ImGui.Separator();
+            ImGui.TextUnformatted(Loc.L("素材の保管場所", "Material storage"));
             DrawCrafterStorageSettings(settings);
-
-        if (ImGui.CollapsingHeader(Loc.L("3. 必要アイテム・実行", "3. Required items and execution"),
-                ImGuiTreeNodeFlags.DefaultOpen))
-            DrawCrafterPreparationList(settings);
-
-        if (ImGui.CollapsingHeader(Loc.L("レシピを手動編集", "Edit recipes manually")))
-            DrawCrafterPresetEditor(settings);
+            if (ImGui.TreeNode(Loc.L("レシピを手動編集", "Edit recipes manually")))
+            {
+                DrawCrafterPresetEditor(settings);
+                ImGui.TreePop();
+            }
+        }
     }
 
     private void DrawCrafterExecutionControls(CrafterLevelingSettings settings)
@@ -421,6 +420,7 @@ public sealed partial class MainWindow
                 if (selected) settings.EnabledJobIds.Add(jobId);
                 else settings.EnabledJobIds.Remove(jobId);
                 SaveCrafterSettings();
+                BuildCrafterLevelingList(settings);
             }
             if (jobId != 15) ImGui.SameLine();
         }
