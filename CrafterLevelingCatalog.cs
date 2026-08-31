@@ -55,7 +55,8 @@ internal static class CrafterLevelingCatalog
         new(15, 1, 20, "ドライプルーン", "Dried Plums", 10),
     ];
 
-    // The Lv20/Lv40 Grade 4 restoration recipes are intentionally explicit. Choosing an
+    // The Lv20/Lv40 Grade 4 restoration recipes are intentionally explicit. Lv40 recipes
+    // remain the active tier through Lv59 because the next restoration recipes unlock at Lv60. Choosing an
     // arbitrary recipe near the player's level can select furnishings or obsolete gear.
     internal static readonly IReadOnlyList<Entry> RestorationLevel20To50 =
     [
@@ -67,14 +68,14 @@ internal static class CrafterLevelingCatalog
         new(13, 20, 39, "第四次復興用の荒縄", "Grade 4 Skybuilders' Rope", 25),
         new(14, 20, 39, "第四次復興用のインク", "Grade 4 Skybuilders' Ink", 25),
         new(15, 20, 39, "第四次復興用のヘンプミルク", "Grade 4 Skybuilders' Hemp Milk", 25),
-        new(8, 40, 49, "第四次復興用の木箱", "Grade 4 Skybuilders' Crate", 20),
-        new(9, 40, 49, "第四次復興用の鉄釘", "Grade 4 Skybuilders' Nails", 20),
-        new(10, 40, 49, "第四次復興用のリベット", "Grade 4 Skybuilders' Rivets", 20),
-        new(11, 40, 49, "第四次復興用の鉄環", "Grade 4 Skybuilders' Rings", 20),
-        new(12, 40, 49, "第四次復興用の革紐", "Grade 4 Skybuilders' Leather Straps", 20),
-        new(13, 40, 49, "第四次復興用の生地", "Grade 4 Skybuilders' Cloth", 20),
-        new(14, 40, 49, "第四次復興用の植物油", "Grade 4 Skybuilders' Plant Oil", 20),
-        new(15, 40, 49, "第四次復興用のセサミクッキー", "Grade 4 Skybuilders' Sesame Cookie", 20),
+        new(8, 40, 59, "第四次復興用の木箱", "Grade 4 Skybuilders' Crate", 20),
+        new(9, 40, 59, "第四次復興用の鉄釘", "Grade 4 Skybuilders' Nails", 20),
+        new(10, 40, 59, "第四次復興用のリベット", "Grade 4 Skybuilders' Rivets", 20),
+        new(11, 40, 59, "第四次復興用の鉄環", "Grade 4 Skybuilders' Rings", 20),
+        new(12, 40, 59, "第四次復興用の革紐", "Grade 4 Skybuilders' Leather Straps", 20),
+        new(13, 40, 59, "第四次復興用の生地", "Grade 4 Skybuilders' Cloth", 20),
+        new(14, 40, 59, "第四次復興用の植物油", "Grade 4 Skybuilders' Plant Oil", 20),
+        new(15, 40, 59, "第四次復興用のセサミクッキー", "Grade 4 Skybuilders' Sesame Cookie", 20),
     ];
 
     internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
@@ -178,10 +179,10 @@ internal static class CrafterLevelingCatalog
             added++;
         }
 
-        if (settings.TargetLevel > 50)
+        if (settings.TargetLevel > 60)
         {
             var routeEnd = Math.Min(80, settings.TargetLevel);
-            var routeBands = BuildBands(50, routeEnd, 10);
+            var routeBands = BuildBands(60, routeEnd, 10);
             switch (settings.Level50To80Route)
             {
                 case CrafterLevelingRoute.Restoration:
