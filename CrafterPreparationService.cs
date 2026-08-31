@@ -15,6 +15,7 @@ internal sealed class CrafterPreparationService
         var required = new Dictionary<uint, (int Count, bool Crystal, bool Gear)>();
         var problems = new List<string>();
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
+        var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
 
         foreach (var preset in settings.RecipePresets.Where(x =>
                      settings.EnabledJobIds.Contains(x.JobId) && x.MaxLevel <= settings.TargetLevel &&
@@ -42,14 +43,28 @@ internal sealed class CrafterPreparationService
 
         foreach (var gear in settings.GearPresets.Where(x => x.TierLevel <= settings.TargetLevel))
         {
-            foreach (var itemId in gear.SharedItemIds.Where(x => x != 0))
-                Add(required, itemId, 1, false, true);
+            foreach (var group in gear.SharedItemIds.Where(x => x != 0).GroupBy(x => x))
+            {
+                if (!itemSheet.TryGetRow(group.Key, out var item) ||
+                    !settings.EnabledJobIds.Any(jobId =>
+                        JobLevel(jobId) < settings.TargetLevel && JobLevel(jobId) <= item.LevelEquip))
+                    continue;
+                AddGear(required, group.Key, group.Count());
+            }
             foreach (var job in gear.JobItemIds.Where(x => settings.EnabledJobIds.Contains(x.Key)))
-                foreach (var itemId in job.Value.Where(x => x != 0))
-                    Add(required, itemId, 1, false, true);
+            {
+                var currentLevel = JobLevel(job.Key);
+                if (currentLevel >= settings.TargetLevel)
+                    continue;
+                foreach (var group in job.Value.Where(x => x != 0).GroupBy(x => x))
+                {
+                    if (!itemSheet.TryGetRow(group.Key, out var item) || currentLevel > item.LevelEquip)
+                        continue;
+                    AddGear(required, group.Key, group.Count());
+                }
+            }
         }
 
-        var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
         errors = problems;
         return required.Select(pair =>
             {
@@ -73,6 +88,13 @@ internal sealed class CrafterPreparationService
     {
         required.TryGetValue(itemId, out var current);
         required[itemId] = (checked(current.Count + count), current.Crystal || crystal, current.Gear || gear);
+    }
+
+    private static void AddGear(Dictionary<uint, (int Count, bool Crystal, bool Gear)> required,
+        uint itemId, int count)
+    {
+        required.TryGetValue(itemId, out var current);
+        required[itemId] = (Math.Max(current.Count, count), current.Crystal, true);
     }
 
     private static bool IsCrystal(uint itemId) => itemId is >= 2 and <= 19;
