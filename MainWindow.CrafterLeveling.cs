@@ -418,6 +418,7 @@ public sealed partial class MainWindow
         crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
         nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
         var activeRecipeCount = settings.RecipePresets.Count(x =>
+            CrafterLevelingCatalog.IsActiveForLeveling(settings, x) &&
             settings.EnabledJobIds.Contains(x.JobId) &&
             CrafterPreparationService.JobLevel(x.JobId) < settings.TargetLevel &&
             x.MinLevel < settings.TargetLevel &&

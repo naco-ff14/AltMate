@@ -163,10 +163,11 @@ internal static class CrafterLevelingCatalog
 
     internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
     {
-        var recipes = Plugin.DataManager.GetExcelSheet<Recipe>(ClientLanguage.Japanese)
-            .Where(x => x.ItemResult.RowId != 0)
-            .GroupBy(x => x.ItemResult.Value.Name.ToString(), StringComparer.Ordinal)
-            .ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.Ordinal);
+        var itemIdsByJapaneseName = Plugin.DataManager.GetExcelSheet<Item>(ClientLanguage.Japanese)
+            .Where(x => !x.Name.IsEmpty)
+            .GroupBy(x => x.Name.ToString(), StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.Select(item => item.RowId).ToHashSet(), StringComparer.Ordinal);
+        var recipes = Plugin.DataManager.GetExcelSheet<Recipe>().Where(x => x.ItemResult.RowId != 0).ToArray();
         var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>()
             .GroupBy(x => x.Abbreviation.ToString(), StringComparer.OrdinalIgnoreCase)
             .ToDictionary(x => x.Key, x => x.First().RowId, StringComparer.OrdinalIgnoreCase);
@@ -182,8 +183,7 @@ internal static class CrafterLevelingCatalog
             var cells = line.Split('\t');
             if (cells.Length != 6 || !int.TryParse(cells[0], out var minLevel) ||
                 !int.TryParse(cells[1], out var maxLevel) || !int.TryParse(cells[5], out var craftCount) ||
-                !jobs.TryGetValue(cells[2], out var jobId) || !settings.EnabledJobIds.Contains(jobId) ||
-                minLevel >= settings.TargetLevel)
+                !jobs.TryGetValue(cells[2], out var jobId) || !settings.EnabledJobIds.Contains(jobId))
                 continue;
 
             var route = cells[3] switch
@@ -192,15 +192,13 @@ internal static class CrafterLevelingCatalog
                 "収集品" => CrafterLevelingRoute.Collectable,
                 _ => CrafterLevelingRoute.Normal,
             };
-            if (minLevel is >= 50 and <= 80 && route != settings.Level50To80Route)
-                continue;
-
-            if (!recipes.TryGetValue(cells[4], out var matches))
+            if (!itemIdsByJapaneseName.TryGetValue(cells[4], out var itemIds))
             {
                 unresolved.Add(cells[4]);
                 continue;
             }
-            var recipe = matches.FirstOrDefault(x => x.CraftType.RowId + 8 == jobId);
+            var recipe = recipes.FirstOrDefault(x => itemIds.Contains(x.ItemResult.RowId) &&
+                x.CraftType.RowId + 8 == jobId);
             if (recipe.RowId == 0)
             {
                 unresolved.Add(cells[4]);
@@ -211,7 +209,7 @@ internal static class CrafterLevelingCatalog
             {
                 JobId = jobId,
                 MinLevel = minLevel,
-                MaxLevel = Math.Min(maxLevel, settings.TargetLevel - 1),
+                MaxLevel = maxLevel,
                 RecipeId = recipe.RowId,
                 MaxCraftCount = craftCount,
                 Route = route,
@@ -233,4 +231,7 @@ internal static class CrafterLevelingCatalog
         });
         return new ApplyResult(added, 0, unresolved.Distinct().ToArray());
     }
+
+    internal static bool IsActiveForLeveling(CrafterLevelingSettings settings, CrafterRecipePreset preset) =>
+        preset.MinLevel is < 50 or > 80 || preset.Route == settings.Level50To80Route;
 }

@@ -732,7 +732,8 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private void LoadQueue(CrafterLevelingSettings settings, uint jobId, int level)
     {
         queue = settings.RecipePresets
-            .Where(x => x.JobId == jobId && x.MinLevel < settings.TargetLevel && x.MaxLevel >= level)
+            .Where(x => x.JobId == jobId && x.MinLevel < settings.TargetLevel && x.MaxLevel >= level &&
+                        CrafterLevelingCatalog.IsActiveForLeveling(settings, x))
             .OrderBy(x => x.MinLevel)
             .ThenBy(x => x.RecipeId)
             .Select(Clone)

@@ -18,6 +18,7 @@ internal sealed class CrafterPreparationService
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
 
         foreach (var preset in settings.RecipePresets.Where(x =>
+                     CrafterLevelingCatalog.IsActiveForLeveling(settings, x) &&
                      settings.EnabledJobIds.Contains(x.JobId) && x.MaxLevel <= settings.TargetLevel &&
                      JobLevel(x.JobId) < settings.TargetLevel && x.MaxLevel >= JobLevel(x.JobId)))
         {

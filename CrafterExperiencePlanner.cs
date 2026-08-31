@@ -42,7 +42,8 @@ internal static class CrafterExperiencePlanner
                 continue;
 
             foreach (var preset in settings.RecipePresets
-                         .Where(x => x.JobId == jobId && x.MinLevel < settings.TargetLevel)
+                         .Where(x => x.JobId == jobId && x.MinLevel < settings.TargetLevel &&
+                                     CrafterLevelingCatalog.IsActiveForLeveling(settings, x))
                          .OrderBy(x => x.MinLevel).ThenBy(x => x.RecipeId))
             {
                 if (level >= settings.TargetLevel)
