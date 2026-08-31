@@ -238,6 +238,45 @@ public sealed partial class MainWindow
     private void DrawCrafterPresetEditor(CrafterLevelingSettings settings)
     {
         ImGui.TextDisabled(Loc.L(
+            "レシピと対象装備を、別の環境でも使えるJSONとしてコピー・登録できます。進捗数は含みません。",
+            "Copy or import recipes and target gear as portable JSON. Progress counts are not included."));
+        if (ImGui.Button(Loc.L("レシピ・装備をコピー", "Copy recipes and gear")))
+        {
+            ImGui.SetClipboardText(CrafterPlanClipboard.Export(settings));
+            crafterListMessage = Loc.L(
+                $"レシピ{settings.RecipePresets.Count}件・装備Tier{settings.GearPresets.Count}件をコピーしました。",
+                $"Copied {settings.RecipePresets.Count} recipes and {settings.GearPresets.Count} gear tiers.");
+        }
+        ImGui.SameLine();
+        if (ImGui.Button(Loc.L("クリップボードから登録", "Import from clipboard")))
+        {
+            if (CrafterPlanClipboard.TryImport(ImGui.GetClipboardText(), out var recipes, out var gear,
+                    out var error))
+            {
+                settings.RecipePresets = recipes;
+                settings.GearPresets = gear;
+                settings.CompletedCraftCounts.Clear();
+                settings.PlannedCraftCounts.Clear();
+                CrafterExperiencePlanner.EnsurePlans(settings);
+                CrafterRetainerScanner.RefreshOwnedTotals(settings);
+                var service = new CrafterPreparationService();
+                crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+                nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
+                SaveCrafterSettings();
+                crafterListMessage = Loc.L(
+                    $"レシピ{recipes.Count}件・装備Tier{gear.Count}件を登録しました。",
+                    $"Imported {recipes.Count} recipes and {gear.Count} gear tiers.");
+            }
+            else
+            {
+                crafterListMessage = error;
+            }
+        }
+        if (!string.IsNullOrWhiteSpace(crafterListMessage))
+            ImGui.TextWrapped(crafterListMessage);
+        ImGui.Separator();
+
+        ImGui.TextDisabled(Loc.L(
             "製作品を名前で検索して登録します。必要素材はゲームデータから自動集計します。",
             "Search and register a crafted item by name. Required materials are calculated from game data."));
 
