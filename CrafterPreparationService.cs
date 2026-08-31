@@ -19,7 +19,7 @@ internal sealed class CrafterPreparationService
 
         foreach (var preset in settings.RecipePresets.Where(x =>
                      CrafterLevelingCatalog.IsActiveForLeveling(settings, x) &&
-                     settings.EnabledJobIds.Contains(x.JobId) && x.MaxLevel <= settings.TargetLevel &&
+                     settings.EnabledJobIds.Contains(x.JobId) && x.MinLevel < settings.TargetLevel &&
                      JobLevel(x.JobId) < settings.TargetLevel && x.MaxLevel >= JobLevel(x.JobId)))
         {
             if (preset.RecipeId == 0 || preset.MaxCraftCount <= 0 ||

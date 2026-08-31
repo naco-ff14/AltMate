@@ -182,8 +182,13 @@ internal static class CrafterQuestCatalog
             if (cells.Length != 5 || !jobs.TryGetValue(cells[1], out var jobId) ||
                 !int.TryParse(cells[0], out var level) || !int.TryParse(cells[3], out var count)) continue;
             items.TryGetValue(cells[2], out var itemId);
-            var quest = quests.FirstOrDefault(q => q.ClassJobRequired.RowId == jobId && q.QuestClassJobSupply.IsValid &&
-                q.QuestClassJobSupply.Value.Any(s => s.Item.RowId == itemId && s.AmountRequired == count));
+            // Class quests no longer expose their turn-in items through QuestClassJobSupply
+            // (that sheet is used by other quest systems). Resolve the class-quest chain by
+            // required job and level; the earlier row is the actual turn-in quest when an
+            // expansion starter exists at the same level.
+            var quest = quests.Where(q => q.ClassJobRequired.RowId == jobId &&
+                    q.ClassJobLevel.Count > 0 && q.ClassJobLevel[0] == level && !q.Name.IsEmpty)
+                .OrderBy(q => q.RowId).FirstOrDefault();
             result.Add(new CrafterQuestItem(quest.RowId, jobId, level,
                 quest.RowId == 0 ? $"Lv{level} {cells[1]}" : quest.Name.ToString(),
                 itemId, cells[2], count, cells[4].Contains("HQ", StringComparison.Ordinal), cells[4]));

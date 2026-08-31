@@ -61,7 +61,11 @@ internal static class CrafterExperiencePlanner
                     continue;
                 }
 
-                var count = CraftsToLevel(recipe, preset.Route, ref level, ref experience, stopLevel);
+                // The approved catalog craft count is the preparation baseline and safety cap.
+                // Restoration/collectable turn-in EXP is not represented reliably by recipe
+                // base EXP, which previously inflated plans into the thousands.
+                var count = Math.Max(1, preset.MaxCraftCount);
+                SimulateExistingPlan(recipe, preset.Route, count, ref level, ref experience, stopLevel);
                 settings.PlannedCraftCounts[preset.RecipeId] = count;
             }
         }
@@ -73,7 +77,7 @@ internal static class CrafterExperiencePlanner
             return 1;
         var (level, experience) = JobProgress(preset.JobId);
         var stopLevel = Math.Min(targetLevel, preset.MaxLevel + 1);
-        return Math.Max(1, CraftsToLevel(recipe, preset.Route, ref level, ref experience, stopLevel));
+        return Math.Max(1, preset.MaxCraftCount);
     }
 
     private static int CraftsToLevel(Recipe recipe, CrafterLevelingRoute route, ref int level,
