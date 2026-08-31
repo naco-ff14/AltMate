@@ -171,7 +171,7 @@ public sealed partial class MainWindow
 
         if (ImGui.Button(Loc.L("指定範囲をコピー", "Copy selected range")))
         {
-            ImGui.SetClipboardText(CrafterPlanClipboard.Export(settings,
+            ImGui.SetClipboardText(CrafterPlanClipboard.ExportTable(settings,
                 crafterClipboardMinLevel, crafterClipboardMaxLevel));
             crafterListMessage = Loc.L(
                 $"Lv{crafterClipboardMinLevel}～{crafterClipboardMaxLevel}のレシピ{exportRecipeCount}件・装備Tier{exportGearCount}件をコピーしました。",
@@ -180,7 +180,7 @@ public sealed partial class MainWindow
         ImGui.SameLine();
         if (ImGui.Button(Loc.L("指定範囲へ登録", "Import into selected range")))
         {
-            if (CrafterPlanClipboard.TryImport(ImGui.GetClipboardText(), out var importedRecipes,
+            if (CrafterPlanClipboard.TryImportTable(ImGui.GetClipboardText(), out var importedRecipes,
                     out var importedGear, out var error))
             {
                 var recipes = importedRecipes.Where(x =>
@@ -221,6 +221,76 @@ public sealed partial class MainWindow
             "Import replaces existing recipes overlapping the selected range and gear tiers within it."));
         if (!string.IsNullOrWhiteSpace(crafterListMessage))
             ImGui.TextWrapped(crafterListMessage);
+
+        ImGui.Spacing();
+        DrawCrafterClipboardRecipeTable(settings);
+        ImGui.Spacing();
+        DrawCrafterClipboardGearTable(settings);
+    }
+
+    private void DrawCrafterClipboardRecipeTable(CrafterLevelingSettings settings)
+    {
+        ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("レシピ", "Recipes"));
+        var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
+        var rows = settings.RecipePresets
+            .Where(x => x.MinLevel <= crafterClipboardMaxLevel && x.MaxLevel >= crafterClipboardMinLevel)
+            .OrderBy(x => x.MinLevel).ThenBy(x => x.JobId).ToArray();
+        if (!ImGui.BeginTable("crafter-clipboard-recipes", 4,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
+        foreach (var heading in new[] { "minLv", "MaxLv", Loc.L("レシピ", "Recipe"), Loc.L("制作個数", "Craft count") })
+            ImGui.TableSetupColumn(heading);
+        ImGui.TableHeadersRow();
+        foreach (var preset in rows)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MinLevel.ToString());
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MaxLevel.ToString());
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(recipeSheet.TryGetRow(preset.RecipeId, out var recipe)
+                ? recipe.ItemResult.Value.Name.ToString()
+                : $"Recipe ID {preset.RecipeId}");
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MaxCraftCount.ToString());
+        }
+        ImGui.EndTable();
+    }
+
+    private void DrawCrafterClipboardGearTable(CrafterLevelingSettings settings)
+    {
+        ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("対象装備", "Target gear"));
+        var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
+        var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        if (!ImGui.BeginTable("crafter-clipboard-gear", 3,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
+        foreach (var heading in new[] { Loc.L("装備Lv", "Gear Lv"), Loc.L("対象職", "Job"), Loc.L("装備", "Gear") })
+            ImGui.TableSetupColumn(heading);
+        ImGui.TableHeadersRow();
+        foreach (var preset in settings.GearPresets
+                     .Where(x => x.TierLevel >= crafterClipboardMinLevel && x.TierLevel <= crafterClipboardMaxLevel)
+                     .OrderBy(x => x.TierLevel))
+        {
+            foreach (var itemId in preset.SharedItemIds)
+                DrawGearRow(preset.TierLevel, Loc.L("共通", "Shared"), itemId);
+            foreach (var jobItems in preset.JobItemIds.OrderBy(x => x.Key))
+            {
+                var job = jobSheet.TryGetRow(jobItems.Key, out var classJob)
+                    ? classJob.Abbreviation.ToString()
+                    : jobItems.Key.ToString();
+                foreach (var itemId in jobItems.Value) DrawGearRow(preset.TierLevel, job, itemId);
+            }
+        }
+        ImGui.EndTable();
+        return;
+
+        void DrawGearRow(int level, string job, uint itemId)
+        {
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(level.ToString());
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(job);
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(itemSheet.TryGetRow(itemId, out var item)
+                ? item.Name.ToString()
+                : $"Item ID {itemId}");
+        }
     }
 
     private void BuildCrafterLevelingList(CrafterLevelingSettings settings)
