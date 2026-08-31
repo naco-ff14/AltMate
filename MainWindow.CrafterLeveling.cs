@@ -696,6 +696,7 @@ public sealed partial class MainWindow
         var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
         var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
         var rows = settings.RecipePresets.Where(x =>
+                CrafterLevelingCatalog.IsActiveForLeveling(settings, x) &&
                 settings.EnabledJobIds.Contains(x.JobId) &&
                 CrafterPreparationService.JobLevel(x.JobId) < settings.TargetLevel &&
                 x.MaxLevel >= CrafterPreparationService.JobLevel(x.JobId) && x.MinLevel < settings.TargetLevel)
