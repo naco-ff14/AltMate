@@ -19,12 +19,16 @@ internal static class CrafterPlanClipboard
         public List<CrafterGearPreset> Gear { get; set; } = new();
     }
 
-    public static string Export(CrafterLevelingSettings settings)
+    public static string Export(CrafterLevelingSettings settings, int minLevel, int maxLevel)
     {
         var document = new Document
         {
-            Recipes = settings.RecipePresets.Select(Clone).ToList(),
-            Gear = settings.GearPresets.Select(Clone).ToList(),
+            Recipes = settings.RecipePresets
+                .Where(x => x.MinLevel <= maxLevel && x.MaxLevel >= minLevel)
+                .Select(Clone).ToList(),
+            Gear = settings.GearPresets
+                .Where(x => x.TierLevel >= minLevel && x.TierLevel <= maxLevel)
+                .Select(Clone).ToList(),
         };
         return JsonConvert.SerializeObject(document, Formatting.Indented);
     }

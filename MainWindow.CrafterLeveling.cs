@@ -21,6 +21,8 @@ public sealed partial class MainWindow
     private IReadOnlyList<(uint RecipeId, string ProductName)> crafterRecipeSearchResults = [];
     private string crafterListMessage = string.Empty;
     private DateTime nextCrafterInventoryRefreshUtc;
+    private int crafterClipboardMinLevel = 1;
+    private int crafterClipboardMaxLevel = 100;
 
     private void DrawCrafterLeveling()
     {
@@ -28,6 +30,23 @@ public sealed partial class MainWindow
             Loc.L("8職を装備Tierごとに揃えて育成するための準備と進捗を管理します。",
                 "Prepare and track tier-based leveling for all eight crafting jobs."));
         var settings = plugin.GetCrafterLevelingSettings();
+
+        if (!ImGui.BeginTabBar("crafter-leveling-tabs")) return;
+        if (ImGui.BeginTabItem(Loc.L("育成・準備", "Leveling and preparation")))
+        {
+            DrawCrafterLevelingMain(settings);
+            ImGui.EndTabItem();
+        }
+        if (ImGui.BeginTabItem(Loc.L("レシピ・装備データ", "Recipe and gear data")))
+        {
+            DrawCrafterClipboardData(settings);
+            ImGui.EndTabItem();
+        }
+        ImGui.EndTabBar();
+    }
+
+    private void DrawCrafterLevelingMain(CrafterLevelingSettings settings)
+    {
 
         ImGui.PushStyleColor(ImGuiCol.ChildBg, new Vector4(0.09f, 0.12f, 0.17f, 0.9f));
         ImGui.BeginChild("crafter-phase-status", new Vector2(0, 64 * ImGuiHelpers.GlobalScale), true);
@@ -127,6 +146,81 @@ public sealed partial class MainWindow
                 ImGuiTreeNodeFlags.DefaultOpen))
             DrawCrafterPreparationList(settings);
 
+    }
+
+    private void DrawCrafterClipboardData(CrafterLevelingSettings settings)
+    {
+        ImGui.TextWrapped(Loc.L(
+            "指定レベル帯のレシピと対象装備をJSONで移行します。キャラクターの現在Lvは参照しません。",
+            "Transfer recipes and target gear in the selected level range as JSON. Character level is ignored."));
+        ImGui.SetNextItemWidth(130 * ImGuiHelpers.GlobalScale);
+        ImGui.InputInt(Loc.L("開始Lv", "Min Lv"), ref crafterClipboardMinLevel);
+        ImGui.SameLine();
+        ImGui.SetNextItemWidth(130 * ImGuiHelpers.GlobalScale);
+        ImGui.InputInt(Loc.L("終了Lv", "Max Lv"), ref crafterClipboardMaxLevel);
+        crafterClipboardMinLevel = Math.Clamp(crafterClipboardMinLevel, 1, 100);
+        crafterClipboardMaxLevel = Math.Clamp(crafterClipboardMaxLevel, crafterClipboardMinLevel, 100);
+
+        var exportRecipeCount = settings.RecipePresets.Count(x =>
+            x.MinLevel <= crafterClipboardMaxLevel && x.MaxLevel >= crafterClipboardMinLevel);
+        var exportGearCount = settings.GearPresets.Count(x =>
+            x.TierLevel >= crafterClipboardMinLevel && x.TierLevel <= crafterClipboardMaxLevel);
+        ImGui.TextDisabled(Loc.L(
+            $"対象：レシピ{exportRecipeCount}件・装備Tier{exportGearCount}件",
+            $"Selected: {exportRecipeCount} recipes and {exportGearCount} gear tiers"));
+
+        if (ImGui.Button(Loc.L("指定範囲をコピー", "Copy selected range")))
+        {
+            ImGui.SetClipboardText(CrafterPlanClipboard.Export(settings,
+                crafterClipboardMinLevel, crafterClipboardMaxLevel));
+            crafterListMessage = Loc.L(
+                $"Lv{crafterClipboardMinLevel}～{crafterClipboardMaxLevel}のレシピ{exportRecipeCount}件・装備Tier{exportGearCount}件をコピーしました。",
+                $"Copied {exportRecipeCount} recipes and {exportGearCount} gear tiers for levels {crafterClipboardMinLevel}-{crafterClipboardMaxLevel}.");
+        }
+        ImGui.SameLine();
+        if (ImGui.Button(Loc.L("指定範囲へ登録", "Import into selected range")))
+        {
+            if (CrafterPlanClipboard.TryImport(ImGui.GetClipboardText(), out var importedRecipes,
+                    out var importedGear, out var error))
+            {
+                var recipes = importedRecipes.Where(x =>
+                    x.MinLevel <= crafterClipboardMaxLevel && x.MaxLevel >= crafterClipboardMinLevel).ToList();
+                var gear = importedGear.Where(x =>
+                    x.TierLevel >= crafterClipboardMinLevel && x.TierLevel <= crafterClipboardMaxLevel).ToList();
+                settings.RecipePresets.RemoveAll(x =>
+                    x.MinLevel <= crafterClipboardMaxLevel && x.MaxLevel >= crafterClipboardMinLevel);
+                settings.GearPresets.RemoveAll(x =>
+                    x.TierLevel >= crafterClipboardMinLevel && x.TierLevel <= crafterClipboardMaxLevel);
+                settings.RecipePresets.AddRange(recipes);
+                settings.GearPresets.AddRange(gear);
+                settings.RecipePresets.Sort((left, right) =>
+                {
+                    var job = left.JobId.CompareTo(right.JobId);
+                    return job != 0 ? job : left.MinLevel.CompareTo(right.MinLevel);
+                });
+                settings.GearPresets.Sort((left, right) => left.TierLevel.CompareTo(right.TierLevel));
+                settings.CompletedCraftCounts.Clear();
+                settings.PlannedCraftCounts.Clear();
+                CrafterExperiencePlanner.EnsurePlans(settings);
+                CrafterRetainerScanner.RefreshOwnedTotals(settings);
+                var service = new CrafterPreparationService();
+                crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+                nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
+                SaveCrafterSettings();
+                crafterListMessage = Loc.L(
+                    $"Lv{crafterClipboardMinLevel}～{crafterClipboardMaxLevel}へレシピ{recipes.Count}件・装備Tier{gear.Count}件を登録しました。",
+                    $"Imported {recipes.Count} recipes and {gear.Count} gear tiers into levels {crafterClipboardMinLevel}-{crafterClipboardMaxLevel}.");
+            }
+            else
+            {
+                crafterListMessage = error;
+            }
+        }
+        ImGui.TextDisabled(Loc.L(
+            "登録すると指定範囲に重なる既存レシピと、その範囲の装備Tierを置き換えます。",
+            "Import replaces existing recipes overlapping the selected range and gear tiers within it."));
+        if (!string.IsNullOrWhiteSpace(crafterListMessage))
+            ImGui.TextWrapped(crafterListMessage);
     }
 
     private void BuildCrafterLevelingList(CrafterLevelingSettings settings)
@@ -237,45 +331,6 @@ public sealed partial class MainWindow
 
     private void DrawCrafterPresetEditor(CrafterLevelingSettings settings)
     {
-        ImGui.TextDisabled(Loc.L(
-            "レシピと対象装備を、別の環境でも使えるJSONとしてコピー・登録できます。進捗数は含みません。",
-            "Copy or import recipes and target gear as portable JSON. Progress counts are not included."));
-        if (ImGui.Button(Loc.L("レシピ・装備をコピー", "Copy recipes and gear")))
-        {
-            ImGui.SetClipboardText(CrafterPlanClipboard.Export(settings));
-            crafterListMessage = Loc.L(
-                $"レシピ{settings.RecipePresets.Count}件・装備Tier{settings.GearPresets.Count}件をコピーしました。",
-                $"Copied {settings.RecipePresets.Count} recipes and {settings.GearPresets.Count} gear tiers.");
-        }
-        ImGui.SameLine();
-        if (ImGui.Button(Loc.L("クリップボードから登録", "Import from clipboard")))
-        {
-            if (CrafterPlanClipboard.TryImport(ImGui.GetClipboardText(), out var recipes, out var gear,
-                    out var error))
-            {
-                settings.RecipePresets = recipes;
-                settings.GearPresets = gear;
-                settings.CompletedCraftCounts.Clear();
-                settings.PlannedCraftCounts.Clear();
-                CrafterExperiencePlanner.EnsurePlans(settings);
-                CrafterRetainerScanner.RefreshOwnedTotals(settings);
-                var service = new CrafterPreparationService();
-                crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
-                nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
-                SaveCrafterSettings();
-                crafterListMessage = Loc.L(
-                    $"レシピ{recipes.Count}件・装備Tier{gear.Count}件を登録しました。",
-                    $"Imported {recipes.Count} recipes and {gear.Count} gear tiers.");
-            }
-            else
-            {
-                crafterListMessage = error;
-            }
-        }
-        if (!string.IsNullOrWhiteSpace(crafterListMessage))
-            ImGui.TextWrapped(crafterListMessage);
-        ImGui.Separator();
-
         ImGui.TextDisabled(Loc.L(
             "製作品を名前で検索して登録します。必要素材はゲームデータから自動集計します。",
             "Search and register a crafted item by name. Required materials are calculated from game data."));
