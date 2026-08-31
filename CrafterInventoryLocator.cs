@@ -52,6 +52,14 @@ internal static unsafe class CrafterInventoryLocator
             : inventory->GetInventoryItemCount(itemId, false, false, false, minimumCollectability);
     }
 
+    internal static int PlayerInventoryCount(uint itemId, bool hqOnly)
+    {
+        var inventory = InventoryManager.Instance();
+        return inventory == null
+            ? 0
+            : inventory->GetInventoryItemCount(itemId, hqOnly, false, false);
+    }
+
     internal static bool TryDiscardFirstBelowCollectability(uint itemId, int minimumCollectability)
     {
         var inventory = InventoryManager.Instance();

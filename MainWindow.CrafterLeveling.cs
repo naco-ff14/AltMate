@@ -25,6 +25,7 @@ public sealed partial class MainWindow
     private int crafterClipboardMaxLevel = 100;
     private string crafterClipboardMessage = string.Empty;
     private IReadOnlyList<CrafterQuestItem> crafterQuestItems = [];
+    private string crafterQuestMessage = string.Empty;
 
     private void DrawCrafterLeveling()
     {
@@ -247,8 +248,16 @@ public sealed partial class MainWindow
     {
         if (crafterQuestItems.Count == 0) crafterQuestItems = CrafterQuestCatalog.BuildToLevel60();
         ImGui.TextDisabled(Loc.L("Lv60までのクラフタークエスト納品物", "Crafter quest turn-ins through level 60"));
+        ImGui.TextDisabled(Loc.L(
+            "必要品を手持ちバッグに揃えると、Questionableへ渡して受注から納品まで自動進行できます。",
+            "Once all required items are in your inventory, Questionable can automate the quest through turn-in."));
+        if (!QuestionableQuestBridge.IsAvailable)
+            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
+                Loc.L("Questionableが読み込まれていません。", "Questionable is not loaded."));
+        if (!string.IsNullOrWhiteSpace(crafterQuestMessage)) ImGui.TextWrapped(crafterQuestMessage);
         var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        if (!ImGui.BeginTable("crafter-quest-items", 9,
+        var questionableRunning = QuestionableQuestBridge.IsRunning();
+        if (!ImGui.BeginTable("crafter-quest-items", 11,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, -1))) return;
         ImGui.TableSetupColumn("Lv", ImGuiTableColumnFlags.WidthFixed, 45 * ImGuiHelpers.GlobalScale);
@@ -257,15 +266,21 @@ public sealed partial class MainWindow
         ImGui.TableSetupColumn(Loc.L("アイテム", "Item"), ImGuiTableColumnFlags.WidthStretch, 3f);
         ImGui.TableSetupColumn(Loc.L("コピー", "Copy"), ImGuiTableColumnFlags.WidthFixed, 72 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("必要", "Required"), ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("条件", "Condition"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("所持", "Owned"), ImGuiTableColumnFlags.WidthFixed, 60 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("状態", "Status"), ImGuiTableColumnFlags.WidthFixed, 75 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("所在", "Location"), ImGuiTableColumnFlags.WidthStretch, 2f);
+        ImGui.TableSetupColumn(Loc.L("実行", "Run"), ImGuiTableColumnFlags.WidthFixed, 92 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
         foreach (var row in crafterQuestItems)
         {
             settings.KnownOwnedItems.TryGetValue(row.ItemId, out var retainerOwned);
             var owned = checked(retainerOwned + CrafterInventoryLocator.PlayerInventoryCount(row.ItemId));
             var enough = owned >= row.RequiredCount;
+            var questRows = crafterQuestItems.Where(x => x.QuestId == row.QuestId).ToArray();
+            var readyInBags = questRows.All(x =>
+                CrafterInventoryLocator.PlayerInventoryCount(x.ItemId, x.RequiresHq) >= x.RequiredCount);
+            var complete = QuestionableQuestBridge.IsComplete(row.QuestId);
             ImGui.TableNextRow();
             ImGui.TableNextColumn(); ImGui.TextUnformatted(row.Level.ToString());
             ImGui.TableNextColumn();
@@ -276,6 +291,7 @@ public sealed partial class MainWindow
             if (ImGui.SmallButton($"{Loc.L("コピー", "Copy")}##copy-quest-item-{row.JobId}-{row.Level}-{row.ItemId}"))
                 ImGui.SetClipboardText(row.ItemName);
             ImGui.TableNextColumn(); ImGui.TextUnformatted(row.RequiredCount.ToString("N0"));
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(row.Condition);
             ImGui.TableNextColumn(); ImGui.TextUnformatted(owned.ToString("N0"));
             ImGui.TableNextColumn();
             ImGui.TextColored(enough ? new Vector4(0.35f, 0.9f, 0.5f, 1f) : new Vector4(1f, 0.35f, 0.3f, 1f),
@@ -283,6 +299,27 @@ public sealed partial class MainWindow
             ImGui.TableNextColumn();
             var locations = CrafterInventoryLocator.GetLocations(settings, row.ItemId);
             ImGui.TextWrapped(locations.Count > 0 ? string.Join(" / ", locations) : Loc.L("所持なし", "Not owned"));
+            ImGui.TableNextColumn();
+            ImGui.BeginDisabled(row.QuestId == 0 || complete || !readyInBags || questionableRunning || !QuestionableQuestBridge.IsAvailable);
+            if (ImGui.SmallButton($"{Loc.L("自動クリア", "Auto clear")}##quest-{row.QuestId}-{row.ItemId}"))
+            {
+                try
+                {
+                    crafterQuestMessage = QuestionableQuestBridge.StartSingle(row.QuestId)
+                        ? Loc.L($"「{row.QuestName}」をQuestionableへ渡しました。",
+                            $"Sent '{row.QuestName}' to Questionable.")
+                        : Loc.L("Questionableがクエストを受け付けませんでした。対象クエストの対応状況を確認してください。",
+                            "Questionable rejected the quest. Check whether the quest is supported.");
+                }
+                catch (Exception ex)
+                {
+                    Plugin.Log.Warning(ex, "Failed to start crafter quest through Questionable");
+                    crafterQuestMessage = Loc.L("Questionable連携に失敗しました。", "Questionable integration failed.");
+                }
+            }
+            ImGui.EndDisabled();
+            if (complete) ImGui.TextDisabled(Loc.L("完了済み", "Complete"));
+            else if (!readyInBags && enough) ImGui.TextDisabled(Loc.L("手持ちへ移動", "Move to bags"));
         }
         ImGui.EndTable();
     }
