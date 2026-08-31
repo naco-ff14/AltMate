@@ -2,9 +2,9 @@ using Dalamud.Game.ClientState.Conditions;
 using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
+using FFXIVClientStructs.FFXIV.Client.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
 using FFXIVClientStructs.FFXIV.Client.UI.Agent;
-using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -682,12 +682,21 @@ internal sealed class CrafterLevelingAutomation : IDisposable
             }
 
             var context = AgentInventoryContext.Instance();
-            var yesNo = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("SelectYesno").Address;
+            var yesNo = (AddonSelectYesno*)Plugin.GameGui.GetAddonByName("SelectYesno").Address;
             if (context != null && context->DialogType == 1 &&
                 context->DiscardDummyItem.GetBaseItemId() == discardProductItemId &&
-                yesNo != null && yesNo->IsVisible)
+                yesNo != null && yesNo->AtkUnitBase.IsVisible)
             {
-                yesNo->FireCallbackInt(0);
+                if (yesNo->ConfirmCheckBox != null && !yesNo->ConfirmCheckBox->IsChecked)
+                {
+                    yesNo->ConfirmCheckBox->SetChecked(true);
+                    if (yesNo->YesButton != null)
+                        yesNo->YesButton->SetEnabledState(true);
+                    Status = Loc.L("収集品の破棄確認を有効にしています。",
+                        "Enabling collectible discard confirmation.");
+                    return;
+                }
+                yesNo->AtkUnitBase.FireCallbackInt(0);
                 Status = Loc.L($"収集価値未達品を破棄中：残り{lowCount}個",
                     $"Discarding low-collectability items: {lowCount} remaining");
             }
