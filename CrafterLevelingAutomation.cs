@@ -3,6 +3,8 @@ using Dalamud.Plugin.Services;
 using Lumina.Excel.Sheets;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Misc;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
+using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -34,6 +36,10 @@ internal sealed class CrafterLevelingAutomation : IDisposable
     private uint collectorRecipeId;
     private uint collectorProductItemId;
     private uint pendingRestorationRecipeId;
+    private uint discardProductItemId;
+    private int discardMinimumCollectability;
+    private int discardLowCountBeforeRequest;
+    private DateTime discardRequestedAtUtc;
 
     internal bool IsRunning { get; private set; }
     internal string Status { get; private set; } = Loc.L("待機中", "Idle");
@@ -157,6 +163,11 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (collectorTurnInRequested)
         {
             ContinueCollectorTurnIn();
+            return;
+        }
+        if (discardProductItemId != 0)
+        {
+            ContinueLowCollectabilityDiscard();
             return;
         }
         if (!Plugin.PlayerState.IsLoaded)
@@ -508,9 +519,13 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         if (totalProducts > eligibleProducts)
         {
             var minimumCollectability = RestorationMinimumCollectability(productId);
-            PauseForManualTurnIn(Loc.L(
-                $"収集価値が納品条件（{minimumCollectability}以上）に届かない{totalProducts - eligibleProducts}個が混在しています。TheCollectorは開始していません。対象品を整理し、製作設定を確認してから再開してください。",
-                $"{totalProducts - eligibleProducts} item(s) are below the minimum collectability of {minimumCollectability}. TheCollector was not started. Remove those items and check your crafting setup before resuming."));
+            discardProductItemId = productId;
+            discardMinimumCollectability = minimumCollectability;
+            discardLowCountBeforeRequest = 0;
+            discardRequestedAtUtc = DateTime.MinValue;
+            Status = Loc.L(
+                $"収集価値未達の復興品{totalProducts - eligibleProducts}個を破棄してから納品します。",
+                $"Discarding {totalProducts - eligibleProducts} restoration item(s) below the collectability requirement before turn-in.");
             return;
         }
         if (eligibleProducts <= 0)
@@ -625,6 +640,71 @@ internal sealed class CrafterLevelingAutomation : IDisposable
         collectorRecipeId = 0;
         collectorProductItemId = 0;
         pendingRestorationRecipeId = 0;
+        discardProductItemId = 0;
+        discardMinimumCollectability = 0;
+        discardLowCountBeforeRequest = 0;
+        discardRequestedAtUtc = DateTime.MinValue;
+    }
+
+    private unsafe void ContinueLowCollectabilityDiscard()
+    {
+        if (Plugin.Condition[ConditionFlag.Crafting] || Plugin.Condition[ConditionFlag.PreparingToCraft])
+        {
+            Status = Loc.L("収集価値未達品の破棄前に制作状態の解除を待っています。",
+                "Waiting for the crafting state to clear before discarding low-collectability items.");
+            return;
+        }
+
+        var total = CrafterInventoryLocator.PlayerInventoryCount(discardProductItemId);
+        var eligible = CrafterInventoryLocator.PlayerInventoryCount(discardProductItemId,
+            (short)Math.Min(short.MaxValue, discardMinimumCollectability));
+        var lowCount = Math.Max(0, total - eligible);
+        if (lowCount == 0)
+        {
+            discardProductItemId = 0;
+            discardMinimumCollectability = 0;
+            discardLowCountBeforeRequest = 0;
+            discardRequestedAtUtc = DateTime.MinValue;
+            waitUntilUtc = DateTime.UtcNow.AddMilliseconds(500);
+            Status = Loc.L("収集価値未達品を破棄しました。TheCollectorでの納品へ進みます。",
+                "Low-collectability items were discarded. Continuing to TheCollector.");
+            return;
+        }
+
+        if (discardRequestedAtUtc != DateTime.MinValue)
+        {
+            if (lowCount < discardLowCountBeforeRequest)
+            {
+                discardRequestedAtUtc = DateTime.MinValue;
+                discardLowCountBeforeRequest = 0;
+                waitUntilUtc = DateTime.UtcNow.AddMilliseconds(500);
+                return;
+            }
+
+            var context = AgentInventoryContext.Instance();
+            var yesNo = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("SelectYesno").Address;
+            if (context != null && context->DialogType == 1 &&
+                context->DiscardDummyItem.GetBaseItemId() == discardProductItemId &&
+                yesNo != null && yesNo->IsVisible)
+            {
+                yesNo->FireCallbackInt(0);
+                Status = Loc.L($"収集価値未達品を破棄中：残り{lowCount}個",
+                    $"Discarding low-collectability items: {lowCount} remaining");
+            }
+            return;
+        }
+
+        if (!CrafterInventoryLocator.TryDiscardFirstBelowCollectability(
+                discardProductItemId, discardMinimumCollectability))
+        {
+            Status = Loc.L("収集価値未達品の破棄準備を待っています。",
+                "Waiting to discard a low-collectability item.");
+            return;
+        }
+        discardLowCountBeforeRequest = lowCount;
+        discardRequestedAtUtc = DateTime.UtcNow;
+        Status = Loc.L($"収集価値未達品を破棄中：残り{lowCount}個",
+            $"Discarding low-collectability items: {lowCount} remaining");
     }
 
     private void Complete()
