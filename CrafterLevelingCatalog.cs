@@ -78,6 +78,42 @@ internal static class CrafterLevelingCatalog
         new(15, 40, 59, "第四次復興用のセサミクッキー", "Grade 4 Skybuilders' Sesame Cookie", 20),
     ];
 
+    internal static readonly IReadOnlyList<Entry> CollectableLevel81To100 =
+    [
+        new(8, 81, 84, "収集用の栃乃木笠", "", 25),
+        new(9, 81, 84, "収集用のハイダリウム・ピストル", "", 25),
+        new(10, 81, 84, "収集用のハイダリウム・ナックル", "", 25),
+        new(11, 81, 84, "収集用のハイダリウム・ミルプレーヴェ", "", 25),
+        new(12, 81, 84, "収集用のガジャシューズ", "", 25),
+        new(13, 81, 84, "収集用の黒麻帽", "", 25),
+        new(14, 81, 84, "収集用のガジャコーデックス", "", 25),
+        new(15, 81, 84, "収集用の賢人パン", "", 25),
+        new(8, 85, 90, "収集用のレッドパイン・スピニングホイール", "", 35),
+        new(9, 85, 90, "収集用のビスマス・スレッジハンマー", "", 35),
+        new(10, 85, 90, "収集用のビスマス・ファットキャットフライパン", "", 35),
+        new(11, 85, 90, "収集用のフリギアンイヤリング", "", 35),
+        new(12, 85, 90, "収集用のサイガグローブ", "", 35),
+        new(13, 85, 90, "収集用のスノーリネン・クラフターダブレット", "", 35),
+        new(14, 85, 90, "収集用のムーンゲル", "", 35),
+        new(15, 85, 90, "収集用のハピネスジュース", "", 35),
+        new(8, 91, 94, "収集用のウコギイヤリング", "", 25),
+        new(9, 91, 94, "収集用のオルコクロマイト・フィスト", "", 25),
+        new(10, 91, 94, "収集用のオルコクロマイト・アレンビック", "", 25),
+        new(11, 91, 94, "収集用のラァー・ロングボウ", "", 25),
+        new(12, 91, 94, "収集用のシルバリオ・フィンガレスグローブ", "", 25),
+        new(13, 91, 94, "収集用のスノーコットン・ベレー", "", 25),
+        new(14, 91, 94, "収集用のシルバリオ・グリモア", "", 25),
+        new(15, 91, 94, "収集用のボイルド・アルパカステーキ", "", 25),
+        new(8, 95, 99, "収集用のダークマホガニー・ネックレス", "", 30),
+        new(9, 95, 99, "収集用のコバルトタングステン・シミター", "", 30),
+        new(10, 95, 99, "収集用のコバルトタングステン・チョコボフライパン", "", 30),
+        new(11, 95, 99, "収集用のコバルトタングステン・タック", "", 30),
+        new(12, 95, 99, "収集用のブラーシャ・アームレット", "", 30),
+        new(13, 95, 99, "収集用のサーセネット・ケクス", "", 30),
+        new(14, 95, 99, "収集用のブラーシャ・コーデックス", "", 30),
+        new(15, 95, 99, "収集用のトラルパイナップルケーキ", "", 30),
+    ];
+
     internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
     {
         var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
@@ -202,9 +238,8 @@ internal static class CrafterLevelingCatalog
 
         if (settings.TargetLevel > 80)
         {
-            var end = Math.Min(100, settings.TargetLevel);
-            AddDataDrivenPresets(settings, recipes, BuildBands(80, end, 5),
-                CrafterLevelingRoute.Collectable, CollectableItemIds(), unresolved, ref added, ref skipped);
+            AddExplicitPresets(settings, byName, CollectableLevel81To100,
+                CrafterLevelingRoute.Collectable, unresolved, ref added, ref skipped);
         }
 
         settings.RecipePresets.Sort((left, right) =>
@@ -214,6 +249,40 @@ internal static class CrafterLevelingCatalog
         });
 
         return new ApplyResult(added, skipped, unresolved);
+    }
+
+    private static void AddExplicitPresets(CrafterLevelingSettings settings,
+        Dictionary<string, Recipe[]> byName, IEnumerable<Entry> entries, CrafterLevelingRoute route,
+        List<string> unresolved, ref int added, ref int skipped)
+    {
+        foreach (var entry in entries.Where(x => settings.EnabledJobIds.Contains(x.JobId) &&
+                     x.MinLevel < settings.TargetLevel))
+        {
+            var recipe = Find(byName, entry.JapaneseName).Concat(Find(byName, entry.EnglishName))
+                .Where(x => x.CraftType.RowId + 8 == entry.JobId).DistinctBy(x => x.RowId).FirstOrDefault();
+            if (recipe.RowId == 0)
+            {
+                unresolved.Add(entry.JapaneseName);
+                continue;
+            }
+            if (settings.RecipePresets.Any(x => x.RecipeId == recipe.RowId && x.JobId == entry.JobId))
+            {
+                skipped++;
+                continue;
+            }
+            settings.RecipePresets.Add(new CrafterRecipePreset
+            {
+                JobId = entry.JobId,
+                MinLevel = entry.MinLevel,
+                MaxLevel = Math.Min(entry.MaxLevel, settings.TargetLevel - 1),
+                RecipeId = recipe.RowId,
+                MaxCraftCount = entry.MaxCraftCount,
+                Route = route,
+                RequiredUnlock = "Inscrutable Tastes",
+                IsCatalogGenerated = true,
+            });
+            added++;
+        }
     }
 
     private static IReadOnlyList<LevelBand> BuildBands(int start, int end, int width)
