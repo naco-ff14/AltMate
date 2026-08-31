@@ -8,238 +8,222 @@ namespace AltMate;
 
 internal static class CrafterLevelingCatalog
 {
-    internal sealed record Entry(uint JobId, int MinLevel, int MaxLevel, string JapaneseName,
-        string EnglishName, int MaxCraftCount);
-
     internal sealed record ApplyResult(int Added, int Skipped, IReadOnlyList<string> Unresolved);
-    private sealed record LevelBand(int MinLevel, int MaxLevel);
 
-    // Phase 1 draft from the agreed leveling route. IDs are deliberately not stored; the current
-    // game data is resolved by product name so the user-facing plan remains readable.
-    internal static readonly IReadOnlyList<Entry> Level1To20 =
-    [
-        new(8, 1, 20, "メープル材", "Maple Lumber", 20),
-        new(8, 1, 20, "アッシュ材", "Ash Lumber", 20),
-        new(8, 1, 20, "エルム材", "Elm Lumber", 40),
-        new(8, 1, 20, "ユー材", "Yew Lumber", 30),
-        new(9, 1, 20, "ブロンズインゴット", "Bronze Ingot", 30),
-        new(9, 1, 20, "ブロンズバゼラード", "Bronze Baselard", 15),
-        new(9, 1, 20, "アイアンインゴット", "Iron Ingot", 30),
-        new(9, 1, 20, "アイアンリベット", "Iron Rivets", 30),
-        new(10, 1, 20, "ブロンズプレート", "Bronze Plate", 30),
-        new(10, 1, 20, "アイアンプレート", "Iron Plate", 30),
-        new(10, 1, 20, "イニシエートスキレット", "Initiate's Skillet", 30),
-        new(10, 1, 20, "アイアンガントレット", "Iron Gauntlets", 80),
-        new(11, 1, 20, "カッパーインゴット", "Copper Ingot", 1),
-        new(11, 1, 20, "ラグストーン砥石", "Ragstone Whetstone", 30),
-        new(11, 1, 20, "ブラスインゴット", "Brass Ingot", 30),
-        new(11, 1, 20, "ブラスリング", "Brass Ring", 30),
-        new(11, 1, 20, "シルバーインゴット", "Silver Ingot", 20),
-        new(12, 1, 20, "レザー", "Leather", 1),
-        new(12, 1, 20, "ハードレザー", "Hard Leather", 30),
-        new(12, 1, 20, "アルドゴートレザー", "Aldgoat Leather", 30),
-        new(12, 1, 20, "ゴートリストガード", "Goatskin Wristguards", 20),
-        new(13, 1, 20, "草布", "Hempen Cloth", 30),
-        new(13, 1, 20, "綿糸", "Cotton Yarn", 30),
-        new(13, 1, 20, "綿布", "Undyed Cotton Cloth", 30),
-        new(13, 1, 20, "コットンアクトン", "Cotton Acton", 30),
-        new(14, 1, 20, "蒸留水", "Distilled Water", 1),
-        new(14, 1, 20, "ラバー", "Rubber", 10),
-        new(14, 1, 20, "蜜蝋", "Beeswax", 30),
-        new(14, 1, 20, "ファイアブリック", "Fire Brick", 50),
-        new(14, 1, 20, "重曹", "Natron", 10),
-        new(15, 1, 20, "メープルシロップ", "Maple Syrup", 1),
-        new(15, 1, 20, "バター", "Butter", 30),
-        new(15, 1, 20, "トマトソース", "Tomato Sauce", 30),
-        new(15, 1, 20, "サイダービネガー", "Cider Vinegar", 50),
-        new(15, 1, 20, "ドライプルーン", "Dried Plums", 10),
-    ];
-
-    // The Lv20/Lv40 Grade 4 restoration recipes are intentionally explicit. Lv40 recipes
-    // remain the active tier through Lv59 because the next restoration recipes unlock at Lv60. Choosing an
-    // arbitrary recipe near the player's level can select furnishings or obsolete gear.
-    internal static readonly IReadOnlyList<Entry> RestorationLevel20To50 =
-    [
-        new(8, 20, 39, "第四次復興用の合板", "Grade 4 Skybuilders' Plywood", 25),
-        new(9, 20, 39, "第四次復興用の合金", "Grade 4 Skybuilders' Alloy", 25),
-        new(10, 20, 39, "第四次復興用の金属板", "Grade 4 Skybuilders' Steel Plate", 25),
-        new(11, 20, 39, "第四次復興用の地金", "Grade 4 Skybuilders' Ingot", 25),
-        new(12, 20, 39, "第四次復興用のなめし革", "Grade 4 Skybuilders' Leather", 25),
-        new(13, 20, 39, "第四次復興用の荒縄", "Grade 4 Skybuilders' Rope", 25),
-        new(14, 20, 39, "第四次復興用のインク", "Grade 4 Skybuilders' Ink", 25),
-        new(15, 20, 39, "第四次復興用のヘンプミルク", "Grade 4 Skybuilders' Hemp Milk", 25),
-        new(8, 40, 59, "第四次復興用の木箱", "Grade 4 Skybuilders' Crate", 20),
-        new(9, 40, 59, "第四次復興用の鉄釘", "Grade 4 Skybuilders' Nails", 20),
-        new(10, 40, 59, "第四次復興用のリベット", "Grade 4 Skybuilders' Rivets", 20),
-        new(11, 40, 59, "第四次復興用の鉄環", "Grade 4 Skybuilders' Rings", 20),
-        new(12, 40, 59, "第四次復興用の革紐", "Grade 4 Skybuilders' Leather Straps", 20),
-        new(13, 40, 59, "第四次復興用の生地", "Grade 4 Skybuilders' Cloth", 20),
-        new(14, 40, 59, "第四次復興用の植物油", "Grade 4 Skybuilders' Plant Oil", 20),
-        new(15, 40, 59, "第四次復興用のセサミクッキー", "Grade 4 Skybuilders' Sesame Cookie", 20),
-    ];
-
-    internal static readonly IReadOnlyList<Entry> CollectableLevel81To100 =
-    [
-        new(8, 81, 84, "収集用の栃乃木笠", "", 25),
-        new(9, 81, 84, "収集用のハイダリウム・ピストル", "", 25),
-        new(10, 81, 84, "収集用のハイダリウム・ナックル", "", 25),
-        new(11, 81, 84, "収集用のハイダリウム・ミルプレーヴェ", "", 25),
-        new(12, 81, 84, "収集用のガジャシューズ", "", 25),
-        new(13, 81, 84, "収集用の黒麻帽", "", 25),
-        new(14, 81, 84, "収集用のガジャコーデックス", "", 25),
-        new(15, 81, 84, "収集用の賢人パン", "", 25),
-        new(8, 85, 90, "収集用のレッドパイン・スピニングホイール", "", 35),
-        new(9, 85, 90, "収集用のビスマス・スレッジハンマー", "", 35),
-        new(10, 85, 90, "収集用のビスマス・ファットキャットフライパン", "", 35),
-        new(11, 85, 90, "収集用のフリギアンイヤリング", "", 35),
-        new(12, 85, 90, "収集用のサイガグローブ", "", 35),
-        new(13, 85, 90, "収集用のスノーリネン・クラフターダブレット", "", 35),
-        new(14, 85, 90, "収集用のムーンゲル", "", 35),
-        new(15, 85, 90, "収集用のハピネスジュース", "", 35),
-        new(8, 91, 94, "収集用のウコギイヤリング", "", 25),
-        new(9, 91, 94, "収集用のオルコクロマイト・フィスト", "", 25),
-        new(10, 91, 94, "収集用のオルコクロマイト・アレンビック", "", 25),
-        new(11, 91, 94, "収集用のラァー・ロングボウ", "", 25),
-        new(12, 91, 94, "収集用のシルバリオ・フィンガレスグローブ", "", 25),
-        new(13, 91, 94, "収集用のスノーコットン・ベレー", "", 25),
-        new(14, 91, 94, "収集用のシルバリオ・グリモア", "", 25),
-        new(15, 91, 94, "収集用のボイルド・アルパカステーキ", "", 25),
-        new(8, 95, 99, "収集用のダークマホガニー・ネックレス", "", 30),
-        new(9, 95, 99, "収集用のコバルトタングステン・シミター", "", 30),
-        new(10, 95, 99, "収集用のコバルトタングステン・チョコボフライパン", "", 30),
-        new(11, 95, 99, "収集用のコバルトタングステン・タック", "", 30),
-        new(12, 95, 99, "収集用のブラーシャ・アームレット", "", 30),
-        new(13, 95, 99, "収集用のサーセネット・ケクス", "", 30),
-        new(14, 95, 99, "収集用のブラーシャ・コーデックス", "", 30),
-        new(15, 95, 99, "収集用のトラルパイナップルケーキ", "", 30),
-    ];
+    // User-approved leveling plan. Recipe IDs are resolved from the Japanese game-data sheet
+    // so the catalog remains stable regardless of the client's display language.
+    private const string StandardPlan = """
+1	9	CRP	通常製作	メープル材	30
+10	15	CRP	通常製作	アッシュ材	30
+16	19	CRP	通常製作	エルム材	40
+1	15	BSM	通常製作	ブロンズインゴット	40
+16	17	BSM	通常製作	アイアンインゴット	30
+18	19	BSM	通常製作	アイアンリベット	30
+1	2	ARM	通常製作	ブロンズインゴット	10
+3	13	ARM	通常製作	ブロンズプレート	40
+14	17	ARM	通常製作	アイアンプレート	30
+18	19	ARM	通常製作	イニシエートスキレット	30
+1	13	GSM	通常製作	カッパーインゴット	40
+14	19	GSM	通常製作	ブラスインゴット	40
+1	7	LTW	通常製作	レザー	30
+8	16	LTW	通常製作	ハードレザー	40
+17	19	LTW	通常製作	アルドゴートレザー	30
+1	1	WVR	通常製作	草糸	10
+2	11	WVR	通常製作	草布	40
+12	12	WVR	通常製作	綿糸	20
+13	18	WVR	通常製作	綿布	40
+19	19	WVR	通常製作	コットンアクトン	20
+1	6	ALC	通常製作	蒸留水	30
+7	9	ALC	通常製作	ラバー	20
+10	19	ALC	通常製作	蜜蝋	50
+1	6	CUL	通常製作	メープルシロップ	30
+7	15	CUL	通常製作	バター	40
+16	19	CUL	通常製作	サイダービネガー	40
+20	39	CRP	復興	第四次復興用の合板	25
+20	39	BSM	復興	第四次復興用の合金	25
+20	39	ARM	復興	第四次復興用の金属板	25
+20	39	GSM	復興	第四次復興用の地金	25
+20	39	LTW	復興	第四次復興用のなめし革	25
+20	39	WVR	復興	第四次復興用の荒縄	25
+20	39	ALC	復興	第四次復興用のインク	25
+20	39	CUL	復興	第四次復興用のヘンプミルク	25
+40	49	CRP	復興	第四次復興用の木箱	20
+40	49	BSM	復興	第四次復興用の鉄釘	20
+40	49	ARM	復興	第四次復興用のリベット	20
+40	49	GSM	復興	第四次復興用の鉄環	20
+40	49	LTW	復興	第四次復興用の革紐	20
+40	49	WVR	復興	第四次復興用の生地	20
+40	49	ALC	復興	第四次復興用の植物油	20
+40	49	CUL	復興	第四次復興用のセサミクッキー	20
+50	59	CRP	復興	第四次復興用の木箱	35
+50	59	BSM	復興	第四次復興用の鉄釘	35
+50	59	ARM	復興	第四次復興用のリベット	35
+50	59	GSM	復興	第四次復興用の鉄環	35
+50	59	LTW	復興	第四次復興用の革紐	35
+50	59	WVR	復興	第四次復興用の生地	35
+50	59	ALC	復興	第四次復興用の植物油	35
+50	59	CUL	復興	第四次復興用のセサミクッキー	35
+60	69	CRP	復興	第四次復興用のスピニングホイール	40
+60	69	BSM	復興	第四次復興用のハチェット	40
+60	69	ARM	復興	第四次復興用のクッキングポット	40
+60	69	GSM	復興	第四次復興用の裁縫道具	40
+60	69	LTW	復興	第四次復興用の革袋	40
+60	69	WVR	復興	第四次復興用のホウキ	40
+60	69	ALC	復興	第四次復興用の聖水	40
+60	69	CUL	復興	第四次復興用の紅茶	40
+70	80	CRP	復興	第四次復興用の脚立	40
+70	80	BSM	復興	第四次復興用の大鋸	40
+70	80	ARM	復興	第四次復興用のメセイル	40
+70	80	GSM	復興	第四次復興用の石材	40
+70	80	LTW	復興	第四次復興用の長靴	40
+70	80	WVR	復興	第四次復興用の手袋	40
+70	80	ALC	復興	第四次復興用の石鹸	40
+70	80	CUL	復興	第四次復興用の薬湯	40
+50	55	CRP	収集品	収集用のシーダーロングボウ	30
+56	60	CRP	収集品	収集用のダークチェスナットロッド	30
+61	66	CRP	収集品	収集用のビーチコンポジットボウ	30
+67	71	CRP	収集品	収集用のパーシモンブレスレット	30
+72	77	CRP	収集品	収集用のホワイトオークパルチザン	30
+78	80	CRP	収集品	収集用のサンドチークフォチャード	30
+50	55	BSM	収集品	収集用のミスライトカッツバルゲル	30
+56	60	BSM	収集品	収集用のチタン・レザーワーカーナイフ	30
+61	66	BSM	収集品	収集用のハイスチールディバイダー	30
+67	71	BSM	収集品	収集用のドマスチールパタ	30
+72	77	BSM	収集品	収集用のディープゴールドアネラス	30
+78	80	BSM	収集品	収集用のチタンブロンズピック	30
+50	55	ARM	収集品	収集用のミスライトサレット	30
+56	60	ARM	収集品	収集用のチタンフライパン	30
+61	66	ARM	収集品	収集用のハイスチール・サーマルアレンビック	30
+67	71	ARM	収集品	収集用のドマスチールタバード	30
+72	77	ARM	収集品	収集用のディープゴールドキュイラス	30
+78	80	ARM	収集品	収集用のチタンブロンズ・タワーシールド	30
+50	55	GSM	収集品	収集用のミスライトゴーグル	30
+56	60	GSM	収集品	収集用のハードシルバーモノクル	30
+61	66	GSM	収集品	収集用のキュプロプラニスフィア	30
+67	71	GSM	収集品	収集用のダリウムロッド	30
+72	77	GSM	収集品	収集用のストーンゴールドデーゲン	30
+78	80	GSM	収集品	収集用のチタンブロンズヘッドギア	30
+50	55	LTW	収集品	収集用のアルケオーニスベルト	30
+56	60	LTW	収集品	収集用のダルメルコート	30
+61	66	LTW	収集品	収集用のガガナシューズ	30
+67	71	LTW	収集品	収集用のマーリドコルセット	30
+72	77	LTW	収集品	収集用のスミロドントラウザー	30
+78	80	LTW	収集品	収集用のゾヌールフィンガレスグローブ	30
+50	55	WVR	収集品	収集用のレインボークロスボレロ	30
+56	60	WVR	収集品	収集用のラミーターバン	30
+61	66	WVR	収集品	収集用のレッドヘンプスカート	30
+67	71	WVR	収集品	収集用のサージホーズ	30
+72	77	WVR	収集品	収集用のホワイトヘンプヒマティオン	30
+78	80	WVR	収集品	収集用のオヴィムチュニック	30
+50	55	ALC	収集品	収集用のアルケオーニスグリモア	30
+56	60	ALC	収集品	収集用のダルメルコーデックス	30
+61	66	ALC	収集品	収集用のインデックス・オブ・キュプロ	30
+67	71	ALC	収集品	収集用のグロースフォーミュラ	30
+72	77	ALC	収集品	収集用の幻水	30
+78	80	ALC	収集品	収集用の水薬	30
+50	55	CUL	収集品	収集用のアウフラウフ	30
+56	60	CUL	収集品	収集用のエッグロワイヤル	30
+61	66	CUL	収集品	収集用のバクラヴァ	30
+67	71	CUL	収集品	収集用のパーシモンプディング	30
+72	77	CUL	収集品	収集用のレイルのグリル	30
+78	80	CUL	収集品	収集用のエスプレッソ・コン・パンナ	30
+81	84	CRP	収集品	収集用の栃乃木笠	25
+81	84	BSM	収集品	収集用のハイダリウム・ピストル	25
+81	84	ARM	収集品	収集用のハイダリウム・ナックル	25
+81	84	GSM	収集品	収集用のハイダリウム・ミルプレーヴェ	25
+81	84	LTW	収集品	収集用のガジャシューズ	25
+81	84	WVR	収集品	収集用の黒麻帽	25
+81	84	ALC	収集品	収集用のガジャコーデックス	25
+81	84	CUL	収集品	収集用の賢人パン	25
+85	90	CRP	収集品	収集用のレッドパイン・スピニングホイール	35
+85	90	BSM	収集品	収集用のビスマス・スレッジハンマー	35
+85	90	ARM	収集品	収集用のビスマス・ファットキャットフライパン	35
+85	90	GSM	収集品	収集用のフリギアンイヤリング	35
+85	90	LTW	収集品	収集用のサイガグローブ	35
+85	90	WVR	収集品	収集用のスノーリネン・クラフターダブレット	35
+85	90	ALC	収集品	収集用のムーンゲル	35
+85	90	CUL	収集品	収集用のハピネスジュース	35
+91	94	CRP	収集品	収集用のウコギイヤリング	25
+91	94	BSM	収集品	収集用のオルコクロマイト・フィスト	25
+91	94	ARM	収集品	収集用のオルコクロマイト・アレンビック	25
+91	94	GSM	収集品	収集用のラァー・ロングボウ	25
+91	94	LTW	収集品	収集用のシルバリオ・フィンガレスグローブ	25
+91	94	WVR	収集品	収集用のスノーコットン・ベレー	25
+91	94	ALC	収集品	収集用のシルバリオ・グリモア	25
+91	94	CUL	収集品	収集用のボイルド・アルパカステーキ	25
+95	99	CRP	収集品	収集用のダークマホガニー・ネックレス	30
+95	99	BSM	収集品	収集用のコバルトタングステン・シミター	30
+95	99	ARM	収集品	収集用のコバルトタングステン・チョコボフライパン	30
+95	99	GSM	収集品	収集用のコバルトタングステン・タック	30
+95	99	LTW	収集品	収集用のブラーシャ・アームレット	30
+95	99	WVR	収集品	収集用のサーセネット・ケクス	30
+95	99	ALC	収集品	収集用のブラーシャ・コーデックス	30
+95	99	CUL	収集品	収集用のトラルパイナップルケーキ	30
+""";
 
     internal static ApplyResult ApplyStandard(CrafterLevelingSettings settings)
     {
-        var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
-        // Product names are localized. Include the English sheet as a stable fallback so a
-        // translated catalog typo cannot silently remove an entire leveling stage.
-        var localizedRecipes = recipes.Concat(
-            Plugin.DataManager.GetExcelSheet<Recipe>(ClientLanguage.English));
-        var byName = localizedRecipes.Where(x => x.ItemResult.RowId != 0)
-            .GroupBy(x => x.ItemResult.Value.Name.ToString(), StringComparer.CurrentCultureIgnoreCase)
-            .ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.CurrentCultureIgnoreCase);
+        var recipes = Plugin.DataManager.GetExcelSheet<Recipe>(ClientLanguage.Japanese)
+            .Where(x => x.ItemResult.RowId != 0)
+            .GroupBy(x => x.ItemResult.Value.Name.ToString(), StringComparer.Ordinal)
+            .ToDictionary(x => x.Key, x => x.ToArray(), StringComparer.Ordinal);
+        var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>()
+            .GroupBy(x => x.Abbreviation.ToString(), StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(x => x.Key, x => x.First().RowId, StringComparer.OrdinalIgnoreCase);
         var unresolved = new List<string>();
         var added = 0;
-        var skipped = 0;
 
-        // Replace only presets created by this catalog. User-created presets remain untouched.
+        // Recalculation replaces every generated row, including catalogs from older versions.
         settings.RecipePresets.RemoveAll(x => x.IsCatalogGenerated);
 
-        foreach (var jobEntries in Level1To20.Where(x => settings.EnabledJobIds.Contains(x.JobId))
-                     .GroupBy(x => x.JobId))
+        foreach (var line in StandardPlan.Split('\n',
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            var resolved = new List<(Entry Entry, Recipe Recipe, int RecipeLevel)>();
-            foreach (var entry in jobEntries)
+            var cells = line.Split('\t');
+            if (cells.Length != 6 || !int.TryParse(cells[0], out var minLevel) ||
+                !int.TryParse(cells[1], out var maxLevel) || !int.TryParse(cells[5], out var craftCount) ||
+                !jobs.TryGetValue(cells[2], out var jobId) || !settings.EnabledJobIds.Contains(jobId) ||
+                minLevel >= settings.TargetLevel)
+                continue;
+
+            var route = cells[3] switch
             {
-                var matches = Find(byName, entry.JapaneseName).Concat(Find(byName, entry.EnglishName))
-                    .Where(x => x.CraftType.RowId + 8 == entry.JobId)
-                    .DistinctBy(x => x.RowId).ToArray();
-                if (matches.Length == 0)
-                {
-                    unresolved.Add(entry.JapaneseName);
-                    continue;
-                }
-                var recipe = matches[0];
-                var recipeLevel = recipe.RecipeLevelTable.Value.ClassJobLevel;
-                if (recipeLevel < settings.TargetLevel && recipeLevel < 20)
-                    resolved.Add((entry, recipe, recipeLevel));
+                "復興" => CrafterLevelingRoute.Restoration,
+                "収集品" => CrafterLevelingRoute.Collectable,
+                _ => CrafterLevelingRoute.Normal,
+            };
+            if (minLevel is >= 50 and <= 80 && route != settings.Level50To80Route)
+                continue;
+
+            if (!recipes.TryGetValue(cells[4], out var matches))
+            {
+                unresolved.Add(cells[4]);
+                continue;
             }
-
-            resolved.Sort((left, right) => left.RecipeLevel.CompareTo(right.RecipeLevel));
-            for (var index = 0; index < resolved.Count; index++)
+            var recipe = matches.FirstOrDefault(x => x.CraftType.RowId + 8 == jobId);
+            if (recipe.RowId == 0)
             {
-                var (entry, recipe, recipeLevel) = resolved[index];
-                if (settings.RecipePresets.Any(x => x.RecipeId == recipe.RowId && x.JobId == entry.JobId))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var nextLevel = index + 1 < resolved.Count
-                    ? resolved[index + 1].RecipeLevel
-                    : Math.Min(20, settings.TargetLevel + 1);
-                settings.RecipePresets.Add(new CrafterRecipePreset
-                {
-                    JobId = entry.JobId,
-                    MinLevel = Math.Clamp(recipeLevel, 1, 20),
-                    MaxLevel = Math.Clamp(nextLevel - 1, 1, Math.Min(19, settings.TargetLevel)),
-                    RecipeId = recipe.RowId,
-                    MaxCraftCount = entry.MaxCraftCount,
-                    Route = CrafterLevelingRoute.Normal,
-                    IsCatalogGenerated = true,
-                });
-                added++;
-            }
-        }
-
-        foreach (var entry in RestorationLevel20To50
-                     .Where(x => settings.EnabledJobIds.Contains(x.JobId) && x.MinLevel < settings.TargetLevel))
-        {
-            var matches = Find(byName, entry.JapaneseName).Concat(Find(byName, entry.EnglishName))
-                .Where(x => x.CraftType.RowId + 8 == entry.JobId)
-                .DistinctBy(x => x.RowId).ToArray();
-            if (matches.Length == 0)
-            {
-                unresolved.Add(entry.JapaneseName);
+                unresolved.Add(cells[4]);
                 continue;
             }
 
-            var recipe = matches[0];
-            if (settings.RecipePresets.Any(x => x.RecipeId == recipe.RowId && x.JobId == entry.JobId))
-            {
-                skipped++;
-                continue;
-            }
-
-            var maxLevel = Math.Min(entry.MaxLevel, settings.TargetLevel - 1);
-            var fullLevelCount = entry.MaxLevel - entry.MinLevel + 1;
-            var selectedLevelCount = maxLevel - entry.MinLevel + 1;
             settings.RecipePresets.Add(new CrafterRecipePreset
             {
-                JobId = entry.JobId,
-                MinLevel = entry.MinLevel,
-                MaxLevel = maxLevel,
+                JobId = jobId,
+                MinLevel = minLevel,
+                MaxLevel = Math.Min(maxLevel, settings.TargetLevel - 1),
                 RecipeId = recipe.RowId,
-                MaxCraftCount = Math.Max(1,
-                    (int)Math.Ceiling(entry.MaxCraftCount * selectedLevelCount / (double)fullLevelCount)),
-                Route = CrafterLevelingRoute.Restoration,
-                RequiredUnlock = "Towards the Firmament",
+                MaxCraftCount = craftCount,
+                Route = route,
+                RequiredUnlock = route switch
+                {
+                    CrafterLevelingRoute.Restoration => "Towards the Firmament",
+                    CrafterLevelingRoute.Collectable => "Inscrutable Tastes",
+                    _ => string.Empty,
+                },
                 IsCatalogGenerated = true,
             });
             added++;
-        }
-
-        if (settings.TargetLevel > 60)
-        {
-            var routeEnd = Math.Min(80, settings.TargetLevel);
-            var routeBands = BuildBands(60, routeEnd, 10);
-            switch (settings.Level50To80Route)
-            {
-                case CrafterLevelingRoute.Restoration:
-                    AddDataDrivenPresets(settings, recipes, routeBands, CrafterLevelingRoute.Restoration,
-                        RestorationItemIds(), unresolved, ref added, ref skipped);
-                    break;
-                case CrafterLevelingRoute.Collectable:
-                    AddDataDrivenPresets(settings, recipes, routeBands, CrafterLevelingRoute.Collectable,
-                        CollectableItemIds(), unresolved, ref added, ref skipped);
-                    break;
-                default:
-                    AddDataDrivenPresets(settings, recipes, routeBands, CrafterLevelingRoute.Normal,
-                        null, unresolved, ref added, ref skipped);
-                    break;
-            }
-        }
-
-        if (settings.TargetLevel > 80)
-        {
-            AddExplicitPresets(settings, byName, CollectableLevel81To100,
-                CrafterLevelingRoute.Collectable, unresolved, ref added, ref skipped);
         }
 
         settings.RecipePresets.Sort((left, right) =>
@@ -247,159 +231,6 @@ internal static class CrafterLevelingCatalog
             var job = left.JobId.CompareTo(right.JobId);
             return job != 0 ? job : left.MinLevel.CompareTo(right.MinLevel);
         });
-
-        return new ApplyResult(added, skipped, unresolved);
+        return new ApplyResult(added, 0, unresolved.Distinct().ToArray());
     }
-
-    private static void AddExplicitPresets(CrafterLevelingSettings settings,
-        Dictionary<string, Recipe[]> byName, IEnumerable<Entry> entries, CrafterLevelingRoute route,
-        List<string> unresolved, ref int added, ref int skipped)
-    {
-        foreach (var entry in entries.Where(x => settings.EnabledJobIds.Contains(x.JobId) &&
-                     x.MinLevel < settings.TargetLevel))
-        {
-            var recipe = Find(byName, entry.JapaneseName).Concat(Find(byName, entry.EnglishName))
-                .Where(x => x.CraftType.RowId + 8 == entry.JobId).DistinctBy(x => x.RowId).FirstOrDefault();
-            if (recipe.RowId == 0)
-            {
-                unresolved.Add(entry.JapaneseName);
-                continue;
-            }
-            if (settings.RecipePresets.Any(x => x.RecipeId == recipe.RowId && x.JobId == entry.JobId))
-            {
-                skipped++;
-                continue;
-            }
-            settings.RecipePresets.Add(new CrafterRecipePreset
-            {
-                JobId = entry.JobId,
-                MinLevel = entry.MinLevel,
-                MaxLevel = Math.Min(entry.MaxLevel, settings.TargetLevel - 1),
-                RecipeId = recipe.RowId,
-                MaxCraftCount = entry.MaxCraftCount,
-                Route = route,
-                RequiredUnlock = "Inscrutable Tastes",
-                IsCatalogGenerated = true,
-            });
-            added++;
-        }
-    }
-
-    private static IReadOnlyList<LevelBand> BuildBands(int start, int end, int width)
-    {
-        var result = new List<LevelBand>();
-        for (var min = start; min < end; min += width)
-            result.Add(new LevelBand(min, Math.Min(end - 1, min + width - 1)));
-        return result;
-    }
-
-    private static HashSet<uint> CollectableItemIds() =>
-        Plugin.DataManager.GetSubrowExcelSheet<CollectablesShopItem>()
-            .SelectMany(row => row)
-            .Where(row => row.Item.RowId != 0)
-            .Select(row => row.Item.RowId)
-            .ToHashSet();
-
-    private static HashSet<uint> RestorationItemIds()
-    {
-        // HWDCrafterSupply retains every historical restoration phase. Restrict the
-        // unattended route to the currently obtainable Grade 4 recipes; otherwise recipes
-        // with the same level (for example the old Skybuilders' Barrel) can win the tie-break.
-        var grade4ItemIds = Plugin.DataManager.GetExcelSheet<Item>(ClientLanguage.English)
-            .Where(item => item.Name.ToString().Contains("Grade 4 Skybuilders'", StringComparison.OrdinalIgnoreCase))
-            .Select(item => item.RowId)
-            .ToHashSet();
-        return Plugin.DataManager.GetExcelSheet<HWDCrafterSupply>()
-            .SelectMany(row => row.HWDCrafterSupplyParams)
-            .Where(entry => entry.ItemTradeIn.RowId != 0 && grade4ItemIds.Contains(entry.ItemTradeIn.RowId))
-            .Select(entry => entry.ItemTradeIn.RowId)
-            .ToHashSet();
-    }
-
-    private static void AddDataDrivenPresets(CrafterLevelingSettings settings,
-        IEnumerable<Recipe> recipes, IReadOnlyList<LevelBand> bands, CrafterLevelingRoute route,
-        HashSet<uint>? allowedItemIds, List<string> unresolved, ref int added, ref int skipped)
-    {
-        foreach (var jobId in settings.EnabledJobIds.Where(x => x is >= 8 and <= 15))
-        {
-            var candidates = recipes.Where(recipe =>
-                    recipe.ItemResult.RowId != 0 && recipe.CraftType.RowId + 8 == jobId &&
-                    recipe.RecipeLevelTable.Value.ClassJobLevel is >= 1 and <= 100 &&
-                    recipe.SecretRecipeBook.RowId == 0 && recipe.Quest.RowId == 0 && !recipe.IsExpert &&
-                    (allowedItemIds == null || allowedItemIds.Contains(recipe.ItemResult.RowId)) &&
-                    (route != CrafterLevelingRoute.Normal ||
-                     (!recipe.ItemResult.Value.IsCollectable && recipe.ItemResult.Value.EquipSlotCategory.RowId == 0)))
-                .ToArray();
-
-            CrafterRecipePreset? previous = null;
-            foreach (var band in bands)
-            {
-                // A recipe must already be available at the beginning of its band. Prefer the
-                // highest-level recipe, then fewer ingredient types/units for unattended use.
-                var selected = candidates
-                    .Where(recipe => recipe.RecipeLevelTable.Value.ClassJobLevel <= band.MinLevel)
-                    .OrderByDescending(recipe => recipe.RecipeLevelTable.Value.ClassJobLevel)
-                    .ThenBy(recipe => IngredientTypeCount(recipe))
-                    .ThenBy(recipe => IngredientUnitCount(recipe))
-                    .ThenBy(recipe => recipe.RowId)
-                    .FirstOrDefault();
-                if (selected.RowId == 0)
-                {
-                    unresolved.Add($"{JobName(jobId)} Lv{band.MinLevel}-{band.MaxLevel} ({route})");
-                    continue;
-                }
-
-                if (previous != null && previous.RecipeId == selected.RowId)
-                {
-                    previous.MaxLevel = band.MaxLevel;
-                    continue;
-                }
-                if (settings.RecipePresets.Any(x => x.JobId == jobId && x.RecipeId == selected.RowId))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                previous = new CrafterRecipePreset
-                {
-                    JobId = jobId,
-                    MinLevel = band.MinLevel,
-                    MaxLevel = band.MaxLevel,
-                    RecipeId = selected.RowId,
-                    MaxCraftCount = 100_000,
-                    Route = route,
-                    RequiredUnlock = route switch
-                    {
-                        CrafterLevelingRoute.Restoration => "Towards the Firmament",
-                        CrafterLevelingRoute.Collectable => "Inscrutable Tastes",
-                        _ => string.Empty,
-                    },
-                    IsCatalogGenerated = true,
-                };
-                settings.RecipePresets.Add(previous);
-                added++;
-            }
-        }
-    }
-
-    private static int IngredientTypeCount(Recipe recipe) =>
-        recipe.Ingredient.Count(item => item.RowId != 0);
-
-    private static int IngredientUnitCount(Recipe recipe)
-    {
-        var total = 0;
-        for (var index = 0; index < recipe.AmountIngredient.Count; index++)
-            total += recipe.AmountIngredient[index];
-        return total;
-    }
-
-    private static string JobName(uint jobId)
-    {
-        var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        return jobs.TryGetRow(jobId, out var job) ? job.Abbreviation.ToString() : $"Job {jobId}";
-    }
-
-    private static IEnumerable<Recipe> Find(Dictionary<string, Recipe[]> recipes, string name) =>
-        recipes.TryGetValue(name, out var matches) ? matches : [];
-
 }
