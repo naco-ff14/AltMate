@@ -55,9 +55,32 @@ internal static unsafe class CrafterInventoryLocator
     internal static int PlayerInventoryCount(uint itemId, bool hqOnly)
     {
         var inventory = InventoryManager.Instance();
-        return inventory == null
-            ? 0
-            : inventory->GetInventoryItemCount(itemId, hqOnly, false, false);
+        if (inventory == null) return 0;
+        var hq = inventory->GetInventoryItemCount(itemId, true, false, false);
+        return hqOnly
+            ? hq
+            : checked(hq + inventory->GetInventoryItemCount(itemId, false, false, false));
+    }
+
+    internal static IReadOnlyList<string> GetQuestLocations(CrafterLevelingSettings settings, uint itemId,
+        bool hqOnly)
+    {
+        var locations = new List<string>();
+        var bags = PlayerInventoryCount(itemId, hqOnly);
+        if (bags > 0)
+            locations.Add(hqOnly
+                ? Loc.L($"手持ちバッグ HQ ×{bags:N0}", $"Inventory HQ ×{bags:N0}")
+                : Loc.L($"手持ちバッグ ×{bags:N0}", $"Inventory ×{bags:N0}"));
+        foreach (var retainerId in settings.SelectedRetainerIds)
+        {
+            if (!settings.RetainerInventories.TryGetValue(retainerId, out var cache) ||
+                !cache.Items.TryGetValue(itemId, out var count) || count <= 0) continue;
+            locations.Add(hqOnly
+                ? Loc.L($"{cache.RetainerName} ×{count:N0}（HQ未判定）",
+                    $"{cache.RetainerName} ×{count:N0} (quality unknown)")
+                : $"{cache.RetainerName} ×{count:N0}");
+        }
+        return locations;
     }
 
     internal static bool TryDiscardFirstBelowCollectability(uint itemId, int minimumCollectability)

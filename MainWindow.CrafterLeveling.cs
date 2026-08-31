@@ -274,8 +274,8 @@ public sealed partial class MainWindow
         ImGui.TableHeadersRow();
         foreach (var row in crafterQuestItems)
         {
-            settings.KnownOwnedItems.TryGetValue(row.ItemId, out var retainerOwned);
-            var owned = checked(retainerOwned + CrafterInventoryLocator.PlayerInventoryCount(row.ItemId));
+            // Quest readiness is intentionally based on the player's bags only. Retainers are location hints.
+            var owned = CrafterInventoryLocator.PlayerInventoryCount(row.ItemId, row.RequiresHq);
             var enough = owned >= row.RequiredCount;
             var questRows = crafterQuestItems.Where(x => x.QuestId == row.QuestId).ToArray();
             var readyInBags = questRows.All(x =>
@@ -297,7 +297,7 @@ public sealed partial class MainWindow
             ImGui.TextColored(enough ? new Vector4(0.35f, 0.9f, 0.5f, 1f) : new Vector4(1f, 0.35f, 0.3f, 1f),
                 enough ? Loc.L("所持済み", "Ready") : Loc.L("不足", "Missing"));
             ImGui.TableNextColumn();
-            var locations = CrafterInventoryLocator.GetLocations(settings, row.ItemId);
+            var locations = CrafterInventoryLocator.GetQuestLocations(settings, row.ItemId, row.RequiresHq);
             ImGui.TextWrapped(locations.Count > 0 ? string.Join(" / ", locations) : Loc.L("所持なし", "Not owned"));
             ImGui.TableNextColumn();
             ImGui.BeginDisabled(row.QuestId == 0 || complete || !readyInBags || questionableRunning || !QuestionableQuestBridge.IsAvailable);
