@@ -130,7 +130,7 @@ public sealed partial class MainWindow
     {
         var automation = plugin.CrafterLeveling;
         var hasList = crafterPreparationItems.Count > 0;
-        var missing = crafterPreparationItems.Count(x => x.MissingCount > 0);
+        var missing = crafterPreparationItems.Count(x => !x.IsGear && x.MissingCount > 0);
         ImGui.BeginDisabled(!hasList || automation.IsRunning);
         if (ImGui.Button(Loc.L("製作開始", "Start crafting"),
                 new Vector2(180 * ImGuiHelpers.GlobalScale, 34 * ImGuiHelpers.GlobalScale)))
@@ -588,23 +588,66 @@ public sealed partial class MainWindow
                 Loc.L("レベリング製作品が未登録です。先に製作品名で検索して追加してください。",
                     "No leveling recipes are registered. Search by product name and add one first."));
 
-        var rows = settings.ShowMissingOnly
-            ? crafterPreparationItems.Where(x => x.MissingCount > 0).ToArray()
-            : crafterPreparationItems.ToArray();
+        DrawCrafterProducts(settings);
+        var materialRows = crafterPreparationItems.Where(x => !x.IsGear &&
+            (!settings.ShowMissingOnly || x.MissingCount > 0)).ToArray();
         DrawCrafterPreparationTable(settings, "crafter-preparation-materials",
             Loc.L("製作用の素材", "Crafting materials"),
-            rows.Where(x => !x.IsGear && !x.IsCrystal).ToArray());
+            materialRows.Where(x => !x.IsCrystal).ToArray(), false);
         DrawCrafterPreparationTable(settings, "crafter-preparation-crystals",
             Loc.L("製作用のクリスタル", "Crafting crystals"),
-            rows.Where(x => x.IsCrystal).ToArray());
+            materialRows.Where(x => x.IsCrystal).ToArray(), false);
         DrawCrafterPreparationTable(settings, "crafter-preparation-gear",
             Loc.L("育成途中で使用する装備", "Gear used while leveling"),
-            rows.Where(x => x.IsGear).ToArray());
+            crafterPreparationItems.Where(x => x.IsGear).ToArray(), true);
 
     }
 
+    private static void DrawCrafterProducts(CrafterLevelingSettings settings)
+    {
+        var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
+        var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        var rows = settings.RecipePresets.Where(x =>
+                settings.EnabledJobIds.Contains(x.JobId) &&
+                CrafterPreparationService.JobLevel(x.JobId) < settings.TargetLevel &&
+                x.MaxLevel >= CrafterPreparationService.JobLevel(x.JobId) && x.MinLevel < settings.TargetLevel)
+            .OrderBy(x => x.JobId).ThenBy(x => x.MinLevel).ToArray();
+        ImGui.Separator();
+        ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("製作品", "Products"));
+        if (rows.Length == 0)
+        {
+            ImGui.TextDisabled(Loc.L("該当項目なし", "No items"));
+            return;
+        }
+        if (!ImGui.BeginTable("crafter-products", 4,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
+        foreach (var heading in new[] { Loc.L("完成品", "Product"), Loc.L("コピー", "Copy"),
+                     Loc.L("対象職", "Job"), Loc.L("残り制作数", "Crafts remaining") })
+            ImGui.TableSetupColumn(heading);
+        ImGui.TableHeadersRow();
+        foreach (var preset in rows)
+        {
+            var name = recipes.TryGetRow(preset.RecipeId, out var recipe)
+                ? recipe.ItemResult.Value.Name.ToString()
+                : $"Recipe ID {preset.RecipeId}";
+            settings.PlannedCraftCounts.TryGetValue(preset.RecipeId, out var planned);
+            settings.CompletedCraftCounts.TryGetValue(preset.RecipeId, out var completed);
+            ImGui.TableNextRow();
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(name);
+            ImGui.TableNextColumn();
+            if (ImGui.SmallButton($"{Loc.L("コピー", "Copy")}##copy-product-{preset.JobId}-{preset.RecipeId}-{preset.MinLevel}"))
+                ImGui.SetClipboardText(name);
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(jobs.TryGetRow(preset.JobId, out var job)
+                ? job.Abbreviation.ToString()
+                : preset.JobId.ToString());
+            ImGui.TableNextColumn(); ImGui.TextUnformatted(Math.Max(0, planned - completed).ToString("N0"));
+        }
+        ImGui.EndTable();
+    }
+
     private static void DrawCrafterPreparationTable(CrafterLevelingSettings settings, string id, string title,
-        IReadOnlyList<CrafterPreparationItem> rows)
+        IReadOnlyList<CrafterPreparationItem> rows, bool gearTable)
     {
         ImGui.Separator();
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), title);
@@ -613,13 +656,16 @@ public sealed partial class MainWindow
             ImGui.TextDisabled(Loc.L("該当項目なし", "No items"));
             return;
         }
-        if (!ImGui.BeginTable(id, 8,
+        var columnCount = gearTable ? 5 : 6;
+        if (!ImGui.BeginTable(id, columnCount,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, Math.Min(220, 30 + rows.Count * 24) * ImGuiHelpers.GlobalScale))) return;
-        foreach (var heading in new[] { Loc.L("アイテム", "Item"), Loc.L("コピー", "Copy"), Loc.L("分類", "Type"),
-                     Loc.L("装備Lv", "Equip Lv"),
-                     Loc.L("必要", "Required"), Loc.L("所持", "Owned"), Loc.L("不足", "Missing"),
-                     Loc.L("所在", "Location") })
+        var headings = gearTable
+            ? new[] { Loc.L("アイテム", "Item"), Loc.L("コピー", "Copy"), Loc.L("装備Lv", "Equip Lv"),
+                Loc.L("所持", "Owned"), Loc.L("所在", "Location") }
+            : new[] { Loc.L("アイテム", "Item"), Loc.L("コピー", "Copy"), Loc.L("必要", "Required"),
+                Loc.L("所持", "Owned"), Loc.L("不足", "Missing"), Loc.L("所在", "Location") };
+        foreach (var heading in headings)
             ImGui.TableSetupColumn(heading);
         ImGui.TableHeadersRow();
         foreach (var item in rows)
@@ -628,16 +674,21 @@ public sealed partial class MainWindow
             ImGui.TableNextColumn(); ImGui.TextUnformatted(item.Name);
             if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Item ID: {item.ItemId}");
             ImGui.TableNextColumn();
-            if (ImGui.SmallButton($"{Loc.L("名前", "Name")}##copy-crafter-item-{id}-{item.ItemId}"))
+            if (ImGui.SmallButton($"{Loc.L("コピー", "Copy")}##copy-crafter-item-{id}-{item.ItemId}"))
                 ImGui.SetClipboardText(item.Name);
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(item.IsGear ? Loc.L("装備", "Gear") :
-                item.IsCrystal ? Loc.L("クリスタル", "Crystal") : Loc.L("素材", "Material"));
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(item.IsGear ? $"Lv{item.EquipLevel}" : "—");
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(item.RequiredCount.ToString("N0"));
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(item.OwnedCount.ToString("N0"));
-            ImGui.TableNextColumn();
-            ImGui.TextColored(item.MissingCount > 0 ? new Vector4(1f, 0.35f, 0.3f, 1f) :
-                new Vector4(0.35f, 0.9f, 0.5f, 1f), item.MissingCount.ToString("N0"));
+            if (gearTable)
+            {
+                ImGui.TableNextColumn(); ImGui.TextUnformatted($"Lv{item.EquipLevel}");
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(item.OwnedCount.ToString("N0"));
+            }
+            else
+            {
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(item.RequiredCount.ToString("N0"));
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(item.OwnedCount.ToString("N0"));
+                ImGui.TableNextColumn();
+                ImGui.TextColored(item.MissingCount > 0 ? new Vector4(1f, 0.35f, 0.3f, 1f) :
+                    new Vector4(0.35f, 0.9f, 0.5f, 1f), item.MissingCount.ToString("N0"));
+            }
             ImGui.TableNextColumn();
             var locations = CrafterInventoryLocator.GetLocations(settings, item.ItemId);
             ImGui.TextWrapped(locations.Count > 0
