@@ -9,7 +9,7 @@
     "DalamudApiLevel": 15,
     "Punchline": "Multi-character linking, housing, animation, and gil tools",
     "Changelog": "v1.57.1: Optimize the crafter leveling screen for target level, missing-item collection, and start, with automatic list refresh and collapsed advanced settings.",
-    "LastUpdate": 1788103500,
+    "LastUpdate": 1788166071,
     "RepoUrl": "https://github.com/naco-ff14/AltMate",
     "IconUrl": "https://raw.githubusercontent.com/naco-ff14/AltMate/main/images/icon.png",
     "Tags": [
