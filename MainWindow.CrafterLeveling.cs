@@ -107,11 +107,11 @@ public sealed partial class MainWindow
                 "製作品・装備候補・必要素材・所持数をまとめて更新します。",
                 "Updates recipes, gear, required items, and owned counts together."));
             ImGui.TextDisabled(Loc.L(
-                "製作数は現在Lv・EXPから事前計算します。Lv20以降の復興品は最低収集価値での納品EXPも含みます。",
-                "Craft counts are precomputed from current level/EXP. Restoration items after Lv20 also include minimum-rating turn-in EXP."));
+                "製作数は現在Lv・EXPから事前計算します。Lv20以降の復興品は収集価値報酬の第2段階を基準にします。",
+                "Craft counts are precomputed from current level/EXP. Restoration items after Lv20 use the middle collectability reward tier."));
             ImGui.TextDisabled(Loc.L(
-                "品質・初回・EXPバフは含めません。復興品は予定数完成後、TheCollector連携が有効なら自動納品します。",
-                "Quality, first-craft and EXP buffs are excluded. Completed restoration batches are handed to TheCollector when enabled."));
+                "実際の報酬が第2段階と異なる場合は納品後に残数を再計算します。品質・初回・EXPバフは含めません。",
+                "Remaining crafts are recalculated after turn-in when the actual reward differs. Quality, first-craft and EXP buffs are excluded."));
             if (!string.IsNullOrWhiteSpace(crafterListMessage))
                 ImGui.TextWrapped(crafterListMessage);
         }

@@ -133,9 +133,15 @@ internal static class CrafterExperiencePlanner
         {
             if (entry.ItemTradeIn.RowId != itemId)
                 continue;
-            var rewardId = entry.BaseCollectableRewardPostPhase.RowId != 0
-                ? entry.BaseCollectableRewardPostPhase.RowId
-                : entry.BaseCollectableReward.RowId;
+            // Use the middle of the three collectability reward tiers for preparation estimates.
+            // Actual progress is recalculated from the live level/EXP after every turn-in batch.
+            var rewardId = entry.MidCollectableRewardPostPhase.RowId != 0
+                ? entry.MidCollectableRewardPostPhase.RowId
+                : entry.MidCollectableReward.RowId;
+            if (rewardId == 0)
+                rewardId = entry.BaseCollectableRewardPostPhase.RowId != 0
+                    ? entry.BaseCollectableRewardPostPhase.RowId
+                    : entry.BaseCollectableReward.RowId;
             if (rewardId != 0 && rewards.TryGetRow(rewardId, out var reward))
                 return checked((int)reward.ExpReward);
         }
