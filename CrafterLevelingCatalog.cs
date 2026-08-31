@@ -231,12 +231,21 @@ internal static class CrafterLevelingCatalog
             .Select(row => row.Item.RowId)
             .ToHashSet();
 
-    private static HashSet<uint> RestorationItemIds() =>
-        Plugin.DataManager.GetExcelSheet<HWDCrafterSupply>()
+    private static HashSet<uint> RestorationItemIds()
+    {
+        // HWDCrafterSupply retains every historical restoration phase. Restrict the
+        // unattended route to the currently obtainable Grade 4 recipes; otherwise recipes
+        // with the same level (for example the old Skybuilders' Barrel) can win the tie-break.
+        var grade4ItemIds = Plugin.DataManager.GetExcelSheet<Item>(ClientLanguage.English)
+            .Where(item => item.Name.ToString().Contains("Grade 4 Skybuilders'", StringComparison.OrdinalIgnoreCase))
+            .Select(item => item.RowId)
+            .ToHashSet();
+        return Plugin.DataManager.GetExcelSheet<HWDCrafterSupply>()
             .SelectMany(row => row.HWDCrafterSupplyParams)
-            .Where(entry => entry.ItemTradeIn.RowId != 0)
+            .Where(entry => entry.ItemTradeIn.RowId != 0 && grade4ItemIds.Contains(entry.ItemTradeIn.RowId))
             .Select(entry => entry.ItemTradeIn.RowId)
             .ToHashSet();
+    }
 
     private static void AddDataDrivenPresets(CrafterLevelingSettings settings,
         IEnumerable<Recipe> recipes, IReadOnlyList<LevelBand> bands, CrafterLevelingRoute route,
