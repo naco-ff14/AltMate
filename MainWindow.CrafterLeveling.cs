@@ -48,6 +48,9 @@ public sealed partial class MainWindow
 
     private void DrawCrafterLevelingMain(CrafterLevelingSettings settings)
     {
+        DrawCrafterExecutionControls(settings);
+        ImGui.Separator();
+
         if (ImGui.CollapsingHeader(Loc.L("1. 育成条件", "1. Leveling plan"), ImGuiTreeNodeFlags.DefaultOpen))
         {
             ImGui.TextUnformatted(Loc.L("対象職", "Jobs"));
@@ -122,6 +125,36 @@ public sealed partial class MainWindow
 
         if (ImGui.CollapsingHeader(Loc.L("レシピを手動編集", "Edit recipes manually")))
             DrawCrafterPresetEditor(settings);
+    }
+
+    private void DrawCrafterExecutionControls(CrafterLevelingSettings settings)
+    {
+        var automation = plugin.CrafterLeveling;
+        var hasList = crafterPreparationItems.Count > 0;
+        var missing = crafterPreparationItems.Count(x => x.MissingCount > 0);
+        ImGui.BeginDisabled(!hasList || automation.IsRunning);
+        if (ImGui.Button(Loc.L("製作開始", "Start crafting"),
+                new Vector2(180 * ImGuiHelpers.GlobalScale, 34 * ImGuiHelpers.GlobalScale)))
+            automation.Start(settings);
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.BeginDisabled(!automation.IsRunning);
+        if (ImGui.Button(Loc.L("停止", "Stop"),
+                new Vector2(100 * ImGuiHelpers.GlobalScale, 34 * ImGuiHelpers.GlobalScale)))
+            automation.Stop();
+        ImGui.EndDisabled();
+        ImGui.SameLine();
+        ImGui.TextColored(automation.IsRunning
+                ? new Vector4(0.4f, 0.82f, 1f, 1f)
+                : new Vector4(0.7f, 0.72f, 0.75f, 1f),
+            automation.Status);
+        if (!hasList)
+            ImGui.TextDisabled(Loc.L("先に「準備リストを更新」を実行してください。",
+                "Update the preparation list first."));
+        else if (missing > 0)
+            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
+                Loc.L($"不足：{missing}種類（不足レシピで自動停止）",
+                    $"Missing: {missing} types (stops at the first affected recipe)"));
     }
 
     private void DrawCrafterClipboardData(CrafterLevelingSettings settings)
@@ -212,9 +245,11 @@ public sealed partial class MainWindow
         var rows = settings.RecipePresets
             .Where(x => x.MinLevel <= crafterClipboardMaxLevel && x.MaxLevel >= crafterClipboardMinLevel)
             .OrderBy(x => x.MinLevel).ThenBy(x => x.JobId).ToArray();
-        if (!ImGui.BeginTable("crafter-clipboard-recipes", 4,
+        var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        if (!ImGui.BeginTable("crafter-clipboard-recipes", 6,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
-        foreach (var heading in new[] { "minLv", "MaxLv", Loc.L("レシピ", "Recipe"), Loc.L("制作個数", "Craft count") })
+        foreach (var heading in new[] { "minLv", "MaxLv", Loc.L("対象職", "Job"), Loc.L("方式", "Method"),
+                     Loc.L("レシピ", "Recipe"), Loc.L("制作個数", "Craft count") })
             ImGui.TableSetupColumn(heading);
         ImGui.TableHeadersRow();
         foreach (var preset in rows)
@@ -222,6 +257,17 @@ public sealed partial class MainWindow
             ImGui.TableNextRow();
             ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MinLevel.ToString());
             ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MaxLevel.ToString());
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(jobSheet.TryGetRow(preset.JobId, out var job)
+                ? job.Abbreviation.ToString()
+                : preset.JobId.ToString());
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(preset.Route switch
+            {
+                CrafterLevelingRoute.Restoration => Loc.L("復興", "Restoration"),
+                CrafterLevelingRoute.Collectable => Loc.L("収集品", "Collectable"),
+                _ => Loc.L("通常製作", "Normal"),
+            });
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(recipeSheet.TryGetRow(preset.RecipeId, out var recipe)
                 ? recipe.ItemResult.Value.Name.ToString()
@@ -236,9 +282,10 @@ public sealed partial class MainWindow
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("対象装備", "Target gear"));
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        if (!ImGui.BeginTable("crafter-clipboard-gear", 3,
+        if (!ImGui.BeginTable("crafter-clipboard-gear", 4,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
-        foreach (var heading in new[] { Loc.L("装備Lv", "Gear Lv"), Loc.L("対象職", "Job"), Loc.L("装備", "Gear") })
+        foreach (var heading in new[] { Loc.L("装備Lv", "Gear Lv"), Loc.L("対象職", "Job"),
+                     Loc.L("部位", "Slot"), Loc.L("装備", "Gear") })
             ImGui.TableSetupColumn(heading);
         ImGui.TableHeadersRow();
         foreach (var preset in settings.GearPresets
@@ -263,6 +310,10 @@ public sealed partial class MainWindow
             ImGui.TableNextRow();
             ImGui.TableNextColumn(); ImGui.TextUnformatted(level.ToString());
             ImGui.TableNextColumn(); ImGui.TextUnformatted(job);
+            ImGui.TableNextColumn();
+            ImGui.TextUnformatted(itemSheet.TryGetRow(itemId, out var slotItem)
+                ? CrafterPlanClipboard.GearSlot(slotItem)
+                : "—");
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(itemSheet.TryGetRow(itemId, out var item)
                 ? item.Name.ToString()
@@ -550,31 +601,6 @@ public sealed partial class MainWindow
             Loc.L("育成途中で使用する装備", "Gear used while leveling"),
             rows.Where(x => x.IsGear).ToArray());
 
-        ImGui.Separator();
-        var automation = plugin.CrafterLeveling;
-        var hasList = crafterPreparationItems.Count > 0;
-        var missing = crafterPreparationItems.Count(x => x.MissingCount > 0);
-        ImGui.BeginDisabled(!hasList || automation.IsRunning);
-        if (ImGui.Button(Loc.L("現在のクラフター職で製作開始", "Start crafting with current job"),
-                new Vector2(250 * ImGuiHelpers.GlobalScale, 34 * ImGuiHelpers.GlobalScale)))
-            automation.Start(settings);
-        ImGui.EndDisabled();
-        ImGui.SameLine();
-        ImGui.BeginDisabled(!automation.IsRunning);
-        if (ImGui.Button(Loc.L("停止", "Stop")))
-            automation.Stop();
-        ImGui.EndDisabled();
-        if (!hasList)
-            ImGui.TextDisabled(Loc.L("先に「準備リストを更新」を実行してください。",
-                "Update the preparation list first."));
-        else if (missing > 0)
-            ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
-                Loc.L($"不足品が{missing}種類あります。開始は可能ですが、素材不足のレシピで自動停止します。",
-                    $"{missing} item types are missing. You can start; execution stops at the first recipe lacking materials."));
-        ImGui.TextColored(automation.IsRunning
-                ? new Vector4(0.4f, 0.82f, 1f, 1f)
-                : new Vector4(0.7f, 0.72f, 0.75f, 1f),
-            automation.Status);
     }
 
     private static void DrawCrafterPreparationTable(CrafterLevelingSettings settings, string id, string title,

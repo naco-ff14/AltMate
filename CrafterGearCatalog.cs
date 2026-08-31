@@ -1,5 +1,4 @@
 using Lumina.Excel.Sheets;
-using System;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -7,103 +6,245 @@ namespace AltMate;
 
 internal static class CrafterGearCatalog
 {
-    internal static readonly int[] TierLevels = [20, 21, 41, 53, 63, 71, 81, 91, 100];
+    internal static readonly int[] TierLevels = [21, 41, 53, 63, 71, 81, 91];
     internal sealed record Result(int TierCount, IReadOnlyList<string> Missing);
 
     internal static Result BuildStandard(CrafterLevelingSettings settings)
     {
         var items = Plugin.DataManager.GetExcelSheet<Item>()
-            .Where(x => x.LevelEquip > 0 && x.EquipSlotCategory.RowId != 0 &&
-                        !string.IsNullOrWhiteSpace(x.Name.ToString()) &&
-                        IsUsableLevelingItem(x))
-            .ToArray();
+            .Where(x => !string.IsNullOrWhiteSpace(x.Name.ToString()))
+            .GroupBy(x => x.Name.ToString()).ToDictionary(x => x.Key, x => x.First().RowId);
         var missing = new List<string>();
         foreach (var tier in TierLevels.Where(x => x <= settings.TargetLevel))
         {
             var preset = new CrafterGearPreset { TierLevel = tier };
-            foreach (var slot in Enumerable.Range(0, 9))
+            var names = GearNames[tier];
+            for (var index = 0; index < names.Length; index++)
             {
-                var selected = Best(items.Where(x => x.LevelEquip <= tier && HasCraftingStats(x) &&
-                                                      IsSharedSlot(x, slot) &&
-                                                      AllowsAllCrafters(x.ClassJobCategory.Value)));
-                if (selected.RowId != 0)
+                if (!items.TryGetValue(names[index], out var itemId))
                 {
-                    preset.SharedItemIds.Add(selected.RowId);
-                    if (slot == 8) preset.SharedItemIds.Add(selected.RowId); // Two rings.
+                    missing.Add($"Lv{tier} {names[index]}");
+                    continue;
                 }
-                else missing.Add($"Lv{tier} shared slot {slot}");
-            }
-            foreach (var jobId in settings.EnabledJobIds.Where(x => x is >= 8 and <= 15).OrderBy(x => x))
-            {
-                var tools = new List<uint>();
-                foreach (var offHand in new[] { false, true })
+                if (index < 10) preset.SharedItemIds.Add(itemId);
+                else
                 {
-                    var selected = Best(items.Where(x => x.LevelEquip <= tier && HasCraftingStats(x) &&
-                                                          IsToolSlot(x, offHand) &&
-                                                          AllowsJob(x.ClassJobCategory.Value, jobId)));
-                    if (selected.RowId != 0) tools.Add(selected.RowId);
-                    else missing.Add($"Lv{tier} Job {jobId} {(offHand ? "offhand" : "mainhand")}");
+                    var jobId = (uint)(8 + (index - 10) / 2);
+                    if (!settings.EnabledJobIds.Contains(jobId)) continue;
+                    if (!preset.JobItemIds.TryGetValue(jobId, out var jobItems))
+                        preset.JobItemIds[jobId] = jobItems = new List<uint>();
+                    jobItems.Add(itemId);
                 }
-                preset.JobItemIds[jobId] = tools;
             }
             settings.GearPresets.RemoveAll(x => x.TierLevel == tier);
             settings.GearPresets.Add(preset);
         }
-        settings.GearPresets.Sort((left, right) => left.TierLevel.CompareTo(right.TierLevel));
+        settings.GearPresets.Sort((a, b) => a.TierLevel.CompareTo(b.TierLevel));
         return new Result(settings.GearPresets.Count, missing);
     }
 
-    private static Item Best(IEnumerable<Item> candidates) => candidates
-        .OrderByDescending(x => x.LevelEquip)
-        .ThenByDescending(x => x.LevelItem.RowId)
-        .ThenByDescending(x => x.RowId)
-        .FirstOrDefault();
-
-    private static bool IsUsableLevelingItem(Item item) =>
-        // Untradable quest/event/legacy rewards (for example Wood Wailer's Jacket)
-        // cannot be prepared consistently and must never become standard leveling gear.
-        !item.IsUntradable && !item.Name.ToString().TrimStart().StartsWith('†');
-
-    private static bool HasCraftingStats(Item item)
+    // Each tier contains 10 shared slots (including two rings), followed by main/off-hand pairs
+    // for CRP, BSM, ARM, GSM, LTW, WVR, ALC and CUL in that order.
+    private static readonly Dictionary<int, string[]> GearNames = new()
     {
-        for (var index = 0; index < item.BaseParam.Count; index++)
-            if (item.BaseParam[index].RowId is 11 or 70 or 71 && item.BaseParamValue[index] > 0)
-                return true;
-        return false;
-    }
-
-    private static bool IsToolSlot(Item item, bool offHand)
-    {
-        var slot = item.EquipSlotCategory.Value;
-        return offHand ? slot.OffHand > 0 : slot.MainHand > 0;
-    }
-
-    private static bool IsSharedSlot(Item item, int slotIndex)
-    {
-        var slot = item.EquipSlotCategory.Value;
-        return slotIndex switch
-        {
-            0 => slot.Head > 0,
-            1 => slot.Body > 0,
-            2 => slot.Gloves > 0,
-            3 => slot.Legs > 0,
-            4 => slot.Feet > 0,
-            5 => slot.Ears > 0,
-            6 => slot.Neck > 0,
-            7 => slot.Wrists > 0,
-            8 => slot.FingerL > 0 || slot.FingerR > 0,
-            _ => false,
-        };
-    }
-
-    private static bool AllowsAllCrafters(ClassJobCategory category) =>
-        category.CRP && category.BSM && category.ARM && category.GSM &&
-        category.LTW && category.WVR && category.ALC && category.CUL;
-
-    private static bool AllowsJob(ClassJobCategory category, uint jobId) => jobId switch
-    {
-        8 => category.CRP, 9 => category.BSM, 10 => category.ARM, 11 => category.GSM,
-        12 => category.LTW, 13 => category.WVR, 14 => category.ALC, 15 => category.CUL,
-        _ => false,
+        [21] = Lines("""
+イニシエートヘッドギア
+コットン・クラフターダブレットベスト
+イニシエートグローブ
+コットンクラフターブリーチ
+イニシエートサイブーツ
+ファングイヤリング
+ブラスチョーカー
+ブラスクラフターリストレット
+ブラスクラフターリング
+ブラスクラフターリング
+イニシエートソー
+アイアンクローハンマー
+イニシエート・クロスペインハンマー
+アイアンファイル
+イニシエートドーミングハンマー
+アイアンプライヤー
+イニシエートチェーサーハンマー
+グラインディングホイール
+イニシエートヘッドナイフ
+アイアンアウル
+ブラスニードル
+イニシエートスピニングホイール
+イニシエートアレンビック
+アイアンモーター
+イニシエートスキレット
+アイアンクリナリーナイフ
+"""),
+        [41] = Lines("""
+ヴィンテージシェフズハット
+スモック
+ボアスミスグローブ
+リネンスロップ
+ヴィンテージサイブーツ
+ウルフファングイヤリング
+ミスリルチョーカー
+ミスリルクラフターリストレット
+ミスリルクラフターリング
+ミスリルクラフターリング
+ミスリルソー
+アプレンティスクローハンマー
+ラップド・スチールビークハンマー
+アプレンティスファイル
+スチールレイジングハンマー
+アプレンティスプライヤー
+ミスリルオーナメンタルハンマー
+アプレンティスグラインディングホイール
+ミスリルヘッドナイフ
+アプレンティスアウル
+ウルフファングニードル
+マホガニースピニングホイール
+ミスリルアレンビック
+アプレンティスモーター
+スチールフライパン
+アプレンティスクリナリーナイフ
+"""),
+        [53] = Lines("""
+ホーリーレインボー・ウェッジキャップ
+ホーリーレインボーコーティー
+ホーリーレインボー・ドレスグローブ
+ホーリーレインボーボトム
+ホーリーレインボー・ドレスシューズ
+イエティファングイヤリング
+ローズゴールドチョーカー
+ホーリーシーダーアルミラ
+ホーリーシーダーリング
+ホーリーシーダーリング
+ミスライトラウンドソー
+ミスライトクローハンマー
+ミスライトランプハンマー
+ミスライトファイル
+ミスライトレイジングハンマー
+ミスライトプライヤー
+ミスライトラピダリーハンマー
+アストラルグラインディングホイール
+ミスライトラウンドナイフ
+ミスライトアウル
+ミスライトニードル
+ホーリーシーダー・スピニングホイール
+ミスライトアレンビック
+ミスライトモーター
+サボテンダーフライパン
+ミスライトクリナリーナイフ
+"""),
+        [63] = Lines("""
+ルビーコットンキャップ
+ルビーコットンコーティー
+ギュウキクラフターグローブ
+ルビーコットンボトム
+ギュウキシューズ
+ラーチイヤリング
+ラーチネックレス
+ラーチブレスレット
+ラーチリング
+ラーチリング
+ハイスチールソー
+ハイスチール・クローハンマー
+ハイスチール・クロスペインハンマー
+ハイスチールファイル
+ハイスチール・ドーミングハンマー
+ハイスチールプライヤー
+キュプロオーナメンタルハンマー
+スタイパーストーン・グラインディングホイール
+ハイスチール・ヘッドナイフ
+ハイスチールアウル
+ボムフィッシュニードル
+ラーチスピニングホイール
+ハイスチール・サーマルアレンビック
+ハイスチールモーター
+ハイスチール・ボムフライパン
+ハイスチール・クリナリーナイフ
+"""),
+        [71] = Lines("""
+ホワイトヘンプ・クラフターターバン
+ホワイトヘンプ・クラフターダブレット
+スミロドンクラフターグローブ
+ホワイトヘンプ・クラフターボトム
+スミロドンクラフターシューズ
+ホワイトオークイヤリング
+ホワイトオークネックレス
+ホワイトオークブレスレット
+ホワイトオークリング
+ホワイトオークリング
+ディープゴールドソー
+ディープゴールド・クローハンマー
+ディープゴールド・クロスペインハンマー
+ディープゴールドファイル
+ディープゴールド・レイジングハンマー
+ディープゴールドプライヤー
+ディープゴールド・ラピダリーハンマー
+ホワイトオーク・グラインディングホイール
+ディープゴールド・ヘッドナイフ
+ディープゴールドアウル
+ストーンゴールドニードル
+ホワイトオーク・スピニングホイール
+ディープゴールド・アレンビック
+ディープゴールドモーター
+ディープゴールド・レイルフライパン
+ディープゴールド・クリナリーナイフ
+"""),
+        [81] = Lines("""
+黒麻帽
+黒麻胴着
+象皮半手甲
+黒麻股引
+象皮足袋
+アメトリン・クラフターイヤーカフ
+アメトリン・クラフターネックレス
+アメトリン・クラフターアルミラ
+アメトリン・クラフターリング
+アメトリン・クラフターリング
+ハイダリウム・ソー
+ハイダリウム・クローハンマー
+ハイダリウム・クロスペインハンマー
+ハイダリウム・ファイル
+ハイダリウム・レイジングハンマー
+ハイダリウム・プライヤー
+ハイダリウム・ラピダリーハンマー
+ホースチェスナット・グラインディングホイール
+ハイダリウム・レザーワーカーナイフ
+ハイダリウム・アウル
+ハイダリウム・ニードル
+ホースチェスナット・スピニングホイール
+ハイダリウム・アレンビック
+ハイダリウム・モーター
+ハイダリウム・ナマズオフライパン
+ハイダリウム・クリナリーナイフ
+"""),
+        [91] = Lines("""
+スノーコットン・ベレー
+スノーコットン・ジャケット
+シルバリオ・フィンガレスグローブ
+スノーコットン・トラウザー
+シルバリオ・シューズ
+ラァー・イヤーカフ
+ラァー・チョーカー
+ラァー・ブレスレット
+ラァー・リング
+ラァー・リング
+オルコクロマイト・ソー
+オルコクロマイト・クローハンマー
+オルコクロマイト・クロスペインハンマー
+オルコクロマイト・ファイル
+オルコクロマイト・レイジングハンマー
+オルコクロマイト・プライヤー
+オルコクロマイト・ラピダリーハンマー
+ウコギ・グラインディングホイール
+オルコクロマイト・レザーワーカーナイフ
+オルコクロマイト・アウル
+ラァー・ニードル
+ウコギ・スピニングホイール
+オルコクロマイト・アレンビック
+オルコクロマイト・モーター
+オルコクロマイト・フライパン
+オルコクロマイト・クリナリーナイフ
+"""),
     };
+
+    private static string[] Lines(string value) => value.Split('\n')
+        .Select(x => x.Trim()).Where(x => x.Length > 0).ToArray();
 }

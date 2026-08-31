@@ -17,24 +17,35 @@ internal static class CrafterPlanClipboard
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        var text = new StringBuilder("minLv\tMaxLv\tレシピ\t制作個数\r\n");
+        var text = new StringBuilder("minLv\tMaxLv\t対象職\t方式\tレシピ\t制作個数\r\n");
         foreach (var preset in settings.RecipePresets
                      .Where(x => x.MinLevel <= maxLevel && x.MaxLevel >= minLevel)
                      .OrderBy(x => x.MinLevel).ThenBy(x => x.JobId))
         {
             if (!recipeSheet.TryGetRow(preset.RecipeId, out var recipe)) continue;
+            var job = jobSheet.TryGetRow(preset.JobId, out var classJob)
+                ? classJob.Abbreviation.ToString()
+                : preset.JobId.ToString();
+            var route = preset.Route switch
+            {
+                CrafterLevelingRoute.Restoration => "復興",
+                CrafterLevelingRoute.Collectable => "収集品",
+                _ => "通常製作",
+            };
             text.Append(preset.MinLevel).Append('\t').Append(preset.MaxLevel).Append('\t')
+                .Append(job).Append('\t').Append(route).Append('\t')
                 .Append(recipe.ItemResult.Value.Name).Append('\t').Append(preset.MaxCraftCount).Append("\r\n");
         }
 
-        text.Append("\r\n装備Lv\t対象職\t装備\r\n");
+        text.Append("\r\n装備Lv\t対象職\t部位\t装備\r\n");
         foreach (var preset in settings.GearPresets
                      .Where(x => x.TierLevel >= minLevel && x.TierLevel <= maxLevel)
                      .OrderBy(x => x.TierLevel))
         {
             foreach (var itemId in preset.SharedItemIds)
                 if (itemSheet.TryGetRow(itemId, out var item))
-                    text.Append(preset.TierLevel).Append("\t共通\t").Append(item.Name).Append("\r\n");
+                    text.Append(preset.TierLevel).Append("\t共通\t").Append(GearSlot(item)).Append('\t')
+                        .Append(item.Name).Append("\r\n");
             foreach (var jobItems in preset.JobItemIds.OrderBy(x => x.Key))
             {
                 var job = jobSheet.TryGetRow(jobItems.Key, out var classJob)
@@ -43,7 +54,7 @@ internal static class CrafterPlanClipboard
                 foreach (var itemId in jobItems.Value)
                     if (itemSheet.TryGetRow(itemId, out var item))
                         text.Append(preset.TierLevel).Append('\t').Append(job).Append('\t')
-                            .Append(item.Name).Append("\r\n");
+                            .Append(GearSlot(item)).Append('\t').Append(item.Name).Append("\r\n");
             }
         }
         return text.ToString();
@@ -71,8 +82,11 @@ internal static class CrafterPlanClipboard
         {
             lineNumber++;
             var line = rawLine.Trim();
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var columns = rawLine.Split('\t').Select(x => x.Trim()).ToArray();
+            if (string.IsNullOrWhiteSpace(line) || line.Contains("&#x9;", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var columns = SplitColumns(rawLine);
+            if (columns.Length == 0 || columns.All(x => x.All(character => character is '-' or ':' or ' ')))
+                continue;
             if (columns.Length >= 4 && columns[0].Equals("minLv", StringComparison.OrdinalIgnoreCase))
             {
                 section = 1;
@@ -86,21 +100,46 @@ internal static class CrafterPlanClipboard
 
             if (section == 1)
             {
+                var extended = columns.Length >= 6;
+                var recipeIndex = extended ? 4 : 2;
+                var countIndex = extended ? 5 : 3;
                 if (columns.Length < 4 || !int.TryParse(columns[0], out var minLevel) ||
-                    !int.TryParse(columns[1], out var maxLevel) || !int.TryParse(columns[3], out var count) ||
+                    !int.TryParse(columns[1], out var maxLevel) || !int.TryParse(columns[countIndex], out var count) ||
                     minLevel is < 1 or > 100 || maxLevel is < 1 or > 100 || minLevel > maxLevel || count < 1)
                     return Fail(lineNumber, out error);
+                uint jobId = 0;
+                if (extended)
+                {
+                    var jobs = jobSheet.Where(x => x.RowId is >= 8 and <= 15 && x.Abbreviation.ToString()
+                        .Equals(columns[2], StringComparison.OrdinalIgnoreCase)).ToArray();
+                    if (jobs.Length != 1)
+                    {
+                        error = Loc.L($"{lineNumber}行目の対象職が不明です：{columns[2]}",
+                            $"Unknown crafting job on line {lineNumber}: {columns[2]}");
+                        return false;
+                    }
+                    jobId = jobs[0].RowId;
+                }
                 var matches = recipeSheet.Where(x => x.ItemResult.RowId != 0 &&
-                        x.ItemResult.Value.Name.ToString().Equals(columns[2], StringComparison.CurrentCultureIgnoreCase) &&
-                        x.CraftType.RowId + 8 is >= 8 and <= 15)
+                        x.ItemResult.Value.Name.ToString().Equals(columns[recipeIndex], StringComparison.CurrentCultureIgnoreCase) &&
+                        x.CraftType.RowId + 8 is >= 8 and <= 15 && (!extended || x.CraftType.RowId + 8 == jobId))
                     .ToArray();
                 if (matches.Length != 1)
                 {
-                    error = Loc.L($"{lineNumber}行目のレシピ名を一意に特定できません：{columns[2]}",
-                        $"Recipe name on line {lineNumber} is missing or ambiguous: {columns[2]}");
+                    error = Loc.L($"{lineNumber}行目のレシピを特定できません：{columns[recipeIndex]}",
+                        $"Recipe on line {lineNumber} could not be identified: {columns[recipeIndex]}");
                     return false;
                 }
                 var recipe = matches[0];
+                var route = CrafterLevelingRoute.Normal;
+                if (extended && !TryParseRoute(columns[3], out route))
+                {
+                    error = Loc.L($"{lineNumber}行目の方式が不明です：{columns[3]}",
+                        $"Unknown method on line {lineNumber}: {columns[3]}");
+                    return false;
+                }
+                if (!extended && columns[recipeIndex].Contains("復興", StringComparison.Ordinal))
+                    route = CrafterLevelingRoute.Restoration;
                 recipes.Add(new CrafterRecipePreset
                 {
                     JobId = recipe.CraftType.RowId + 8,
@@ -108,23 +147,22 @@ internal static class CrafterPlanClipboard
                     MaxLevel = maxLevel,
                     RecipeId = recipe.RowId,
                     MaxCraftCount = count,
-                    Route = columns[2].Contains("復興", StringComparison.Ordinal)
-                        ? CrafterLevelingRoute.Restoration
-                        : CrafterLevelingRoute.Normal,
+                    Route = route,
                 });
                 continue;
             }
 
             if (section == 2)
             {
+                var itemIndex = columns.Length >= 4 ? 3 : 2;
                 if (columns.Length < 3 || !int.TryParse(columns[0], out var tier) || tier is < 1 or > 100)
                     return Fail(lineNumber, out error);
                 var items = itemSheet.Where(x => x.Name.ToString()
-                        .Equals(columns[2], StringComparison.CurrentCultureIgnoreCase)).ToArray();
+                        .Equals(columns[itemIndex], StringComparison.CurrentCultureIgnoreCase)).ToArray();
                 if (items.Length != 1)
                 {
-                    error = Loc.L($"{lineNumber}行目の装備名を一意に特定できません：{columns[2]}",
-                        $"Gear name on line {lineNumber} is missing or ambiguous: {columns[2]}");
+                    error = Loc.L($"{lineNumber}行目の装備名を一意に特定できません：{columns[itemIndex]}",
+                        $"Gear name on line {lineNumber} is missing or ambiguous: {columns[itemIndex]}");
                     return false;
                 }
                 if (!gearByTier.TryGetValue(tier, out var preset))
@@ -151,8 +189,8 @@ internal static class CrafterPlanClipboard
                 continue;
             }
 
-            error = Loc.L("先頭行に minLv / MaxLv / レシピ / 制作個数 の見出しが必要です。",
-                "The first row must contain the minLv / MaxLv / Recipe / Craft count headers.");
+            error = Loc.L("先頭行に minLv / MaxLv / 対象職 / 方式 / レシピ / 制作個数 の見出しが必要です。",
+                "The first row must contain the minLv / MaxLv / Job / Method / Recipe / Craft count headers.");
             return false;
         }
 
@@ -167,6 +205,54 @@ internal static class CrafterPlanClipboard
         error = Loc.L($"{lineNumber}行目の形式が正しくありません。",
             $"Line {lineNumber} has an invalid format.");
         return false;
+    }
+
+    private static string[] SplitColumns(string line)
+    {
+        if (!line.Contains('|')) return line.Split('\t').Select(x => x.Trim()).ToArray();
+        return line.Trim().Trim('|').Split('|').Select(x => x.Trim()).ToArray();
+    }
+
+    private static bool TryParseRoute(string value, out CrafterLevelingRoute route)
+    {
+        switch (value.Trim())
+        {
+            case "通常製作":
+            case "通常":
+            case "Normal":
+            case "Normal crafting":
+                route = CrafterLevelingRoute.Normal;
+                return true;
+            case "復興":
+            case "Restoration":
+                route = CrafterLevelingRoute.Restoration;
+                return true;
+            case "収集品":
+            case "Collectable":
+            case "Collectables":
+                route = CrafterLevelingRoute.Collectable;
+                return true;
+            default:
+                route = default;
+                return false;
+        }
+    }
+
+    internal static string GearSlot(Item item)
+    {
+        var slot = item.EquipSlotCategory.Value;
+        if (slot.MainHand > 0) return "主道具";
+        if (slot.OffHand > 0) return "副道具";
+        if (slot.Head > 0) return "頭";
+        if (slot.Body > 0) return "胴";
+        if (slot.Gloves > 0) return "手";
+        if (slot.Legs > 0) return "脚";
+        if (slot.Feet > 0) return "足";
+        if (slot.Ears > 0) return "耳";
+        if (slot.Neck > 0) return "首";
+        if (slot.Wrists > 0) return "腕";
+        if (slot.FingerL > 0 || slot.FingerR > 0) return "指";
+        return "—";
     }
 
     private sealed class Document
