@@ -234,7 +234,12 @@ public sealed unsafe class GilTracker : IDisposable
             return false;
 
         var submarineName = ReadUtf8(current->Name);
-        var id = $"{fc.FreeCompanyId:X16}:{current->RegisterTime}:{submarineName}";
+        // RegisterTime is the vessel's registration date and never changes, so using it here
+        // silently limited every submarine to one lifetime revenue record. ReturnTime identifies
+        // the individual voyage shown by the result window.
+        var returnedAt = (uint)new DateTimeOffset(nowUtc).ToUnixTimeSeconds();
+        var voyageReturnTime = current->ReturnTime != 0 ? current->ReturnTime : returnedAt;
+        var id = $"{fc.FreeCompanyId:X16}:{voyageReturnTime}:{submarineName}";
         if (fc.TreasureVoyages.Any(x => x.Id == id))
             return false;
 
@@ -250,12 +255,12 @@ public sealed unsafe class GilTracker : IDisposable
         foreach (var pair in itemCounts)
             total += (ulong)itemSheet.GetRow(pair.Key).PriceLow * pair.Value;
 
-        var returnedAt = (uint)new DateTimeOffset(nowUtc).ToUnixTimeSeconds();
         fc.TreasureVoyages.Add(new SubmarineTreasureVoyageRecord
         {
             Id = id,
             SubmarineName = submarineName,
-            DepartedAtUnix = current->RegisterTime,
+            // The result structure does not expose a reliable departure timestamp.
+            DepartedAtUnix = 0,
             ReturnedAtUnix = returnedAt,
             TreasureGil = total,
             TreasureItems = itemCounts,

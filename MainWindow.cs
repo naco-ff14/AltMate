@@ -1194,8 +1194,10 @@ public sealed partial class MainWindow : Window
                 return returned >= monthStart.ToUniversalTime() && returned < monthEnd.ToUniversalTime();
             }).Aggregate(0UL, (sum, voyage) => sum + voyage.TreasureGil);
             var average = voyages.Count == 0 ? 0UL : total / (ulong)voyages.Count;
-            var totalDays = voyages.Sum(voyage => voyage.DepartedAtUnix > 0 && voyage.ReturnedAtUnix > voyage.DepartedAtUnix
-                ? (voyage.ReturnedAtUnix - voyage.DepartedAtUnix) / 86400d : 0d);
+            var totalDays = voyages.Sum(voyage => voyage.DepartedAtUnix > 0 &&
+                voyage.ReturnedAtUnix > voyage.DepartedAtUnix &&
+                voyage.ReturnedAtUnix - voyage.DepartedAtUnix <= 7 * 86400
+                    ? (voyage.ReturnedAtUnix - voyage.DepartedAtUnix) / 86400d : 0d);
             var efficiency = totalDays > 0 ? (ulong)Math.Round(total / totalDays) : 0UL;
 
             ImGui.TableNextRow();
