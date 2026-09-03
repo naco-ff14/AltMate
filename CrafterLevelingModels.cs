@@ -46,6 +46,7 @@ public sealed class CrafterLevelingSettings
     public Dictionary<uint, int> KnownOwnedItems { get; set; } = new();
     public Dictionary<uint, int> CompletedCraftCounts { get; set; } = new();
     public Dictionary<uint, int> PlannedCraftCounts { get; set; } = new();
+    public Dictionary<uint, int> GearCraftingSelections { get; set; } = new();
     public List<ulong> SelectedRetainerIds { get; set; } = new();
     public Dictionary<ulong, CrafterRetainerInventoryCache> RetainerInventories { get; set; } = new();
     public CrafterLevelingProgress Progress { get; set; } = new();

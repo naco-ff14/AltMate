@@ -26,6 +26,7 @@ public sealed partial class MainWindow
     private string crafterClipboardMessage = string.Empty;
     private IReadOnlyList<CrafterQuestItem> crafterQuestItems = [];
     private string crafterQuestMessage = string.Empty;
+    private string gearCraftingSearch = string.Empty;
 
     private void DrawCrafterLeveling()
     {
@@ -50,7 +51,85 @@ public sealed partial class MainWindow
             DrawCrafterQuestItems(settings);
             ImGui.EndTabItem();
         }
+        if (ImGui.BeginTabItem(Loc.L("装備製作", "Gear crafting")))
+        {
+            DrawCrafterGearCrafting(settings);
+            ImGui.EndTabItem();
+        }
         ImGui.EndTabBar();
+    }
+
+    private void DrawCrafterGearCrafting(CrafterLevelingSettings settings)
+    {
+        ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("Lv100装備を選択", "Select Lv100 gear"));
+        ImGui.TextDisabled(Loc.L("複数の装備と必要数を選ぶと、必要素材をまとめて集計します。",
+            "Select gear and quantities to aggregate the required materials."));
+        ImGui.SetNextItemWidth(360 * ImGuiHelpers.GlobalScale);
+        ImGui.InputTextWithHint("##gear-crafting-search", Loc.L("装備名で絞り込み", "Filter by gear name"),
+            ref gearCraftingSearch, 100);
+
+        var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
+        var query = gearCraftingSearch.Trim();
+        var candidates = CrafterGearCraftingService.Candidates()
+            .Where(x => query.Length == 0 || x.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+            .ToArray();
+        if (ImGui.BeginTable("gear-crafting-candidates", 4,
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
+                new Vector2(0, 230 * ImGuiHelpers.GlobalScale)))
+        {
+            ImGui.TableSetupColumn(Loc.L("選択", "Select"), ImGuiTableColumnFlags.WidthFixed, 54 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("装備", "Gear"), ImGuiTableColumnFlags.WidthStretch, 3f);
+            ImGui.TableSetupColumn(Loc.L("製作職", "Job"), ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("必要数", "Quantity"), ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
+            ImGui.TableHeadersRow();
+            foreach (var candidate in candidates)
+            {
+                settings.GearCraftingSelections.TryGetValue(candidate.RecipeId, out var count);
+                var selected = count > 0;
+                ImGui.PushID($"gear-craft-{candidate.RecipeId}");
+                ImGui.TableNextRow();
+                ImGui.TableNextColumn();
+                if (ImGui.Checkbox("##selected", ref selected))
+                {
+                    if (selected) settings.GearCraftingSelections[candidate.RecipeId] = Math.Max(1, count);
+                    else settings.GearCraftingSelections.Remove(candidate.RecipeId);
+                    SaveCrafterSettings();
+                }
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(candidate.Name);
+                ImGui.TableNextColumn(); ImGui.TextUnformatted(jobs.TryGetRow(candidate.JobId, out var job)
+                    ? job.Abbreviation.ToString() : candidate.JobId.ToString());
+                ImGui.TableNextColumn();
+                ImGui.BeginDisabled(!selected);
+                var quantity = Math.Max(1, count);
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputInt("##quantity", ref quantity, 0))
+                {
+                    settings.GearCraftingSelections[candidate.RecipeId] = Math.Clamp(quantity, 1, 999);
+                    SaveCrafterSettings();
+                }
+                ImGui.EndDisabled();
+                ImGui.PopID();
+            }
+            ImGui.EndTable();
+        }
+
+        if (settings.GearCraftingSelections.Count > 0)
+        {
+            if (ImGui.SmallButton(Loc.L("選択をすべて解除", "Clear selection")))
+            {
+                settings.GearCraftingSelections.Clear();
+                SaveCrafterSettings();
+            }
+            ImGui.SameLine();
+            ImGui.TextDisabled(Loc.L($"{settings.GearCraftingSelections.Count}種類を選択中",
+                $"{settings.GearCraftingSelections.Count} selected"));
+        }
+
+        var materials = CrafterGearCraftingService.Materials(settings);
+        DrawCrafterPreparationTable(settings, "gear-crafting-materials", Loc.L("必要素材", "Required materials"),
+            materials.Where(x => !x.IsCrystal).ToArray(), false);
+        DrawCrafterPreparationTable(settings, "gear-crafting-crystals", Loc.L("必要クリスタル", "Required crystals"),
+            materials.Where(x => x.IsCrystal).ToArray(), false);
     }
 
     private void DrawCrafterLevelingMain(CrafterLevelingSettings settings)
