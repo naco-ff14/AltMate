@@ -23,13 +23,14 @@ internal static class CrafterGearCraftingService
             .ToArray();
     }
 
-    internal static IReadOnlyList<CrafterPreparationItem> Materials(CrafterLevelingSettings settings)
+    internal static IReadOnlyList<CrafterPreparationItem> Materials(CrafterLevelingSettings settings,
+        IReadOnlyDictionary<uint, int>? selections = null)
     {
         CrafterRetainerScanner.RefreshOwnedTotals(settings);
         var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
         var items = Plugin.DataManager.GetExcelSheet<Item>();
         var required = new Dictionary<uint, int>();
-        foreach (var selection in settings.GearCraftingSelections.Where(x => x.Value > 0))
+        foreach (var selection in (selections ?? settings.GearCraftingSelections).Where(x => x.Value > 0))
         {
             if (!recipes.TryGetRow(selection.Key, out var recipe)) continue;
             var resultAmount = Math.Max(1, (int)recipe.AmountResult);

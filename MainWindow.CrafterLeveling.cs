@@ -27,6 +27,8 @@ public sealed partial class MainWindow
     private IReadOnlyList<CrafterQuestItem> crafterQuestItems = [];
     private string crafterQuestMessage = string.Empty;
     private string gearCraftingSearch = string.Empty;
+    private readonly Dictionary<uint, int> gearCraftingDraftSelections = new();
+    private ulong gearCraftingDraftContentId = ulong.MaxValue;
 
     private void DrawCrafterLeveling()
     {
@@ -61,6 +63,14 @@ public sealed partial class MainWindow
 
     private void DrawCrafterGearCrafting(CrafterLevelingSettings settings)
     {
+        var contentId = Plugin.PlayerState.ContentId;
+        if (gearCraftingDraftContentId != contentId)
+        {
+            gearCraftingDraftSelections.Clear();
+            foreach (var pair in settings.GearCraftingSelections)
+                gearCraftingDraftSelections[pair.Key] = pair.Value;
+            gearCraftingDraftContentId = contentId;
+        }
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("Lv100装備を選択", "Select Lv100 gear"));
         ImGui.TextDisabled(Loc.L("複数の装備と必要数を選ぶと、必要素材をまとめて集計します。",
             "Select gear and quantities to aggregate the required materials."));
@@ -71,6 +81,7 @@ public sealed partial class MainWindow
         var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
         var query = gearCraftingSearch.Trim();
         var candidates = CrafterGearCraftingService.Candidates()
+            .GroupBy(x => x.ItemId).Select(x => x.First())
             .Where(x => query.Length == 0 || x.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
             .ToArray();
         if (ImGui.BeginTable("gear-crafting-candidates", 4,
@@ -84,16 +95,16 @@ public sealed partial class MainWindow
             ImGui.TableHeadersRow();
             foreach (var candidate in candidates)
             {
-                settings.GearCraftingSelections.TryGetValue(candidate.RecipeId, out var count);
+                gearCraftingDraftSelections.TryGetValue(candidate.RecipeId, out var count);
                 var selected = count > 0;
                 ImGui.PushID($"gear-craft-{candidate.RecipeId}");
                 ImGui.TableNextRow();
                 ImGui.TableNextColumn();
                 if (ImGui.Checkbox("##selected", ref selected))
                 {
-                    if (selected) settings.GearCraftingSelections[candidate.RecipeId] = Math.Max(1, count);
-                    else settings.GearCraftingSelections.Remove(candidate.RecipeId);
-                    SaveCrafterSettings();
+                    if (selected) gearCraftingDraftSelections[candidate.RecipeId] = Math.Max(1, count);
+                    else gearCraftingDraftSelections.Remove(candidate.RecipeId);
+                    SaveGearCraftingSelections(settings);
                 }
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(candidate.Name);
                 ImGui.TableNextColumn(); ImGui.TextUnformatted(jobs.TryGetRow(candidate.JobId, out var job)
@@ -104,8 +115,8 @@ public sealed partial class MainWindow
                 ImGui.SetNextItemWidth(-1);
                 if (ImGui.InputInt("##quantity", ref quantity, 0))
                 {
-                    settings.GearCraftingSelections[candidate.RecipeId] = Math.Clamp(quantity, 1, 999);
-                    SaveCrafterSettings();
+                    gearCraftingDraftSelections[candidate.RecipeId] = Math.Clamp(quantity, 1, 999);
+                    SaveGearCraftingSelections(settings);
                 }
                 ImGui.EndDisabled();
                 ImGui.PopID();
@@ -113,23 +124,29 @@ public sealed partial class MainWindow
             ImGui.EndTable();
         }
 
-        if (settings.GearCraftingSelections.Count > 0)
+        if (gearCraftingDraftSelections.Count > 0)
         {
             if (ImGui.SmallButton(Loc.L("選択をすべて解除", "Clear selection")))
             {
-                settings.GearCraftingSelections.Clear();
-                SaveCrafterSettings();
+                gearCraftingDraftSelections.Clear();
+                SaveGearCraftingSelections(settings);
             }
             ImGui.SameLine();
-            ImGui.TextDisabled(Loc.L($"{settings.GearCraftingSelections.Count}種類を選択中",
-                $"{settings.GearCraftingSelections.Count} selected"));
+            ImGui.TextDisabled(Loc.L($"{gearCraftingDraftSelections.Count}種類を選択中",
+                $"{gearCraftingDraftSelections.Count} selected"));
         }
 
-        var materials = CrafterGearCraftingService.Materials(settings);
+        var materials = CrafterGearCraftingService.Materials(settings, gearCraftingDraftSelections);
         DrawCrafterPreparationTable(settings, "gear-crafting-materials", Loc.L("必要素材", "Required materials"),
             materials.Where(x => !x.IsCrystal).ToArray(), false);
         DrawCrafterPreparationTable(settings, "gear-crafting-crystals", Loc.L("必要クリスタル", "Required crystals"),
             materials.Where(x => x.IsCrystal).ToArray(), false);
+    }
+
+    private void SaveGearCraftingSelections(CrafterLevelingSettings settings)
+    {
+        settings.GearCraftingSelections = new Dictionary<uint, int>(gearCraftingDraftSelections);
+        SaveCrafterSettings();
     }
 
     private void DrawCrafterLevelingMain(CrafterLevelingSettings settings)
@@ -430,17 +447,21 @@ public sealed partial class MainWindow
             .OrderBy(x => x.MinLevel).ThenBy(x => x.JobId).ToArray();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
         if (!ImGui.BeginTable("crafter-clipboard-recipes", 7,
-                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
-        foreach (var heading in new[] { "minLv", "MaxLv", Loc.L("対象職", "Job"), Loc.L("方式", "Method"),
-                     Loc.L("レシピ", "Recipe"), Loc.L("制作個数", "Craft count"), Loc.L("操作", "Actions") })
-            ImGui.TableSetupColumn(heading);
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit)) return;
+        ImGui.TableSetupColumn("minLv", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn("MaxLv", ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("対象職", "Job"), ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("方式", "Method"), ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("レシピ", "Recipe"), ImGuiTableColumnFlags.WidthStretch, 3f);
+        ImGui.TableSetupColumn(Loc.L("制作個数", "Craft count"), ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("操作", "Actions"), ImGuiTableColumnFlags.WidthFixed, 78 * ImGuiHelpers.GlobalScale);
         ImGui.TableHeadersRow();
         CrafterRecipePreset? deletePreset = null;
         var changed = false;
         foreach (var preset in rows)
         {
             ImGui.TableNextRow();
-            ImGui.PushID($"recipe-edit-{preset.JobId}-{preset.RecipeId}-{preset.MinLevel}-{preset.MaxLevel}-{settings.RecipePresets.IndexOf(preset)}");
+            ImGui.PushID($"recipe-edit-{settings.RecipePresets.IndexOf(preset)}");
             ImGui.TableNextColumn();
             if (preset.IsCatalogGenerated) ImGui.TextUnformatted(preset.MinLevel.ToString());
             else
@@ -525,10 +546,11 @@ public sealed partial class MainWindow
         var itemSheet = Plugin.DataManager.GetExcelSheet<Item>();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
         if (!ImGui.BeginTable("crafter-clipboard-gear", 4,
-                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
-        foreach (var heading in new[] { Loc.L("装備Lv", "Gear Lv"), Loc.L("対象職", "Job"),
-                     Loc.L("部位", "Slot"), Loc.L("装備", "Gear") })
-            ImGui.TableSetupColumn(heading);
+                ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingFixedFit)) return;
+        ImGui.TableSetupColumn(Loc.L("装備Lv", "Gear Lv"), ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("対象職", "Job"), ImGuiTableColumnFlags.WidthFixed, 80 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("部位", "Slot"), ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("装備", "Gear"), ImGuiTableColumnFlags.WidthStretch, 3f);
         ImGui.TableHeadersRow();
         foreach (var preset in settings.GearPresets
                      .Where(x => x.TierLevel >= crafterClipboardMinLevel && x.TierLevel <= crafterClipboardMaxLevel)
