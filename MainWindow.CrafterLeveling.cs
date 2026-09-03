@@ -327,40 +327,117 @@ public sealed partial class MainWindow
     private void DrawCrafterClipboardRecipeTable(CrafterLevelingSettings settings)
     {
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("レシピ", "Recipes"));
+        var manualCount = settings.RecipePresets.Count(x => !x.IsCatalogGenerated);
+        ImGui.SameLine();
+        ImGui.TextDisabled(Loc.L($"手動登録 {manualCount}件", $"{manualCount} manual"));
+        ImGui.SameLine();
+        ImGui.BeginDisabled(manualCount < 2);
+        if (ImGui.SmallButton(Loc.L("重複を整理", "Remove duplicates")))
+        {
+            var seen = new HashSet<(uint JobId, uint RecipeId, int Min, int Max, CrafterLevelingRoute Route)>();
+            var removed = settings.RecipePresets.RemoveAll(x => !x.IsCatalogGenerated &&
+                !seen.Add((x.JobId, x.RecipeId, x.MinLevel, x.MaxLevel, x.Route)));
+            if (removed > 0)
+            {
+                RefreshCrafterDataAfterManualEdit(settings);
+                crafterClipboardMessage = Loc.L($"重複した手動レシピを{removed}件削除しました。",
+                    $"Removed {removed} duplicate manual recipes.");
+            }
+        }
+        ImGui.EndDisabled();
         var recipeSheet = Plugin.DataManager.GetExcelSheet<Recipe>();
         var rows = settings.RecipePresets
             .Where(x => x.MinLevel <= crafterClipboardMaxLevel && x.MaxLevel >= crafterClipboardMinLevel)
             .OrderBy(x => x.MinLevel).ThenBy(x => x.JobId).ToArray();
         var jobSheet = Plugin.DataManager.GetExcelSheet<ClassJob>();
-        if (!ImGui.BeginTable("crafter-clipboard-recipes", 6,
+        if (!ImGui.BeginTable("crafter-clipboard-recipes", 7,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp)) return;
         foreach (var heading in new[] { "minLv", "MaxLv", Loc.L("対象職", "Job"), Loc.L("方式", "Method"),
-                     Loc.L("レシピ", "Recipe"), Loc.L("制作個数", "Craft count") })
+                     Loc.L("レシピ", "Recipe"), Loc.L("制作個数", "Craft count"), Loc.L("操作", "Actions") })
             ImGui.TableSetupColumn(heading);
         ImGui.TableHeadersRow();
+        CrafterRecipePreset? deletePreset = null;
+        var changed = false;
         foreach (var preset in rows)
         {
             ImGui.TableNextRow();
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MinLevel.ToString());
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MaxLevel.ToString());
+            ImGui.PushID($"recipe-edit-{preset.JobId}-{preset.RecipeId}-{preset.MinLevel}-{preset.MaxLevel}-{settings.RecipePresets.IndexOf(preset)}");
+            ImGui.TableNextColumn();
+            if (preset.IsCatalogGenerated) ImGui.TextUnformatted(preset.MinLevel.ToString());
+            else
+            {
+                var value = preset.MinLevel;
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputInt("##min", ref value, 0)) { preset.MinLevel = Math.Clamp(value, 1, 100); changed = true; }
+            }
+            ImGui.TableNextColumn();
+            if (preset.IsCatalogGenerated) ImGui.TextUnformatted(preset.MaxLevel.ToString());
+            else
+            {
+                var value = preset.MaxLevel;
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputInt("##max", ref value, 0)) { preset.MaxLevel = Math.Clamp(value, preset.MinLevel, 100); changed = true; }
+            }
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(jobSheet.TryGetRow(preset.JobId, out var job)
                 ? job.Abbreviation.ToString()
                 : preset.JobId.ToString());
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(preset.Route switch
+            if (preset.IsCatalogGenerated)
+                ImGui.TextUnformatted(RouteName(preset.Route));
+            else
             {
-                CrafterLevelingRoute.Restoration => Loc.L("復興", "Restoration"),
-                CrafterLevelingRoute.Collectable => Loc.L("収集品", "Collectable"),
-                _ => Loc.L("通常製作", "Normal"),
-            });
+                var route = (int)preset.Route;
+                var routeNames = new[] { RouteName(CrafterLevelingRoute.Normal),
+                    RouteName(CrafterLevelingRoute.Restoration), RouteName(CrafterLevelingRoute.Collectable) };
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.Combo("##route", ref route, routeNames, routeNames.Length))
+                { preset.Route = (CrafterLevelingRoute)route; changed = true; }
+            }
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(recipeSheet.TryGetRow(preset.RecipeId, out var recipe)
                 ? recipe.ItemResult.Value.Name.ToString()
                 : $"Recipe ID {preset.RecipeId}");
-            ImGui.TableNextColumn(); ImGui.TextUnformatted(preset.MaxCraftCount.ToString());
+            ImGui.TableNextColumn();
+            if (preset.IsCatalogGenerated) ImGui.TextUnformatted(preset.MaxCraftCount.ToString());
+            else
+            {
+                var value = preset.MaxCraftCount;
+                ImGui.SetNextItemWidth(-1);
+                if (ImGui.InputInt("##count", ref value, 0)) { preset.MaxCraftCount = Math.Clamp(value, 1, 100_000); changed = true; }
+            }
+            ImGui.TableNextColumn();
+            if (preset.IsCatalogGenerated) ImGui.TextDisabled(Loc.L("標準", "Default"));
+            else if (ImGui.SmallButton(Loc.L("削除", "Delete"))) deletePreset = preset;
+            ImGui.PopID();
         }
         ImGui.EndTable();
+        if (deletePreset != null)
+        {
+            settings.RecipePresets.Remove(deletePreset);
+            changed = true;
+        }
+        if (changed) RefreshCrafterDataAfterManualEdit(settings);
+        return;
+
+        string RouteName(CrafterLevelingRoute route) => route switch
+        {
+            CrafterLevelingRoute.Restoration => Loc.L("復興", "Restoration"),
+            CrafterLevelingRoute.Collectable => Loc.L("収集品", "Collectable"),
+            _ => Loc.L("通常製作", "Normal"),
+        };
+    }
+
+    private void RefreshCrafterDataAfterManualEdit(CrafterLevelingSettings settings)
+    {
+        settings.CompletedCraftCounts.Clear();
+        settings.PlannedCraftCounts.Clear();
+        CrafterExperiencePlanner.EnsurePlans(settings);
+        CrafterRetainerScanner.RefreshOwnedTotals(settings);
+        var service = new CrafterPreparationService();
+        crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+        nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
+        SaveCrafterSettings();
     }
 
     private void DrawCrafterClipboardGearTable(CrafterLevelingSettings settings)
