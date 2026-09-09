@@ -74,6 +74,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private DateTime localCharacterReadySinceUtc;
     private bool combatAutomationActive;
     private DateTime? leaderCombatEndedUtc;
+    private DateTime lastBarrierAttemptUtc;
     private uint lastLeaderOccultAetheryteId;
     private uint pendingOccultSourceId;
     private uint pendingOccultDestinationId;
@@ -1686,7 +1687,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
         }
 
-        if (leader.InCombat)
+        if (leader.InCombat || Plugin.Condition[ConditionFlag.InCombat])
         {
             leaderCombatEndedUtc = null;
             if (!combatAutomationActive)
@@ -1696,7 +1697,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
         if (!combatAutomationActive)
         {
-            CombatStatus = "リーダーの戦闘開始待ち";
+            UpdateLeaderBarrier(now);
             return;
         }
 
@@ -1707,6 +1708,62 @@ public sealed class CharacterLinkCoordinator : IDisposable
             StopCombatAutomation();
         else
             CombatStatus = $"戦闘終了待機中（あと{remaining:0.0}秒）";
+    }
+
+    private unsafe void UpdateLeaderBarrier(DateTime now)
+    {
+        if (!plugin.Configuration.AutoBarrierLeaderEnabled)
+        {
+            CombatStatus = "リーダーの戦闘開始待ち";
+            return;
+        }
+        var jobId = Plugin.PlayerState.ClassJob.RowId;
+        if (jobId is not 28 and not 40)
+        {
+            CombatStatus = "リーダーの戦闘開始待ち（バリア対象外ジョブ）";
+            return;
+        }
+        if (IsBlocked() || Plugin.Condition[ConditionFlag.Mounted] ||
+            now - lastBarrierAttemptUtc < TimeSpan.FromSeconds(1.5))
+            return;
+        if (!TryGetLeaderObject(out _, out var leaderObject) ||
+            leaderObject is not Dalamud.Game.ClientState.Objects.SubKinds.IPlayerCharacter leaderPlayer)
+        {
+            CombatStatus = "バリア待機：リーダーが表示範囲外";
+            return;
+        }
+
+        var hasBarrier = jobId == 28
+            ? leaderPlayer.StatusList.Any(x => x.StatusId == 297)
+            : leaderPlayer.StatusList.Any(x => x.StatusId is 2607 or 2608);
+        if (hasBarrier)
+        {
+            CombatStatus = "非戦闘支援：リーダーのバリア付与済み";
+            return;
+        }
+
+        var manager = ActionManager.Instance();
+        var local = Plugin.ObjectTable.LocalPlayer;
+        if (manager == null || local is null) return;
+        bool accepted;
+        string actionName;
+        if (jobId == 28)
+        {
+            accepted = manager->UseAction(ActionType.Action, 185, leaderObject.GameObjectId);
+            actionName = "鼓舞激励の策";
+        }
+        else
+        {
+            var eukrasiaActive = local.StatusList.Any(x => x.StatusId == 2606);
+            accepted = eukrasiaActive
+                ? manager->UseAction(ActionType.Action, 24291, leaderObject.GameObjectId)
+                : manager->UseAction(ActionType.Action, 24290, local.GameObjectId);
+            actionName = eukrasiaActive ? "エウクラシア・ディアグノシス" : "エウクラシア";
+        }
+        lastBarrierAttemptUtc = now;
+        CombatStatus = accepted
+            ? $"非戦闘支援：{actionName}を実行"
+            : $"非戦闘支援：{actionName}の実行条件待ち";
     }
 
     private void StartCombatAutomation(LinkedCharacterState leader)
@@ -1988,6 +2045,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 VnavmeshStuckRecoveryEnabled = plugin.Configuration.VnavmeshStuckRecoveryEnabled,
                 SyncLeaderInteractionEnabled = plugin.Configuration.SyncLeaderInteractionEnabled,
                 CombatLinkEnabled = plugin.Configuration.CombatLinkEnabled,
+                AutoBarrierLeaderEnabled = plugin.Configuration.AutoBarrierLeaderEnabled,
                 UseBossModReborn = plugin.Configuration.UseBossModReborn,
                 UseRotationSolverReborn = plugin.Configuration.UseRotationSolverReborn,
                 CombatStopDelaySeconds = plugin.Configuration.CombatStopDelaySeconds,
@@ -2028,6 +2086,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.VnavmeshStuckRecoveryEnabled = state.VnavmeshStuckRecoveryEnabled;
         plugin.Configuration.SyncLeaderInteractionEnabled = state.SyncLeaderInteractionEnabled;
         plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
+        plugin.Configuration.AutoBarrierLeaderEnabled = state.AutoBarrierLeaderEnabled;
         plugin.Configuration.UseBossModReborn = state.UseBossModReborn;
         plugin.Configuration.UseRotationSolverReborn = state.UseRotationSolverReborn;
         plugin.Configuration.CombatStopDelaySeconds = Math.Clamp(state.CombatStopDelaySeconds, 0f, 15f);
@@ -2693,6 +2752,7 @@ public sealed class LinkedCharacterState
     public bool VnavmeshStuckRecoveryEnabled { get; set; }
     public bool SyncLeaderInteractionEnabled { get; set; }
     public bool CombatLinkEnabled { get; set; }
+    public bool AutoBarrierLeaderEnabled { get; set; }
     public bool UseBossModReborn { get; set; }
     public bool UseRotationSolverReborn { get; set; }
     public float CombatStopDelaySeconds { get; set; }

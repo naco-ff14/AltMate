@@ -31,6 +31,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool VnavmeshStuckRecoveryEnabled { get; set; } = true;
     public bool SyncLeaderInteractionEnabled { get; set; }
     public bool CombatLinkEnabled { get; set; }
+    public bool AutoBarrierLeaderEnabled { get; set; } = true;
     public bool UseBossModReborn { get; set; } = true;
     public bool UseRotationSolverReborn { get; set; } = true;
     public float CombatStopDelaySeconds { get; set; } = 3f;

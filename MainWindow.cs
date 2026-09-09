@@ -1815,6 +1815,16 @@ public sealed partial class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var autoBarrier = plugin.Configuration.AutoBarrierLeaderEnabled;
+        if (ImGui.Checkbox(Loc.L("非戦闘中、PTを組んでいなくてもリーダーへバリアを維持",
+                "Keep a barrier on the leader out of combat, even without a party"), ref autoBarrier))
+        {
+            plugin.Configuration.AutoBarrierLeaderEnabled = autoBarrier;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.TextDisabled(Loc.L("学者：鼓舞激励の策／賢者：エウクラシア・ディアグノシス",
+            "Scholar: Adloquium / Sage: Eukrasian Diagnosis"));
         var useBmr = plugin.Configuration.UseBossModReborn;
         if (ImGui.Checkbox(Loc.IsEnglish ? "BossMod Reborn (movement and targeting)" : "BossMod Reborn（移動・ターゲット）", ref useBmr))
         {
