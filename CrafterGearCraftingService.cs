@@ -26,7 +26,6 @@ internal static class CrafterGearCraftingService
     internal static IReadOnlyList<CrafterPreparationItem> Materials(CrafterLevelingSettings settings,
         IReadOnlyDictionary<uint, int>? selections = null)
     {
-        CrafterRetainerScanner.RefreshOwnedTotals(settings);
         var recipes = Plugin.DataManager.GetExcelSheet<Recipe>();
         var items = Plugin.DataManager.GetExcelSheet<Item>();
         var required = new Dictionary<uint, int>();

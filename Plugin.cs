@@ -31,6 +31,10 @@ public sealed class Plugin : IDalamudPlugin
 {
     private static Plugin? current;
     private SharedConfigurationStore? sharedConfiguration;
+    private bool configurationSavePending;
+    private bool sharedSettingsSavePending;
+    private DateTime configurationSaveDueUtc;
+    private DateTime configurationSaveStartedUtc;
     [PluginService] internal static IDalamudPluginInterface PluginInterface { get; private set; } = null!;
     [PluginService] internal static ICommandManager CommandManager { get; private set; } = null!;
     [PluginService] internal static IClientState ClientState { get; private set; } = null!;
@@ -205,6 +209,7 @@ public sealed class Plugin : IDalamudPlugin
         // アニメーション操作を継続できるよう、グループポーズ中もAltMateのUIを表示する。
         PluginInterface.UiBuilder.DisableGposeUiHide = true;
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
+        Framework.Update += FlushPendingConfiguration;
         PluginInterface.UiBuilder.OpenMainUi += mainWindow.Toggle;
         PluginInterface.UiBuilder.OpenConfigUi += mainWindow.OpenSettings;
         ClientState.Login += OnLogin;
@@ -266,23 +271,69 @@ public sealed class Plugin : IDalamudPlugin
             PluginInterface.SavePluginConfig(configuration);
             return;
         }
-        var revision = instance.sharedConfiguration.SaveMerged(configuration, includeSharedSettings: false);
-        PluginInterface.SavePluginConfig(configuration);
-        instance.CharacterLink?.NotifySharedConfigurationChanged(revision);
+        instance.QueueConfigurationSave(includeSharedSettings: false);
     }
 
     internal void SaveSharedSettings()
     {
         if (sharedConfiguration is null)
             return;
-        var revision = sharedConfiguration.SaveMerged(Configuration, includeSharedSettings: true);
-        PluginInterface.SavePluginConfig(Configuration);
-        CharacterLink.NotifySharedConfigurationChanged(revision);
+        QueueConfigurationSave(includeSharedSettings: true);
+    }
+
+    private void QueueConfigurationSave(bool includeSharedSettings)
+    {
+        var now = DateTime.UtcNow;
+        if (!configurationSavePending) configurationSaveStartedUtc = now;
+        configurationSavePending = true;
+        sharedSettingsSavePending |= includeSharedSettings;
+        // Save after a short pause, but do not defer indefinitely during a drag.
+        configurationSaveDueUtc = new DateTime(Math.Min(now.AddMilliseconds(250).Ticks,
+            configurationSaveStartedUtc.AddSeconds(1).Ticks), DateTimeKind.Utc);
+    }
+
+    private void FlushPendingConfiguration(IFramework _) => FlushPendingConfiguration(wait: false);
+
+    private void FlushPendingConfiguration(bool wait)
+    {
+        if (!configurationSavePending || sharedConfiguration is null ||
+            (!wait && DateTime.UtcNow < configurationSaveDueUtc)) return;
+        try
+        {
+            if (!sharedConfiguration.TrySaveMerged(Configuration, sharedSettingsSavePending, out var revision, wait))
+            {
+                configurationSaveDueUtc = DateTime.UtcNow.AddMilliseconds(250);
+                if (wait)
+                {
+                    PluginInterface.SavePluginConfig(Configuration);
+                    Log.Warning("AltMate: shared configuration is busy; pending changes were saved locally.");
+                }
+                return;
+            }
+            PluginInterface.SavePluginConfig(Configuration);
+            configurationSavePending = false;
+            sharedSettingsSavePending = false;
+            CharacterLink?.NotifySharedConfigurationChanged(revision);
+        }
+        catch (Exception exception)
+        {
+            configurationSaveDueUtc = DateTime.UtcNow.AddSeconds(1);
+            Log.Warning(exception, "AltMate: configuration save failed; changes remain pending.");
+            if (wait)
+            {
+                try { PluginInterface.SavePluginConfig(Configuration); }
+                catch (Exception localException)
+                {
+                    Log.Error(localException, "AltMate: pending configuration could not be saved locally on shutdown.");
+                }
+            }
+        }
     }
 
     internal void CheckSharedConfiguration(long minimumRevision = 0)
     {
-        if (sharedConfiguration is null)
+        // Keep local edits intact until they have been merged against the shared baseline.
+        if (sharedConfiguration is null || configurationSavePending)
             return;
         var changed = minimumRevision > 0
             ? sharedConfiguration.ReloadIfNewer(Configuration, minimumRevision, out _)
@@ -939,6 +990,8 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        Framework.Update -= FlushPendingConfiguration;
+        FlushPendingConfiguration(wait: true);
         Animations.Dispose();
         CrafterRetainers.Dispose();
         CrafterLeveling.Dispose();

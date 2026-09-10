@@ -448,7 +448,7 @@ internal sealed class CrafterLevelingAutomation : IDisposable
                     BeginCollectorTurnIn(preset, settings);
                     return;
                 }
-                requestedCraftCount = CrafterExperiencePlanner.CraftsNeededNow(preset, settings.TargetLevel);
+                requestedCraftCount = CrafterExperiencePlanner.CraftsNeededNow(preset);
                 settings.PlannedCraftCounts[preset.RecipeId] = checked(plannedCrafts + requestedCraftCount);
             }
             if (preset.Route == CrafterLevelingRoute.Restoration && settings.UseTheCollectorForRestoration)

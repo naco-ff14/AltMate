@@ -13,6 +13,7 @@ namespace AltMate;
 /// </summary>
 internal static class CrafterExperiencePlanner
 {
+    private static readonly Dictionary<uint, int> RestorationExperienceByItem = new();
     // Index = player level - apparent recipe level. Values are percentages.
     private static readonly int[] LevelDifferenceModifiers =
         [100, 96, 92, 88, 84, 80, 75, 70, 65, 60, 55, 45, 35, 25, 20, 18, 16, 15, 14, 13, 12, 10];
@@ -71,29 +72,11 @@ internal static class CrafterExperiencePlanner
         }
     }
 
-    internal static int CraftsNeededNow(CrafterRecipePreset preset, int targetLevel)
+    internal static int CraftsNeededNow(CrafterRecipePreset preset)
     {
-        if (!Plugin.DataManager.GetExcelSheet<Recipe>().TryGetRow(preset.RecipeId, out var recipe))
+        if (!Plugin.DataManager.GetExcelSheet<Recipe>().TryGetRow(preset.RecipeId, out _))
             return 1;
-        var (level, experience) = JobProgress(preset.JobId);
-        var stopLevel = Math.Min(targetLevel, preset.MaxLevel + 1);
         return Math.Max(1, preset.MaxCraftCount);
-    }
-
-    private static int CraftsToLevel(Recipe recipe, CrafterLevelingRoute route, ref int level,
-        ref int experience, int stopLevel)
-    {
-        var count = 0;
-        while (level < stopLevel && count < 100_000)
-        {
-            var gained = ExperiencePerCraft(recipe, route, level);
-            if (gained <= 0)
-                return Math.Max(1, count);
-            experience = checked(experience + gained);
-            AdvanceLevels(ref level, ref experience, stopLevel);
-            count++;
-        }
-        return Math.Max(1, count);
     }
 
     private static void SimulateExistingPlan(Recipe recipe, CrafterLevelingRoute route, int count,
@@ -132,6 +115,14 @@ internal static class CrafterExperiencePlanner
     private static int RestorationTurnInExperience(Recipe recipe)
     {
         var itemId = recipe.ItemResult.RowId;
+        if (RestorationExperienceByItem.TryGetValue(itemId, out var cached)) return cached;
+        var experience = FindRestorationTurnInExperience(itemId);
+        RestorationExperienceByItem[itemId] = experience;
+        return experience;
+    }
+
+    private static int FindRestorationTurnInExperience(uint itemId)
+    {
         var rewards = Plugin.DataManager.GetExcelSheet<HWDCrafterSupplyReward>();
         foreach (var supply in Plugin.DataManager.GetExcelSheet<HWDCrafterSupply>())
         foreach (var entry in supply.HWDCrafterSupplyParams)

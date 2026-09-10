@@ -63,10 +63,10 @@ internal static unsafe class CrafterInventoryLocator
     }
 
     internal static IReadOnlyList<string> GetQuestLocations(CrafterLevelingSettings settings, uint itemId,
-        bool hqOnly)
+        bool hqOnly, int? ownedInBags = null)
     {
         var locations = new List<string>();
-        var bags = PlayerInventoryCount(itemId, hqOnly);
+        var bags = ownedInBags ?? PlayerInventoryCount(itemId, hqOnly);
         if (bags > 0)
             locations.Add(hqOnly
                 ? Loc.L($"手持ちバッグ HQ ×{bags:N0}", $"Inventory HQ ×{bags:N0}")

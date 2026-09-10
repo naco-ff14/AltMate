@@ -29,6 +29,23 @@ public sealed partial class MainWindow
     private string gearCraftingSearch = string.Empty;
     private readonly Dictionary<uint, int> gearCraftingDraftSelections = new();
     private ulong gearCraftingDraftContentId = ulong.MaxValue;
+    private CrafterLevelingSettings? gearCraftingSettings;
+    private IReadOnlyList<CrafterGearCraftingCandidate>? gearCraftingCandidates;
+    private string? gearCraftingCandidateCulture;
+    private string? gearCraftingFilter;
+    private CrafterGearCraftingCandidate[] filteredGearCraftingCandidates = [];
+    private CrafterPreparationItem[] gearCraftingMaterials = [];
+    private CrafterPreparationItem[] gearCraftingCrystals = [];
+    private DateTime nextGearCraftingRefreshUtc;
+    private bool gearCraftingRequirementsDirty = true;
+    private readonly Dictionary<uint, IReadOnlyList<string>> gearCraftingLocations = new();
+    private CrafterLevelingSettings? preparationSettings;
+    private DateTime preparationUpdatedAt;
+    private readonly int[] preparationJobLevels = new int[8];
+    private readonly Dictionary<uint, IReadOnlyList<string>> preparationLocations = new();
+    private readonly Dictionary<(uint ItemId, bool Hq), int> questOwnedCache = new();
+    private readonly Dictionary<uint, bool> questReadyCache = new();
+    private readonly Dictionary<uint, bool> questCompleteCache = new();
 
     private void DrawCrafterLeveling()
     {
@@ -64,12 +81,15 @@ public sealed partial class MainWindow
     private void DrawCrafterGearCrafting(CrafterLevelingSettings settings)
     {
         var contentId = Plugin.PlayerState.ContentId;
-        if (gearCraftingDraftContentId != contentId)
+        if (gearCraftingDraftContentId != contentId || !ReferenceEquals(gearCraftingSettings, settings))
         {
             gearCraftingDraftSelections.Clear();
             foreach (var pair in settings.GearCraftingSelections)
                 gearCraftingDraftSelections[pair.Key] = pair.Value;
             gearCraftingDraftContentId = contentId;
+            gearCraftingSettings = settings;
+            nextGearCraftingRefreshUtc = default;
+            gearCraftingRequirementsDirty = true;
         }
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), Loc.L("Lv100装備を選択", "Select Lv100 gear"));
         ImGui.TextDisabled(Loc.L("複数の装備と必要数を選ぶと、必要素材をまとめて集計します。",
@@ -80,10 +100,21 @@ public sealed partial class MainWindow
 
         var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
         var query = gearCraftingSearch.Trim();
-        var candidates = CrafterGearCraftingService.Candidates()
-            .GroupBy(x => x.ItemId).Select(x => x.First())
-            .Where(x => query.Length == 0 || x.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
-            .ToArray();
+        var culture = System.Globalization.CultureInfo.CurrentCulture.Name;
+        if (gearCraftingCandidates is null || gearCraftingCandidateCulture != culture)
+        {
+            gearCraftingCandidates = CrafterGearCraftingService.Candidates()
+                .GroupBy(x => x.ItemId).Select(x => x.First()).ToArray();
+            gearCraftingCandidateCulture = culture;
+            gearCraftingFilter = null;
+        }
+        if (gearCraftingFilter != query)
+        {
+            filteredGearCraftingCandidates = gearCraftingCandidates
+                .Where(x => query.Length == 0 || x.Name.Contains(query, StringComparison.CurrentCultureIgnoreCase))
+                .ToArray();
+            gearCraftingFilter = query;
+        }
         if (ImGui.BeginTable("gear-crafting-candidates", 4,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, 230 * ImGuiHelpers.GlobalScale)))
@@ -93,7 +124,7 @@ public sealed partial class MainWindow
             ImGui.TableSetupColumn(Loc.L("製作職", "Job"), ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn(Loc.L("必要数", "Quantity"), ImGuiTableColumnFlags.WidthFixed, 100 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
-            foreach (var candidate in candidates)
+            foreach (var candidate in filteredGearCraftingCandidates)
             {
                 gearCraftingDraftSelections.TryGetValue(candidate.RecipeId, out var count);
                 var selected = count > 0;
@@ -136,16 +167,31 @@ public sealed partial class MainWindow
                 $"{gearCraftingDraftSelections.Count} selected"));
         }
 
-        var materials = CrafterGearCraftingService.Materials(settings, gearCraftingDraftSelections);
+        if (DateTime.UtcNow >= nextGearCraftingRefreshUtc)
+        {
+            CrafterRetainerScanner.RefreshOwnedTotals(settings);
+            var materials = gearCraftingRequirementsDirty
+                ? CrafterGearCraftingService.Materials(settings, gearCraftingDraftSelections)
+                : CrafterPreparationService.RefreshOwned(settings, gearCraftingMaterials.Concat(gearCraftingCrystals).ToArray());
+            gearCraftingRequirementsDirty = false;
+            gearCraftingMaterials = materials.Where(x => !x.IsCrystal).ToArray();
+            gearCraftingCrystals = materials.Where(x => x.IsCrystal).ToArray();
+            gearCraftingLocations.Clear();
+            foreach (var material in materials)
+                gearCraftingLocations[material.ItemId] = CrafterInventoryLocator.GetLocations(settings, material.ItemId);
+            nextGearCraftingRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
+        }
         DrawCrafterPreparationTable(settings, "gear-crafting-materials", Loc.L("必要素材", "Required materials"),
-            materials.Where(x => !x.IsCrystal).ToArray(), false);
+            gearCraftingMaterials, false, gearCraftingLocations);
         DrawCrafterPreparationTable(settings, "gear-crafting-crystals", Loc.L("必要クリスタル", "Required crystals"),
-            materials.Where(x => x.IsCrystal).ToArray(), false);
+            gearCraftingCrystals, false, gearCraftingLocations);
     }
 
     private void SaveGearCraftingSelections(CrafterLevelingSettings settings)
     {
         settings.GearCraftingSelections = new Dictionary<uint, int>(gearCraftingDraftSelections);
+        nextGearCraftingRefreshUtc = default;
+        gearCraftingRequirementsDirty = true;
         SaveCrafterSettings();
     }
 
@@ -314,8 +360,7 @@ public sealed partial class MainWindow
                 settings.PlannedCraftCounts.Clear();
                 CrafterExperiencePlanner.EnsurePlans(settings);
                 CrafterRetainerScanner.RefreshOwnedTotals(settings);
-                var service = new CrafterPreparationService();
-                crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+                RebuildCrafterPreparation(settings);
                 nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
                 SaveCrafterSettings();
                 crafterClipboardMessage = Loc.L(
@@ -347,12 +392,34 @@ public sealed partial class MainWindow
         ImGui.TextDisabled(Loc.L(
             "必要品を手持ちバッグに揃えると、Questionableへ渡して受注から納品まで自動進行できます。",
             "Once all required items are in your inventory, Questionable can automate the quest through turn-in."));
-        if (!QuestionableQuestBridge.IsAvailable)
+        var questionableAvailable = QuestionableQuestBridge.IsAvailable;
+        if (!questionableAvailable)
             ImGui.TextColored(new Vector4(1f, 0.72f, 0.2f, 1f),
                 Loc.L("Questionableが読み込まれていません。", "Questionable is not loaded."));
         if (!string.IsNullOrWhiteSpace(crafterQuestMessage)) ImGui.TextWrapped(crafterQuestMessage);
         var jobs = Plugin.DataManager.GetExcelSheet<ClassJob>();
         var questionableRunning = QuestionableQuestBridge.IsRunning();
+        // Read each item/quality pair once and evaluate each quest once per draw.
+        // Keep these live so the action button never depends on an older inventory snapshot.
+        var questOwned = questOwnedCache;
+        var questReady = questReadyCache;
+        var questComplete = questCompleteCache;
+        questOwned.Clear();
+        questReady.Clear();
+        questComplete.Clear();
+        foreach (var row in crafterQuestItems)
+        {
+            var key = (row.ItemId, row.RequiresHq);
+            if (!questOwned.TryGetValue(key, out var owned))
+            {
+                owned = CrafterInventoryLocator.PlayerInventoryCount(row.ItemId, row.RequiresHq);
+                questOwned[key] = owned;
+            }
+            var enough = owned >= row.RequiredCount;
+            questReady[row.QuestId] = enough && (!questReady.TryGetValue(row.QuestId, out var ready) || ready);
+            if (!questComplete.ContainsKey(row.QuestId))
+                questComplete[row.QuestId] = QuestionableQuestBridge.IsComplete(row.QuestId);
+        }
         if (!ImGui.BeginTable("crafter-quest-items", 11,
                 ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.ScrollY,
                 new Vector2(0, -1))) return;
@@ -371,12 +438,10 @@ public sealed partial class MainWindow
         foreach (var row in crafterQuestItems)
         {
             // Quest readiness is intentionally based on the player's bags only. Retainers are location hints.
-            var owned = CrafterInventoryLocator.PlayerInventoryCount(row.ItemId, row.RequiresHq);
+            var owned = questOwned[(row.ItemId, row.RequiresHq)];
             var enough = owned >= row.RequiredCount;
-            var questRows = crafterQuestItems.Where(x => x.QuestId == row.QuestId).ToArray();
-            var readyInBags = questRows.All(x =>
-                CrafterInventoryLocator.PlayerInventoryCount(x.ItemId, x.RequiresHq) >= x.RequiredCount);
-            var complete = QuestionableQuestBridge.IsComplete(row.QuestId);
+            var readyInBags = questReady[row.QuestId];
+            var complete = questComplete[row.QuestId];
             ImGui.TableNextRow();
             ImGui.TableNextColumn(); ImGui.TextUnformatted(row.Level.ToString());
             ImGui.TableNextColumn();
@@ -393,10 +458,10 @@ public sealed partial class MainWindow
             ImGui.TextColored(enough ? new Vector4(0.35f, 0.9f, 0.5f, 1f) : new Vector4(1f, 0.35f, 0.3f, 1f),
                 enough ? Loc.L("所持済み", "Ready") : Loc.L("不足", "Missing"));
             ImGui.TableNextColumn();
-            var locations = CrafterInventoryLocator.GetQuestLocations(settings, row.ItemId, row.RequiresHq);
+            var locations = CrafterInventoryLocator.GetQuestLocations(settings, row.ItemId, row.RequiresHq, owned);
             ImGui.TextWrapped(locations.Count > 0 ? string.Join(" / ", locations) : Loc.L("所持なし", "Not owned"));
             ImGui.TableNextColumn();
-            ImGui.BeginDisabled(row.QuestId == 0 || complete || !readyInBags || questionableRunning || !QuestionableQuestBridge.IsAvailable);
+            ImGui.BeginDisabled(row.QuestId == 0 || complete || !readyInBags || questionableRunning || !questionableAvailable);
             if (ImGui.SmallButton($"{Loc.L("自動クリア", "Auto clear")}##quest-{row.QuestId}-{row.ItemId}"))
             {
                 try
@@ -534,8 +599,7 @@ public sealed partial class MainWindow
         settings.PlannedCraftCounts.Clear();
         CrafterExperiencePlanner.EnsurePlans(settings);
         CrafterRetainerScanner.RefreshOwnedTotals(settings);
-        var service = new CrafterPreparationService();
-        crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+        RebuildCrafterPreparation(settings);
         nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
         SaveCrafterSettings();
     }
@@ -592,8 +656,7 @@ public sealed partial class MainWindow
         settings.CompletedCraftCounts.Clear();
         settings.PlannedCraftCounts.Clear();
         CrafterRetainerScanner.RefreshOwnedTotals(settings);
-        var service = new CrafterPreparationService();
-        crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+        RebuildCrafterPreparation(settings);
         nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
         var activeRecipeCount = settings.RecipePresets.Count(x =>
             CrafterLevelingCatalog.IsActiveForLeveling(settings, x) &&
@@ -830,13 +893,22 @@ public sealed partial class MainWindow
 
     private void DrawCrafterPreparationList(CrafterLevelingSettings settings)
     {
-        // Locations are read live from the player inventory. Refresh the calculated owned and
-        // missing counts on the same cadence so those columns never disagree with the location.
-        if (crafterPreparationItems.Count > 0 && DateTime.UtcNow >= nextCrafterInventoryRefreshUtc)
+        // Rebuild requirements only when the plan or character level changes. Inventory
+        // quantities and location labels share a separate half-second refresh.
+        if (preparationSettings is not null && (DateTime.UtcNow >= nextCrafterInventoryRefreshUtc ||
+            !ReferenceEquals(preparationSettings, settings)))
         {
             CrafterRetainerScanner.RefreshOwnedTotals(settings);
-            var service = new CrafterPreparationService();
-            crafterPreparationItems = service.Build(settings, out crafterPreparationErrors);
+            var planChanged = !ReferenceEquals(preparationSettings, settings) ||
+                preparationUpdatedAt != settings.Progress.UpdatedAt;
+            for (uint jobId = 8; jobId <= 15; jobId++)
+                planChanged |= preparationJobLevels[jobId - 8] != CrafterPreparationService.JobLevel(jobId);
+            if (planChanged) RebuildCrafterPreparation(settings);
+            else
+            {
+                crafterPreparationItems = CrafterPreparationService.RefreshOwned(settings, crafterPreparationItems);
+                RefreshPreparationLocations(settings);
+            }
             nextCrafterInventoryRefreshUtc = DateTime.UtcNow.AddMilliseconds(500);
         }
 
@@ -859,14 +931,31 @@ public sealed partial class MainWindow
             (!settings.ShowMissingOnly || x.MissingCount > 0)).ToArray();
         DrawCrafterPreparationTable(settings, "crafter-preparation-materials",
             Loc.L("製作用の素材", "Crafting materials"),
-            materialRows.Where(x => !x.IsCrystal).ToArray(), false);
+            materialRows.Where(x => !x.IsCrystal).ToArray(), false, preparationLocations);
         DrawCrafterPreparationTable(settings, "crafter-preparation-crystals",
             Loc.L("製作用のクリスタル", "Crafting crystals"),
-            materialRows.Where(x => x.IsCrystal).ToArray(), false);
+            materialRows.Where(x => x.IsCrystal).ToArray(), false, preparationLocations);
         DrawCrafterPreparationTable(settings, "crafter-preparation-gear",
             Loc.L("育成途中で使用する装備", "Gear used while leveling"),
-            crafterPreparationItems.Where(x => x.IsGear).ToArray(), true);
+            crafterPreparationItems.Where(x => x.IsGear).ToArray(), true, preparationLocations);
 
+    }
+
+    private void RebuildCrafterPreparation(CrafterLevelingSettings settings)
+    {
+        crafterPreparationItems = new CrafterPreparationService().Build(settings, out crafterPreparationErrors);
+        preparationSettings = settings;
+        preparationUpdatedAt = settings.Progress.UpdatedAt;
+        for (uint jobId = 8; jobId <= 15; jobId++)
+            preparationJobLevels[jobId - 8] = CrafterPreparationService.JobLevel(jobId);
+        RefreshPreparationLocations(settings);
+    }
+
+    private void RefreshPreparationLocations(CrafterLevelingSettings settings)
+    {
+        preparationLocations.Clear();
+        foreach (var item in crafterPreparationItems)
+            preparationLocations[item.ItemId] = CrafterInventoryLocator.GetLocations(settings, item.ItemId);
     }
 
     private static void DrawCrafterProducts(CrafterLevelingSettings settings)
@@ -924,7 +1013,8 @@ public sealed partial class MainWindow
     }
 
     private static void DrawCrafterPreparationTable(CrafterLevelingSettings settings, string id, string title,
-        IReadOnlyList<CrafterPreparationItem> rows, bool gearTable)
+        IReadOnlyList<CrafterPreparationItem> rows, bool gearTable,
+        IReadOnlyDictionary<uint, IReadOnlyList<string>>? cachedLocations = null)
     {
         ImGui.Separator();
         ImGui.TextColored(new Vector4(0.4f, 0.82f, 1f, 1f), title);
@@ -978,7 +1068,8 @@ public sealed partial class MainWindow
                     new Vector4(0.35f, 0.9f, 0.5f, 1f), item.MissingCount.ToString("N0"));
             }
             ImGui.TableNextColumn();
-            var locations = CrafterInventoryLocator.GetLocations(settings, item.ItemId);
+            var locations = cachedLocations is not null && cachedLocations.TryGetValue(item.ItemId, out var cached)
+                ? cached : CrafterInventoryLocator.GetLocations(settings, item.ItemId);
             ImGui.TextWrapped(locations.Count > 0
                 ? string.Join(" / ", locations)
                 : Loc.L("所持なし", "Not owned"));

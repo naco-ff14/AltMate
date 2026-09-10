@@ -10,18 +10,25 @@ namespace AltMate;
 internal sealed class SharedConfigurationStore : IDisposable
 {
     private const string MutexName = "Local\\AltMate.SharedConfiguration.v1";
-    private readonly Mutex mutex = new(false, MutexName);
+    private readonly Mutex mutex;
     private readonly string path;
     private readonly JsonSerializerOptions jsonOptions = new() { WriteIndented = true };
     private long knownRevision;
     private DateTime lastPollUtc;
+    private DateTime lastFullPollUtc;
+    private (DateTime ModifiedUtc, long Length)? observedFile;
     private Configuration settingsBaseline = new();
 
-    internal SharedConfigurationStore()
+    internal SharedConfigurationStore() : this(
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AltMate"), MutexName)
     {
-        var directory = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AltMate");
+    }
+
+    internal SharedConfigurationStore(string directory, string mutexName)
+    {
         Directory.CreateDirectory(directory);
         path = Path.Combine(directory, "shared-config.json");
+        mutex = new Mutex(false, mutexName);
     }
 
     internal long LoadInto(Configuration target)
@@ -50,8 +57,16 @@ internal sealed class SharedConfigurationStore : IDisposable
 
     internal long SaveMerged(Configuration current, bool includeSharedSettings)
     {
-        if (!TryEnter())
-            return knownRevision;
+        TrySaveMerged(current, includeSharedSettings, out var revision, wait: true);
+        return revision;
+    }
+
+    internal bool TrySaveMerged(Configuration current, bool includeSharedSettings, out long revision,
+        bool wait = false)
+    {
+        revision = knownRevision;
+        if (!TryEnter(wait))
+            return false;
         try
         {
             var document = ReadUnsafe() ?? new SharedDocument();
@@ -68,7 +83,8 @@ internal sealed class SharedConfigurationStore : IDisposable
             if (includeSharedSettings)
                 settingsBaseline = Clone(current);
             knownRevision = document.Revision;
-            return knownRevision;
+            revision = knownRevision;
+            return true;
         }
         finally { mutex.ReleaseMutex(); }
     }
@@ -80,13 +96,19 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (now - lastPollUtc < TimeSpan.FromSeconds(3))
             return false;
         lastPollUtc = now;
+        // A periodic full check also covers replacements with identical file metadata.
+        var fullCheck = now - lastFullPollUtc >= TimeSpan.FromMinutes(1);
+        if (!fullCheck && observedFile == FileStamp())
+            return false;
+        if (fullCheck) lastFullPollUtc = now;
         return ReloadIfNewer(target, knownRevision + 1, out revision);
     }
 
     internal bool ReloadIfNewer(Configuration target, long minimumRevision, out long revision)
     {
         revision = knownRevision;
-        if (!TryEnter())
+        if (minimumRevision <= knownRevision) return false;
+        if (!TryEnter(wait: false))
             return false;
         try
         {
@@ -102,19 +124,33 @@ internal sealed class SharedConfigurationStore : IDisposable
         finally { mutex.ReleaseMutex(); }
     }
 
-    private bool TryEnter()
+    private bool TryEnter(bool wait = true)
     {
-        try { return mutex.WaitOne(TimeSpan.FromSeconds(2)); }
+        try { return mutex.WaitOne(wait ? TimeSpan.FromSeconds(2) : TimeSpan.Zero); }
         catch (AbandonedMutexException) { return true; }
+    }
+
+    private (DateTime ModifiedUtc, long Length)? FileStamp()
+    {
+        try
+        {
+            var info = new FileInfo(path);
+            return info.Exists ? (info.LastWriteTimeUtc, info.Length) : null;
+        }
+        catch (IOException) { return null; }
+        catch (UnauthorizedAccessException) { return null; }
     }
 
     private SharedDocument? ReadUnsafe()
     {
         try
         {
-            return File.Exists(path)
+            var stamp = FileStamp();
+            var document = File.Exists(path)
                 ? JsonSerializer.Deserialize<SharedDocument>(File.ReadAllText(path), jsonOptions)
                 : null;
+            observedFile = stamp;
+            return document;
         }
         catch (Exception exception)
         {
@@ -135,6 +171,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         }
         else
             File.Move(temporary, path);
+        observedFile = FileStamp();
     }
 
     private static Configuration Clone(Configuration source) =>

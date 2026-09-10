@@ -2672,7 +2672,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         ResetZoneBoundaryApproach();
     }
 
-    private static unsafe bool IsGameAutoRunning() => InputManager.IsAutoRunning();
 
     private static unsafe bool TryRidePillion(
         Dalamud.Game.ClientState.Objects.Types.IGameObject target)

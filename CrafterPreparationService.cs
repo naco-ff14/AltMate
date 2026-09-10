@@ -91,6 +91,14 @@ internal sealed class CrafterPreparationService
         required[itemId] = (checked(current.Count + count), current.Crystal || crystal, current.Gear || gear);
     }
 
+    internal static IReadOnlyList<CrafterPreparationItem> RefreshOwned(CrafterLevelingSettings settings,
+        IReadOnlyList<CrafterPreparationItem> items) => items.Select(item =>
+        {
+            settings.KnownOwnedItems.TryGetValue(item.ItemId, out var retainerOwned);
+            return item with { OwnedCount = checked(retainerOwned + CrafterInventoryLocator.PlayerInventoryCount(item.ItemId)) };
+        }).OrderByDescending(x => x.MissingCount > 0).ThenBy(x => x.IsGear)
+          .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+
     private static void AddGear(Dictionary<uint, (int Count, bool Crystal, bool Gear)> required,
         uint itemId, int count)
     {
