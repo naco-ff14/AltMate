@@ -73,6 +73,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool localCharacterUnavailable;
     private DateTime localCharacterReadySinceUtc;
     private bool combatAutomationActive;
+    private bool combatBmrActive;
     private DateTime? leaderCombatEndedUtc;
     private DateTime lastBarrierAttemptUtc;
     private uint lastLeaderOccultAetheryteId;
@@ -1733,6 +1734,17 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
         }
 
+        var local = Plugin.ObjectTable.LocalPlayer;
+        if (local is null || leaderPlayer.CurrentHp == 0 || !leaderPlayer.IsTargetable ||
+            leaderObject.Address == local.Address || leaderObject.GameObjectId == 0 ||
+            Vector3.Distance(local.Position, leaderObject.Position) > 30f)
+        {
+            CombatStatus = leaderPlayer.CurrentHp == 0
+                ? "バリア待機：リーダーが戦闘不能"
+                : "バリア待機：リーダーを有効な対象として確認できません";
+            return;
+        }
+
         var hasBarrier = jobId == 28
             ? leaderPlayer.StatusList.Any(x => x.StatusId == 297)
             : leaderPlayer.StatusList.Any(x => x.StatusId is 2607 or 2608);
@@ -1743,7 +1755,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
 
         var manager = ActionManager.Instance();
-        var local = Plugin.ObjectTable.LocalPlayer;
         if (manager == null || local is null) return;
         bool accepted;
         string actionName;
@@ -1769,17 +1780,22 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private void StartCombatAutomation(LinkedCharacterState leader)
     {
         var messages = new System.Collections.Generic.List<string>();
-        if (plugin.Configuration.UseBossModReborn && IsPluginLoaded("BossModReborn"))
+        combatBmrActive = false;
+        var castingJob = IsCastingJob(Plugin.PlayerState.ClassJob.RowId);
+        var rsrAvailable = plugin.Configuration.UseRotationSolverReborn &&
+                           (IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn"));
+        if (plugin.Configuration.UseBossModReborn && IsPluginLoaded("BossModReborn") &&
+            (!castingJob || !rsrAvailable))
         {
             Plugin.CommandManager.ProcessCommand($"/bmrai follow {leader.CharacterName}");
             Plugin.CommandManager.ProcessCommand("/bmrai forbidactions on");
             Plugin.CommandManager.ProcessCommand("/bmrai followcombat on");
             Plugin.CommandManager.ProcessCommand("/bmrai followtarget on");
             Plugin.CommandManager.ProcessCommand("/bmrai on");
+            combatBmrActive = true;
             messages.Add("BMR");
         }
-        if (plugin.Configuration.UseRotationSolverReborn &&
-            (IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn")))
+        if (rsrAvailable)
         {
             Plugin.CommandManager.ProcessCommand("/rsr Auto");
             messages.Add("RSR");
@@ -1796,9 +1812,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (plugin.Configuration.UseRotationSolverReborn &&
             (IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn")))
             Plugin.CommandManager.ProcessCommand("/rsr Off");
-        if (plugin.Configuration.UseBossModReborn && IsPluginLoaded("BossModReborn"))
+        if (combatBmrActive && IsPluginLoaded("BossModReborn"))
             Plugin.CommandManager.ProcessCommand("/bmrai off");
         combatAutomationActive = false;
+        combatBmrActive = false;
         leaderCombatEndedUtc = null;
         CombatStatus = "停止済み";
     }
@@ -1806,6 +1823,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private static bool IsPluginLoaded(string internalName) =>
         Plugin.PluginInterface.InstalledPlugins.Any(x => x.IsLoaded &&
             x.InternalName.Equals(internalName, StringComparison.OrdinalIgnoreCase));
+
+    private static bool IsCastingJob(uint jobId) => jobId is 24 or 25 or 27 or 28 or 33 or 35 or 36 or 40 or 42;
 
     private void BroadcastState()
     {
@@ -2140,9 +2159,37 @@ public sealed class CharacterLinkCoordinator : IDisposable
             // BMR/RSRの戦闘連携中は移動入力の所有権を戦闘AIへ完全に渡す。
             // AltMateのSmoothFollowやvnavmeshを残すと、AIの位置取りを上書きする。
             followController.Reset();
-            smoothFollow.Stop();
             StopVnavRecovery();
-            LastAction = "戦闘AIへ移動制御を移譲中";
+            if (combatBmrActive)
+            {
+                smoothFollow.Stop();
+                LastAction = "戦闘AIへ移動制御を移譲中";
+                return;
+            }
+
+            // Casters use RSR for actions, but BMR's continuous following can repeatedly cancel
+            // long casts. Approach the leader only between casts and stop with a wide dead zone.
+            var caster = Plugin.ObjectTable.LocalPlayer;
+            var casterLeader = Plugin.ObjectTable.PlayerObjects.FirstOrDefault(x =>
+                x.Name.TextValue.Equals(leader.CharacterName, StringComparison.OrdinalIgnoreCase));
+            if (caster is null || casterLeader is null || Plugin.Condition[ConditionFlag.Casting] ||
+                Plugin.Condition[ConditionFlag.Casting87])
+            {
+                smoothFollow.Stop();
+                LastAction = "詠唱保護のため移動停止中";
+                return;
+            }
+            var direction = casterLeader.Position - caster.Position;
+            if (direction.LengthSquared() > 20f * 20f)
+            {
+                smoothFollow.Follow(direction);
+                LastAction = "詠唱間にリーダーへ接近中";
+            }
+            else
+            {
+                smoothFollow.Stop();
+                LastAction = "戦闘スキル回し中（詠唱位置を維持）";
+            }
             return;
         }
         if (IsBlocked() || (plugin.Configuration.PauseLinkInCombat &&
@@ -2570,6 +2617,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         ResetPillionAttempts();
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
+        combatBmrActive = false;
         leaderCombatEndedUtc = null;
         linkedReturnRequested = false;
         returnConfirmationExpiresUtc = default;
