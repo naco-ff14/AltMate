@@ -14,6 +14,22 @@ Require(!observation.Observe(1, 42, 0), "unavailable sample resets confirmation"
 Require(!observation.Observe(2, 42, 0), "character switch resets confirmation");
 Require(!observation.Observe(2, 43, 0), "FC switch resets confirmation");
 Require(!observation.Observe(2, 0, 0), "unknown FC is not confirmed");
+var chestSession = new FreeCompanyChestSession();
+var closeTime = DateTime.UtcNow;
+Require(!chestSession.ObserveOpen(1, 42, 100, 1_000_000, false), "first chest read waits");
+Require(chestSession.ObserveOpen(1, 42, 100, 1_000_000, false), "chest identity confirmed");
+Require(chestSession.ObserveOpen(1, 42, 100, 0, true), "close immediately after withdrawal captures zero");
+chestSession.Close(closeTime);
+Require(chestSession.CanAcceptLateUpdate(1, 42, 100, closeTime.AddSeconds(1)), "late transfer accepted for same session");
+Require(!chestSession.CanAcceptLateUpdate(2, 42, 100, closeTime.AddSeconds(1)), "late event rejected for other character");
+Require(!chestSession.CanAcceptLateUpdate(1, 43, 100, closeTime.AddSeconds(1)), "late event rejected for other FC");
+Require(!chestSession.CanAcceptLateUpdate(1, 42, 101, closeTime.AddSeconds(1)), "late event rejected after zoning");
+Require(!chestSession.CanAcceptLateUpdate(1, 42, 100, closeTime.AddSeconds(3)), "late window expires");
+chestSession.Reset();
+Require(!chestSession.CanAcceptLateUpdate(1, 42, 100, closeTime.AddSeconds(1)), "logout clears late context");
+Require(!chestSession.ObserveOpen(1, 42, 100, 0, true), "uninitialized zero at close is not confirmed");
+chestSession.Close(closeTime);
+Require(!chestSession.CanAcceptLateUpdate(1, 42, 100, closeTime.AddSeconds(1)), "unconfirmed chest cannot authorize late update");
 Directory.CreateDirectory(directory);
 try
 {

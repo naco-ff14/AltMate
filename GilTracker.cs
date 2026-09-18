@@ -1,3 +1,7 @@
+using Dalamud.Game.Addon.Lifecycle;
+using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
+using Dalamud.Game.Inventory.InventoryEventArgTypes;
+using System.Collections.Generic;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using FFXIVClientStructs.FFXIV.Component.GUI;
@@ -11,27 +15,36 @@ public sealed unsafe class GilTracker : IDisposable
 {
     private readonly Plugin plugin;
     private DateTime lastCheckUtc;
-    private readonly StableGilObservation chestObservation = new();
+    private readonly FreeCompanyChestSession chestSession = new();
+    private DateTime nextChestCheckUtc;
     internal string? FreeCompanyChestStatus { get; private set; }
 
     public GilTracker(Plugin plugin)
     {
         this.plugin = plugin;
         Plugin.Framework.Update += OnFrameworkUpdate;
+        Plugin.GameInventory.InventoryChangedRaw += OnInventoryChanged;
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "FreeCompanyChest", OnChestOpened);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeCompanyChest", OnChestClosing);
     }
 
     private void OnFrameworkUpdate(Dalamud.Plugin.Services.IFramework _)
     {
         var now = DateTime.UtcNow;
-        if (now - lastCheckUtc < TimeSpan.FromSeconds(2))
-            return;
-        lastCheckUtc = now;
         if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)
         {
-            chestObservation.Reset();
+            chestSession.Reset();
             FreeCompanyChestStatus = null;
             return;
         }
+        if (now >= nextChestCheckUtc)
+        {
+            nextChestCheckUtc = now.AddMilliseconds(100);
+            CheckChest(now);
+        }
+        if (now - lastCheckUtc < TimeSpan.FromSeconds(2))
+            return;
+        lastCheckUtc = now;
 
         try
         {
@@ -79,62 +92,6 @@ public sealed unsafe class GilTracker : IDisposable
                 }
             }
 
-            var fcContainer = inventory->GetInventoryContainer(InventoryType.FreeCompanyGil);
-            var fcChest = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("FreeCompanyChest").Address;
-            var fcChestReady = fcChest != null && fcChest->IsVisible && fcChest->IsReady;
-            if (fcChestReady && fcContainer != null && fcContainer->IsLoaded)
-            {
-                // The FC menu agent need not have been initialized when only the chest
-                // is open. Resolve the proxy from the owning InfoModule directly.
-                var chestInfoModule = InfoModule.Instance();
-                var info = chestInfoModule == null ? null : chestInfoModule->GetInfoProxyFreeCompany();
-                if (info != null && info->Id != 0)
-                {
-                    var fcGil = inventory->GetFreeCompanyGil();
-                    var fcName = info->NameString;
-                    FreeCompanyChestStatus = Loc.L("FCチェスト：残高を確認中", "FC chest: confirming balance");
-                    if (chestObservation.Observe(contentId, info->Id, fcGil))
-                    {
-                        FreeCompanyChestStatus = Loc.L($"FCチェスト確認済み：{fcName} / {fcGil:N0} G",
-                            $"FC chest verified: {fcName} / {fcGil:N0} G");
-                        if (!plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var fc) ||
-                            fc.Gil != fcGil || !fc.GilConfirmed ||
-                            (!string.IsNullOrWhiteSpace(fcName) && fc.Name != fcName) ||
-                            fc.LastCheckedByContentId != contentId ||
-                            now - fc.UpdatedAt.ToUniversalTime() >= TimeSpan.FromMinutes(1))
-                        {
-                            fc ??= new FreeCompanyGilRecord { FreeCompanyId = info->Id };
-                            if (!string.IsNullOrWhiteSpace(fcName))
-                                fc.Name = fcName;
-                            else if (IsGeneratedFcName(fc.Name))
-                                fc.Name = "不明なFC";
-                            fc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
-                            fc.Gil = fcGil;
-                            fc.GilConfirmed = true;
-                            fc.UpdatedAt = DateTime.Now;
-                            fc.LastCheckedByContentId = contentId;
-                            fc.LastCheckedByName = Plugin.PlayerState.CharacterName;
-                            plugin.Configuration.FreeCompanyGil[info->Id] = fc;
-                            changed = true;
-                        }
-                    }
-                }
-                else
-                {
-                    chestObservation.Reset();
-                    FreeCompanyChestStatus = Loc.L("FC情報の取得待ち：フリーカンパニー画面を開いてください。",
-                        "Waiting for FC identity: open the Free Company window.");
-                }
-            }
-            else
-            {
-                chestObservation.Reset();
-                FreeCompanyChestStatus = fcChest != null && fcChest->IsVisible
-                    ? Loc.L("FCチェスト：残高の読み込み待ち（チェストの「ギル」を選択してください）。",
-                        "FC chest: waiting for balance data (select Gil in the chest).")
-                    : null;
-            }
-
             var infoModule = InfoModule.Instance();
             var workshopInfo = infoModule == null ? null : infoModule->GetInfoProxyFreeCompany();
             if (workshopInfo != null && workshopInfo->Id != 0 &&
@@ -168,11 +125,132 @@ public sealed unsafe class GilTracker : IDisposable
         }
         catch (Exception exception)
         {
-            chestObservation.Reset();
+            chestSession.Reset();
             FreeCompanyChestStatus = Loc.L("ギル情報の取得に失敗しました。保存済みの金額を表示しています。",
                 "Could not read gil data. Displaying the last saved balances.");
             Plugin.Log.Verbose(exception, "ギル情報を更新できませんでした。");
         }
+    }
+
+    private void OnChestOpened(AddonEvent _, AddonArgs __)
+    {
+        chestSession.Reset();
+        nextChestCheckUtc = default;
+    }
+
+    private void OnChestClosing(AddonEvent _, AddonArgs args)
+    {
+        var now = DateTime.UtcNow;
+        // Read before native UI/inventory teardown; do not wait for another periodic sample.
+        CheckChest(now, finalSample: true, closingAddon: args.Addon.Address);
+        chestSession.Close(now);
+    }
+
+    private void OnInventoryChanged(IReadOnlyCollection<InventoryEventArgs> events)
+    {
+        if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)
+        {
+            chestSession.Reset();
+            return;
+        }
+        foreach (var change in events)
+        {
+            // Removed events carry the OLD item. Never interpret unload/removal as zero gil.
+            if (change is not InventoryItemChangedArgs ||
+                (uint)change.Item.ContainerType != (uint)InventoryType.FreeCompanyGil ||
+                change.Item.ItemId != 1 || change.Item.Quantity < 0)
+                continue;
+            var now = DateTime.UtcNow;
+            var module = InfoModule.Instance();
+            var info = module == null ? null : module->GetInfoProxyFreeCompany();
+            if (info != null && chestSession.CanAcceptLateUpdate(Plugin.PlayerState.ContentId,
+                    info->Id, Plugin.ClientState.TerritoryType, now))
+            {
+                // Use the delivered inventory snapshot, not memory that may already be unloaded.
+                SaveChestBalance(info, (uint)change.Item.Quantity, now);
+            }
+            else
+                CheckChest(now, finalSample: true);
+        }
+    }
+
+    private void CheckChest(DateTime now, bool finalSample = false, nint closingAddon = default)
+    {
+        if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)
+        {
+            chestSession.Reset();
+            return;
+        }
+        try
+        {
+            var chest = (AtkUnitBase*)(closingAddon != 0 ? closingAddon :
+                Plugin.GameGui.GetAddonByName("FreeCompanyChest").Address);
+            if (chest == null || (closingAddon == 0 && (!chest->IsVisible || !chest->IsReady)))
+            {
+                if (!chestSession.IsAwaitingLateUpdate(now))
+                {
+                    chestSession.Reset();
+                    FreeCompanyChestStatus = null;
+                }
+                return;
+            }
+            var inventory = InventoryManager.Instance();
+            var container = inventory == null ? null : inventory->GetInventoryContainer(InventoryType.FreeCompanyGil);
+            if (container == null || !container->IsLoaded)
+            {
+                // During close, retain the verified identity for a delayed inventory event.
+                if (closingAddon == 0) chestSession.Reset();
+                FreeCompanyChestStatus = Loc.L("FCチェスト：残高の読み込み待ち（チェストの「ギル」を選択してください）。",
+                    "FC chest: waiting for balance data (select Gil in the chest).");
+                return;
+            }
+            var module = InfoModule.Instance();
+            var info = module == null ? null : module->GetInfoProxyFreeCompany();
+            if (info == null || info->Id == 0)
+            {
+                chestSession.Reset();
+                FreeCompanyChestStatus = Loc.L("FC情報の取得待ち：フリーカンパニー画面を開いてください。",
+                    "Waiting for FC identity: open the Free Company window.");
+                return;
+            }
+            var gil = inventory->GetFreeCompanyGil();
+            if (chestSession.ObserveOpen(Plugin.PlayerState.ContentId, info->Id,
+                    Plugin.ClientState.TerritoryType, gil, finalSample))
+                SaveChestBalance(info, gil, now);
+            else
+                FreeCompanyChestStatus = Loc.L("FCチェスト：残高を確認中", "FC chest: confirming balance");
+        }
+        catch (Exception exception)
+        {
+            chestSession.Reset();
+            FreeCompanyChestStatus = Loc.L("FCチェストの残高を取得できませんでした。保存済みの金額を表示しています。",
+                "Could not read the FC chest balance. Displaying the last saved value.");
+            Plugin.Log.Warning(exception, "FCチェストの残高を更新できませんでした。");
+        }
+    }
+
+    private void SaveChestBalance(InfoProxyFreeCompany* info, uint gil, DateTime now)
+    {
+        var contentId = Plugin.PlayerState.ContentId;
+        var name = info->NameString;
+        FreeCompanyChestStatus = Loc.L($"FCチェスト確認済み：{name} / {gil:N0} G",
+            $"FC chest verified: {name} / {gil:N0} G");
+        if (plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var fc) &&
+            fc.Gil == gil && fc.GilConfirmed &&
+            (string.IsNullOrWhiteSpace(name) || fc.Name == name) &&
+            fc.LastCheckedByContentId == contentId &&
+            now - fc.UpdatedAt.ToUniversalTime() < TimeSpan.FromMinutes(1)) return;
+        fc ??= new FreeCompanyGilRecord { FreeCompanyId = info->Id };
+        if (!string.IsNullOrWhiteSpace(name)) fc.Name = name;
+        else if (IsGeneratedFcName(fc.Name)) fc.Name = "不明なFC";
+        fc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
+        fc.Gil = gil;
+        fc.GilConfirmed = true;
+        fc.UpdatedAt = DateTime.Now;
+        fc.LastCheckedByContentId = contentId;
+        fc.LastCheckedByName = Plugin.PlayerState.CharacterName;
+        plugin.Configuration.FreeCompanyGil[info->Id] = fc;
+        plugin.Configuration.Save();
     }
 
     private static bool IsGeneratedFcName(string name)
@@ -299,5 +377,11 @@ public sealed unsafe class GilTracker : IDisposable
         return length == 0 ? string.Empty : Encoding.UTF8.GetString(bytes[..length]);
     }
 
-    public void Dispose() => Plugin.Framework.Update -= OnFrameworkUpdate;
+    public void Dispose()
+    {
+        Plugin.Framework.Update -= OnFrameworkUpdate;
+        Plugin.GameInventory.InventoryChangedRaw -= OnInventoryChanged;
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "FreeCompanyChest", OnChestOpened);
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, "FreeCompanyChest", OnChestClosing);
+    }
 }

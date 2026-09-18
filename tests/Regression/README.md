@@ -15,6 +15,8 @@ polling, and detection of external edits.
 
 FC chest checks cover confirmed zero balances, stale-client merges, and resetting
 consecutive observations when data becomes unavailable or the character/FC changes.
+They also cover closing immediately after a withdrawal, accepting delayed updates
+only within the same confirmed chest session, expiry, zoning and logout.
 
 Game validation is still needed for UI interactions and performance: changing gear
 quantities, switching characters, inventory changes, crafting progress/level changes,

@@ -8,16 +8,19 @@ internal sealed class StableGilObservation
     private ulong companyId;
     private uint gil;
     private bool hasSample;
+    internal bool HasConfirmedContext { get; private set; }
 
-    internal bool Observe(ulong currentCharacter, ulong currentCompany, uint currentGil)
+    internal bool Observe(ulong currentCharacter, ulong currentCompany, uint currentGil,
+        bool finalSample = false)
     {
         if (currentCharacter == 0 || currentCompany == 0)
         {
             Reset();
             return false;
         }
-        var stable = hasSample && characterId == currentCharacter &&
-            companyId == currentCompany && gil == currentGil;
+        var sameContext = hasSample && characterId == currentCharacter && companyId == currentCompany;
+        var stable = sameContext && (gil == currentGil || (finalSample && HasConfirmedContext));
+        HasConfirmedContext = stable || (sameContext && HasConfirmedContext);
         characterId = currentCharacter;
         companyId = currentCompany;
         gil = currentGil;
@@ -25,5 +28,9 @@ internal sealed class StableGilObservation
         return stable;
     }
 
-    internal void Reset() => hasSample = false;
+    internal void Reset()
+    {
+        hasSample = false;
+        HasConfirmedContext = false;
+    }
 }
