@@ -1,5 +1,4 @@
 using FFXIVClientStructs.FFXIV.Client.Game;
-using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
@@ -12,9 +11,8 @@ public sealed unsafe class GilTracker : IDisposable
 {
     private readonly Plugin plugin;
     private DateTime lastCheckUtc;
-    private ulong observedFreeCompanyId;
-    private uint observedFreeCompanyGil;
-    private int observedFreeCompanyGilCount;
+    private readonly StableGilObservation chestObservation = new();
+    internal string? FreeCompanyChestStatus { get; private set; }
 
     public GilTracker(Plugin plugin)
     {
@@ -29,7 +27,11 @@ public sealed unsafe class GilTracker : IDisposable
             return;
         lastCheckUtc = now;
         if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)
+        {
+            chestObservation.Reset();
+            FreeCompanyChestStatus = null;
             return;
+        }
 
         try
         {
@@ -82,30 +84,24 @@ public sealed unsafe class GilTracker : IDisposable
             var fcChestReady = fcChest != null && fcChest->IsVisible && fcChest->IsReady;
             if (fcChestReady && fcContainer != null && fcContainer->IsLoaded)
             {
-                var agentModule = AgentModule.Instance();
-                var agent = agentModule == null ? null :
-                    (AgentFreeCompany*)agentModule->GetAgentByInternalId(AgentId.FreeCompany);
-                var info = agent == null ? null : agent->InfoProxyFreeCompany;
+                // The FC menu agent need not have been initialized when only the chest
+                // is open. Resolve the proxy from the owning InfoModule directly.
+                var chestInfoModule = InfoModule.Instance();
+                var info = chestInfoModule == null ? null : chestInfoModule->GetInfoProxyFreeCompany();
                 if (info != null && info->Id != 0)
                 {
                     var fcGil = inventory->GetFreeCompanyGil();
-                    if (observedFreeCompanyId != info->Id || observedFreeCompanyGil != fcGil)
+                    var fcName = info->NameString;
+                    FreeCompanyChestStatus = Loc.L("FCチェスト：残高を確認中", "FC chest: confirming balance");
+                    if (chestObservation.Observe(contentId, info->Id, fcGil))
                     {
-                        observedFreeCompanyId = info->Id;
-                        observedFreeCompanyGil = fcGil;
-                        observedFreeCompanyGilCount = 1;
-                    }
-                    else
-                    {
-                        observedFreeCompanyGilCount++;
-                    }
-
-                    if (observedFreeCompanyGilCount >= 2)
-                    {
-                        var fcName = info->NameString;
+                        FreeCompanyChestStatus = Loc.L($"FCチェスト確認済み：{fcName} / {fcGil:N0} G",
+                            $"FC chest verified: {fcName} / {fcGil:N0} G");
                         if (!plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var fc) ||
                             fc.Gil != fcGil || !fc.GilConfirmed ||
-                            (!string.IsNullOrWhiteSpace(fcName) && fc.Name != fcName))
+                            (!string.IsNullOrWhiteSpace(fcName) && fc.Name != fcName) ||
+                            fc.LastCheckedByContentId != contentId ||
+                            now - fc.UpdatedAt.ToUniversalTime() >= TimeSpan.FromMinutes(1))
                         {
                             fc ??= new FreeCompanyGilRecord { FreeCompanyId = info->Id };
                             if (!string.IsNullOrWhiteSpace(fcName))
@@ -123,12 +119,20 @@ public sealed unsafe class GilTracker : IDisposable
                         }
                     }
                 }
+                else
+                {
+                    chestObservation.Reset();
+                    FreeCompanyChestStatus = Loc.L("FC情報の取得待ち：フリーカンパニー画面を開いてください。",
+                        "Waiting for FC identity: open the Free Company window.");
+                }
             }
             else
             {
-                observedFreeCompanyId = 0;
-                observedFreeCompanyGil = 0;
-                observedFreeCompanyGilCount = 0;
+                chestObservation.Reset();
+                FreeCompanyChestStatus = fcChest != null && fcChest->IsVisible
+                    ? Loc.L("FCチェスト：残高の読み込み待ち（チェストの「ギル」を選択してください）。",
+                        "FC chest: waiting for balance data (select Gil in the chest).")
+                    : null;
             }
 
             var infoModule = InfoModule.Instance();
@@ -164,6 +168,9 @@ public sealed unsafe class GilTracker : IDisposable
         }
         catch (Exception exception)
         {
+            chestObservation.Reset();
+            FreeCompanyChestStatus = Loc.L("ギル情報の取得に失敗しました。保存済みの金額を表示しています。",
+                "Could not read gil data. Displaying the last saved balances.");
             Plugin.Log.Verbose(exception, "ギル情報を更新できませんでした。");
         }
     }

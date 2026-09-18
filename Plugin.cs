@@ -67,6 +67,7 @@ public sealed class Plugin : IDalamudPlugin
     private uint viewedPlotPrice;
     private readonly HousingWardObserver? wardObserver;
     private readonly GilTracker gilTracker;
+    internal string? FreeCompanyChestStatus => gilTracker.FreeCompanyChestStatus;
     internal HousingDemolitionTracker HousingDemolition { get; }
     internal CharacterLinkCoordinator CharacterLink { get; }
     internal AnimationService Animations { get; }

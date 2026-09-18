@@ -13,6 +13,9 @@ Checks independent settings edits from two clients, nonblocking mutex contention
 retry persistence of gear quantities, duplicate notifications, unchanged-file
 polling, and detection of external edits.
 
+FC chest checks cover confirmed zero balances, stale-client merges, and resetting
+consecutive observations when data becomes unavailable or the character/FC changes.
+
 Game validation is still needed for UI interactions and performance: changing gear
 quantities, switching characters, inventory changes, crafting progress/level changes,
 HQ-only quest readiness, and synchronization between running clients.

@@ -4,6 +4,16 @@ using System.Reflection;
 
 var directory = Path.Combine(Path.GetTempPath(), "AltMate-regression-" + Guid.NewGuid());
 var mutexName = "Local\\AltMate.Regression." + Guid.NewGuid();
+var observation = new StableGilObservation();
+Require(!observation.Observe(1, 42, 1_000_000), "first FC sample is tentative");
+Require(observation.Observe(1, 42, 1_000_000), "repeated FC sample is stable");
+Require(!observation.Observe(1, 42, 0), "zero transition is tentative");
+Require(observation.Observe(1, 42, 0), "confirmed zero is valid");
+observation.Reset();
+Require(!observation.Observe(1, 42, 0), "unavailable sample resets confirmation");
+Require(!observation.Observe(2, 42, 0), "character switch resets confirmation");
+Require(!observation.Observe(2, 43, 0), "FC switch resets confirmation");
+Require(!observation.Observe(2, 0, 0), "unknown FC is not confirmed");
 Directory.CreateDirectory(directory);
 try
 {
@@ -73,7 +83,26 @@ try
         .SetValue(first, DateTime.MinValue);
     Require(first.Poll(a, out _), "metadata change triggers reload");
     Require(a.CrafterLevelingCharacters[123].GearCraftingSelections[987] == 15, "external quantity reflected");
-    Console.WriteLine("PASS: settings merge, lock contention/retry, quantities, unchanged polling, external reload.");
+    // A confirmed empty chest must replace an older nonzero balance, even if
+    // another client later saves its stale copy of the FC record.
+    const ulong fcId = 42;
+    var checkedAt = DateTime.Now;
+    a.FreeCompanyGil[fcId] = new FreeCompanyGilRecord
+    {
+        FreeCompanyId = fcId, Name = "flower", Gil = 1_000_000,
+        GilConfirmed = true, UpdatedAt = checkedAt,
+    };
+    Require(first.TrySaveMerged(a, false, out revision), "save nonzero FC balance");
+    Require(second.ReloadIfNewer(b, revision, out _), "load previous FC balance");
+    a.FreeCompanyGil[fcId].Gil = 0;
+    a.FreeCompanyGil[fcId].UpdatedAt = checkedAt.AddSeconds(1);
+    Require(first.TrySaveMerged(a, false, out _), "save confirmed empty chest");
+    Require(second.TrySaveMerged(b, false, out revision), "save stale FC balance");
+    Require(b.FreeCompanyGil[fcId].Gil == 0 && b.FreeCompanyGil[fcId].GilConfirmed,
+        "stale nonzero balance cannot resurrect");
+    Require(first.ReloadIfNewer(a, revision, out _), "reload merged empty chest");
+    Require(a.FreeCompanyGil[fcId].Gil == 0, "zero FC balance survives reload");
+    Console.WriteLine("PASS: settings merge, lock contention/retry, quantities, unchanged polling, external reload, confirmed zero FC balance.");
 }
 finally
 {

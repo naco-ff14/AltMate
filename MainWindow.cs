@@ -1081,6 +1081,8 @@ public sealed partial class MainWindow : Window
 
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.42f, 0.82f, 1f, 1f), Loc.L("FCチェスト", "Free Company Chests"));
+        if (plugin.FreeCompanyChestStatus is { } chestStatus)
+            ImGui.TextWrapped(chestStatus);
         ImGui.TextDisabled(Loc.IsEnglish
             ? "Each Free Company is displayed and counted once, even when multiple characters belong to it."
             : "同じFCに複数キャラクターが所属していても、FCごとに1件だけ表示・集計します。");
