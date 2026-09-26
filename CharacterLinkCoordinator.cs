@@ -24,7 +24,7 @@ using System.Threading.Tasks;
 
 namespace AltMate;
 
-public sealed class CharacterLinkCoordinator : IDisposable
+public sealed partial class CharacterLinkCoordinator : IDisposable
 {
     private const int CurrentProtocol = 2;
     private const int Port = 47777;
@@ -38,6 +38,21 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private readonly SmoothFollowController smoothFollow;
     private readonly FollowController followController;
     private readonly TravelCoordinator travelCoordinator = new();
+    private readonly FollowStateMachine followState = new();
+    private readonly AethernetEvidence aethernetEvidence = new();
+    private DateTime lastAethernetSampleUtc;
+    private bool cityJumpConfirmed;
+    private bool residentialJumpConfirmed;
+    private bool followBmrOwned;
+    private bool rotationOwned;
+    private long backendRetryAt;
+    private long recoveryStartedAt;
+    private long recoveryRequestAt;
+    private ulong observedLeaderId;
+    private DateTime travelHandoffUntilUtc;
+    private long nextTakeoffAt;
+    private int takeoffAttempts;
+    public string FollowStatus => followState.State.ToString();
     private UdpClient? receiver;
     private UdpClient? sender;
     private Task? receiveTask;
@@ -52,11 +67,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool mountedByRouletteFallback;
     private bool runtimeStopped;
     private bool vnavRecoveryActive;
-    private Vector3 followProgressSamplePosition;
+    private Task<List<Vector3>>? pendingFollowPath;
+    private CancellationTokenSource? followPathCancellation;
+    private bool followPathFlying;
+    private bool followPathIssued;
+    private long lastFollowPathRequestAt;
     private Vector3 lastVnavDestination;
-    private DateTime followProgressSampleUtc;
-    private DateTime followStalledSinceUtc;
-    private DateTime lastVnavRepathUtc;
     private bool leaderWasInInteraction;
     private uint observedInteractionTargetDataId;
     private string observedInteractionTargetName = string.Empty;
@@ -191,6 +207,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
     public void EmergencyStop()
     {
         runtimeStopped = true;
+        StopBmrFollow();
         followController.Reset();
         smoothFollow.Stop();
         StopVnavRecovery();
@@ -209,6 +226,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     public void SettingsChanged()
     {
+        ReleaseFollowMovement();
+        StopCombatAutomation();
         plugin.SaveSharedSettings();
         BroadcastSettings();
     }
@@ -454,6 +473,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
 
         var now = DateTime.UtcNow;
+        if (observedLeaderId != plugin.Configuration.LinkLeaderContentId)
+        {
+            ClearCrossWorldAutomation();
+            aethernetEvidence.Reset();
+            cityJumpConfirmed = residentialJumpConfirmed = false;
+            observedLeaderId = plugin.Configuration.LinkLeaderContentId;
+        }
         occultSourceApproachActive = false;
         zoneTransitionApproachActive = false;
         if (now < smoothFollowTestUntilUtc && TryGetLeaderObject(out _, out var testLeader) &&
@@ -495,9 +521,21 @@ public sealed class CharacterLinkCoordinator : IDisposable
         UpdateNearbyTreasure(now);
 
         if (!plugin.Configuration.LinkEnabled || runtimeStopped || IsLeader)
+        {
+            ReleaseFollowMovement();
+            StopCombatAutomation();
+            followState.Enter(FollowState.Idle);
+            if (!runtimeStopped && now < smoothFollowTestUntilUtc &&
+                TryGetLeaderObject(out _, out var manualLeader) && Plugin.ObjectTable.LocalPlayer is { } manualLocal)
+                smoothFollow.Follow(manualLeader.Position - manualLocal.Position);
             return;
+        }
         if (!TryGetLeader(out var leader, out _))
         {
+            ReleaseFollowMovement();
+            StopCombatAutomation();
+            followState.Enter(FollowState.AwaitingLeader);
+            LastAction = "リーダーの通信・転送完了を待機中";
             return;
         }
 
@@ -510,8 +548,24 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
         }
         WorldLinkStatus = "同じワールド・連携可能";
+        if (!vnavRecoveryActive && IsVnavMovementRunning() && !lifestreamBusyThisFrame)
+        {
+            smoothFollow.Stop();
+            StopBmrFollow();
+            StopCombatAutomation();
+            followState.Enter(FollowState.Suspended);
+            LastAction = "他のvnavmesh移動の完了待ち";
+            return;
+        }
 
-        UpdateCombatAutomation(leader, now);
+        if (IsAutomationSuspended() || cityJumpConfirmed || residentialJumpConfirmed || now < travelHandoffUntilUtc || lifestreamBusyThisFrame || housingMovementActive ||
+            leader.TerritoryType != Plugin.ClientState.TerritoryType)
+        {
+            ReleaseFollowMovement();
+            StopCombatAutomation();
+        }
+        else
+            UpdateCombatAutomation(leader, now);
         UpdateAreaTransitionSync(leader, now);
         // クレセントのAethernetはPlaceNameId専用IPCを使うため、都市用の
         // AetheryteId検出より先にジョブ化する。
@@ -519,7 +573,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
         UpdateGeneralTravelSync(leader, now);
         UpdateHousingTravelSync(now);
         if (UpdateFollowerInteraction(now))
+        {
+            StopBmrFollow();
+            StopVnavRecovery();
             return;
+        }
+        // An accepted IPC may become busy only on the next framework tick.
+        lifestreamBusyThisFrame |= IsLifestreamBusy() || now < travelHandoffUntilUtc;
         RunFollowerAutomation(leader, now);
     }
 
@@ -536,6 +596,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 case "stop":
                     runtimeStopped = true;
+                    StopBmrFollow();
+                    StopCombatAutomation();
                     followController.Reset();
                     smoothFollow.Stop();
                     StopVnavRecovery();
@@ -640,6 +702,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         target.InCombat = fast.InCombat;
         target.Mounted = fast.Mounted;
         target.RidingPillion = fast.RidingPillion;
+        target.Flying = fast.Flying;
+        target.InDuty = fast.InDuty;
         target.CastActionType = fast.CastActionType;
         target.CastActionId = fast.CastActionId;
         target.ReceivedAtUtc = fast.ReceivedAtUtc;
@@ -1030,6 +1094,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
         }
 
+        if (lastAethernetSampleUtc != leader.ReceivedAtUtc)
+        {
+            lastAethernetSampleUtc = leader.ReceivedAtUtc;
+            aethernetEvidence.Observe(leader.TerritoryType,
+                new Vector3(leader.X, leader.Y, leader.Z), Environment.TickCount64);
+        }
         if (!leaderTravelBaselineReady)
         {
             lastLeaderActiveAetheryteId = leader.ActiveAetheryteId;
@@ -1056,7 +1126,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     ? lastLeaderActiveCustomAetheryteId
                     : lastLeaderActiveAetheryteId;
                 leaderCityTransitionExpiresUtc = now.AddSeconds(15);
-                if (plugin.Configuration.SyncZoneBoundaryEnabled)
+                if (plugin.Configuration.SyncZoneBoundaryEnabled && pendingGeneralAetheryteId == 0 &&
+                    !leader.InDuty && leader.CastActionId != 5)
                 {
                     if (lastLeaderMoveDirectionX * lastLeaderMoveDirectionX +
                         lastLeaderMoveDirectionZ * lastLeaderMoveDirectionZ < 0.01f &&
@@ -1087,14 +1158,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
             var leaderTravelDistance = Vector2.Distance(
                 new Vector2(lastLeaderTravelX, lastLeaderTravelZ),
                 new Vector2(leader.X, leader.Z));
-            var leaderResidentialPositionJumped = leaderTravelDistance >= 40f;
-            var leaderCityPositionJumped = leaderTravelDistance >= 12f;
             if (!leaderTerritoryChanged && leaderTravelDistance >= 0.5f)
             {
                 lastLeaderMoveDirectionX = (leader.X - lastLeaderTravelX) / leaderTravelDistance;
                 lastLeaderMoveDirectionZ = (leader.Z - lastLeaderTravelZ) / leaderTravelDistance;
             }
-            if (allowCityAethernet && leader.ActiveResidentialAetheryteId != 0 &&
+            if (allowCityAethernet && plugin.Configuration.SyncResidentialAethernetEnabled && leader.ActiveResidentialAetheryteId != 0 &&
                 leader.ActiveResidentialAetheryteId != lastLeaderResidentialAetheryteId)
             {
                 queuedLeaderResidentialAetheryteId = leader.ActiveResidentialAetheryteId;
@@ -1103,7 +1172,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
                     DestinationId: queuedLeaderResidentialAetheryteId));
             }
-            if (allowCityAethernet && leader.ActiveCustomAetheryteId != 0 &&
+            if (allowCityAethernet && plugin.Configuration.SyncCityAethernetEnabled && leader.ActiveCustomAetheryteId != 0 &&
                 leader.ActiveCustomAetheryteId != lastLeaderActiveCustomAetheryteId)
             {
                 queuedLeaderCityAetheryteId = leader.ActiveCustomAetheryteId;
@@ -1112,7 +1181,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
                     DestinationId: queuedLeaderCityAetheryteId));
             }
-            else if (allowCityAethernet && leader.ActiveAetheryteId != 0 &&
+            else if (allowCityAethernet && plugin.Configuration.SyncCityAethernetEnabled && leader.ActiveAetheryteId != 0 &&
                      leader.ActiveAetheryteId != lastLeaderActiveAetheryteId)
             {
                 queuedLeaderCityAetheryteId = leader.ActiveAetheryteId;
@@ -1121,13 +1190,18 @@ public sealed class CharacterLinkCoordinator : IDisposable
                     TravelJobKind.CityAethernet, now, queuedLeaderAethernetExpiresUtc,
                     DestinationId: queuedLeaderCityAetheryteId));
             }
+            if (aethernetEvidence.HasJump(Environment.TickCount64))
+            {
+                cityJumpConfirmed |= queuedLeaderCityAetheryteId != 0;
+                residentialJumpConfirmed |= queuedLeaderResidentialAetheryteId != 0;
+            }
             var cityTransitionDetected = now <= leaderCityTransitionExpiresUtc &&
                 queuedLeaderCityAetheryteId != 0 && leaderCityTransitionSourceId != 0 &&
                 IsSameAethernetGroup(leaderCityTransitionSourceId, queuedLeaderCityAetheryteId);
 
             if (!IsBlocked() && plugin.Configuration.SyncResidentialAethernetEnabled &&
                 leader.TerritoryType == Plugin.ClientState.TerritoryType &&
-                leaderResidentialPositionJumped &&
+                residentialJumpConfirmed &&
                 queuedLeaderResidentialAetheryteId != 0 &&
                 now <= queuedLeaderAethernetExpiresUtc &&
                 travelCoordinator.CanRun(TravelJobKind.CityAethernet, now))
@@ -1137,11 +1211,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
                         queuedLeaderResidentialAetheryteId, "住宅街", now))
                 {
                     queuedLeaderResidentialAetheryteId = 0;
+                    residentialJumpConfirmed = false;
+                    aethernetEvidence.Consume();
                     travelCoordinator.Complete(TravelJobKind.CityAethernet);
                 }
             }
             else if (!IsBlocked() && plugin.Configuration.SyncCityAethernetEnabled &&
-                     (leaderCityPositionJumped || cityTransitionDetected) &&
+                     (cityJumpConfirmed || cityTransitionDetected) &&
                      queuedLeaderCityAetheryteId != 0 &&
                      now <= queuedLeaderAethernetExpiresUtc &&
                      travelCoordinator.CanRun(TravelJobKind.CityAethernet, now))
@@ -1151,12 +1227,15 @@ public sealed class CharacterLinkCoordinator : IDisposable
                         queuedLeaderCityAetheryteId, "都市内", now))
                 {
                     queuedLeaderCityAetheryteId = 0;
+                    cityJumpConfirmed = false;
+                    aethernetEvidence.Consume();
                     leaderCityTransitionExpiresUtc = DateTime.MinValue;
                     travelCoordinator.Complete(TravelJobKind.CityAethernet);
                 }
             }
             if (now > queuedLeaderAethernetExpiresUtc)
             {
+                cityJumpConfirmed = residentialJumpConfirmed = false;
                 queuedLeaderCityAetheryteId = 0;
                 queuedLeaderResidentialAetheryteId = 0;
                 travelCoordinator.Cancel(TravelJobKind.CityAethernet);
@@ -1193,6 +1272,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 GeneralTravelStatus = $"フォロワーもテレポ開始：{GetAetheryteName(pendingGeneralAetheryteId)}";
                 pendingGeneralAetheryteId = 0;
+                ReleaseFollowMovement();
+                StopCombatAutomation();
+                travelHandoffUntilUtc = now.AddSeconds(3);
             }
             else
                 GeneralTravelStatus = "Lifestreamの受付待ち（自動再試行）";
@@ -1227,7 +1309,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             ResetZoneBoundaryApproach();
             return;
         }
-        if (pendingGeneralAetheryteId != 0 || queuedLeaderCityAetheryteId != 0 ||
+        if (leader.InDuty || lifestreamBusyThisFrame || pendingGeneralAetheryteId != 0 || queuedLeaderCityAetheryteId != 0 ||
             queuedLeaderResidentialAetheryteId != 0 || housingMovementActive || IsBlocked())
             return;
         if (!travelCoordinator.CanRun(TravelJobKind.ZoneBoundary, now))
@@ -1236,6 +1318,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
         var local = Plugin.ObjectTable.LocalPlayer;
         if (local is null)
             return;
+        StopBmrFollow();
+        StopVnavRecovery();
         smoothFollow.Follow(new Vector3(
             pendingZoneBoundaryX - local.Position.X, 0,
             pendingZoneBoundaryZ - local.Position.Z));
@@ -1254,7 +1338,15 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private bool TryRequestAethernet(string ipcName, uint destinationId, string kind, DateTime now)
     {
-        if (now - lastGeneralTravelAttemptUtc < TimeSpan.FromSeconds(2))
+        if (lifestreamBusyThisFrame || now < travelHandoffUntilUtc || now - lastGeneralTravelAttemptUtc < TimeSpan.FromSeconds(2))
+            return false;
+        var source = GetLifestreamId(ipcName.Contains("Housing", StringComparison.Ordinal)
+            ? "Lifestream.GetActiveResidentialAetheryte" : "Lifestream.GetActiveAetheryte");
+        var customSource = GetLifestreamId("Lifestream.GetActiveCustomAetheryte");
+        if (source == destinationId || (customSource != 0 && customSource == destinationId))
+            return false;
+        if (!ipcName.Contains("Housing", StringComparison.Ordinal) && source != 0 &&
+            !IsSameAethernetGroup(source, destinationId))
             return false;
         if (!IsLifestreamSourceAetheryteActive(ipcName))
         {
@@ -1272,6 +1364,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
             if (accepted)
             {
                 smoothFollow.Stop();
+                ReleaseFollowMovement();
+                StopCombatAutomation();
+                travelHandoffUntilUtc = now.AddSeconds(3);
                 LastAction = $"{kind}エーテライト移動中";
             }
             return accepted;
@@ -1370,6 +1465,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void StartHousingMovement(DateTime now)
     {
+        ReleaseFollowMovement();
+        StopCombatAutomation();
         housingMovementActive = true;
         housingMovementObservedBusy = false;
         housingMovementStartedUtc = now;
@@ -1592,7 +1689,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 OccultTravelStatus = IsAethernetMenuOpen()
                     ? $"転送網で目的地を選択中：{GetPlaceName(pendingOccultDestinationId)}"
                     : $"フォロワーも移動処理中：{GetPlaceName(pendingOccultDestinationId)}";
-                smoothFollow.Stop();
+                ReleaseFollowMovement();
+                StopCombatAutomation();
+                travelHandoffUntilUtc = now.AddSeconds(1);
             }
             else
             {
@@ -1688,6 +1787,10 @@ public sealed class CharacterLinkCoordinator : IDisposable
             return;
         }
 
+        if (combatBmrActive && !IsPluginLoaded("BossModReborn")) combatBmrActive = false;
+        if (rotationOwned && (!(IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn")) ||
+            IsWrathRotationActive()))
+            StopCombatAutomation();
         if (leader.InCombat || Plugin.Condition[ConditionFlag.InCombat])
         {
             leaderCombatEndedUtc = null;
@@ -1779,10 +1882,12 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void StartCombatAutomation(LinkedCharacterState leader)
     {
+        ReleaseFollowMovement();
         var messages = new System.Collections.Generic.List<string>();
         combatBmrActive = false;
         var castingJob = IsCastingJob(Plugin.PlayerState.ClassJob.RowId);
-        var rsrAvailable = plugin.Configuration.UseRotationSolverReborn &&
+        // Wrath is externally managed. Do not start a second rotation engine beside it.
+        var rsrAvailable = !IsWrathRotationActive() && plugin.Configuration.UseRotationSolverReborn &&
                            (IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn"));
         if (plugin.Configuration.UseBossModReborn && IsPluginLoaded("BossModReborn") &&
             (!castingJob || !rsrAvailable))
@@ -1791,14 +1896,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
             Plugin.CommandManager.ProcessCommand("/bmrai forbidactions on");
             Plugin.CommandManager.ProcessCommand("/bmrai followcombat on");
             Plugin.CommandManager.ProcessCommand("/bmrai followtarget on");
-            Plugin.CommandManager.ProcessCommand("/bmrai on");
-            combatBmrActive = true;
-            messages.Add("BMR");
+            combatBmrActive = Plugin.CommandManager.ProcessCommand("/bmrai on");
+            if (combatBmrActive) messages.Add("BMR");
         }
         if (rsrAvailable)
         {
-            Plugin.CommandManager.ProcessCommand("/rsr Auto");
-            messages.Add("RSR");
+            rotationOwned = Plugin.CommandManager.ProcessCommand("/rsr Auto");
+            if (rotationOwned) messages.Add("RSR");
         }
 
         combatAutomationActive = messages.Count > 0;
@@ -1809,11 +1913,14 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void StopCombatAutomation()
     {
-        if (plugin.Configuration.UseRotationSolverReborn &&
+        if (combatRecovery) StopVnavRecovery();
+        combatRecovery = false;
+        if (rotationOwned &&
             (IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn")))
             Plugin.CommandManager.ProcessCommand("/rsr Off");
         if (combatBmrActive && IsPluginLoaded("BossModReborn"))
             Plugin.CommandManager.ProcessCommand("/bmrai off");
+        rotationOwned = false;
         combatAutomationActive = false;
         combatBmrActive = false;
         leaderCombatEndedUtc = null;
@@ -1855,6 +1962,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 InCombat = Plugin.Condition[ConditionFlag.InCombat],
                 Mounted = Plugin.Condition[ConditionFlag.Mounted],
                 RidingPillion = Plugin.Condition[ConditionFlag.RidingPillion],
+                Flying = Plugin.Condition[ConditionFlag.InFlight],
+                InDuty = Plugin.Condition[ConditionFlag.BoundByDuty],
                 CastActionType = local.CastActionType,
                 CastActionId = local.CastActionId,
                 ActiveAetheryteId = GetLifestreamId("Lifestream.GetActiveAetheryte"),
@@ -1903,6 +2012,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 InCombat = Plugin.Condition[ConditionFlag.InCombat],
                 Mounted = Plugin.Condition[ConditionFlag.Mounted],
                 RidingPillion = Plugin.Condition[ConditionFlag.RidingPillion],
+                Flying = Plugin.Condition[ConditionFlag.InFlight],
+                InDuty = Plugin.Condition[ConditionFlag.BoundByDuty],
                 CastActionType = local.CastActionType,
                 CastActionId = local.CastActionId,
             };
@@ -2061,6 +2172,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 AutoAcceptPartyInviteEnabled = plugin.Configuration.AutoAcceptPartyInviteEnabled,
                 PauseInCombat = plugin.Configuration.PauseLinkInCombat,
                 FollowDistance = plugin.Configuration.FollowStartDistance,
+                PreferBossModFollow = plugin.Configuration.PreferBossModFollow,
                 VnavmeshStuckRecoveryEnabled = plugin.Configuration.VnavmeshStuckRecoveryEnabled,
                 SyncLeaderInteractionEnabled = plugin.Configuration.SyncLeaderInteractionEnabled,
                 CombatLinkEnabled = plugin.Configuration.CombatLinkEnabled,
@@ -2094,6 +2206,8 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void ApplySettings(LinkedCharacterState state)
     {
+        ReleaseFollowMovement();
+        StopCombatAutomation();
         plugin.Configuration.LinkEnabled = state.LinkEnabled;
         plugin.Configuration.LinkLeaderContentId = state.LeaderContentId;
         plugin.Configuration.AutoFollowEnabled = state.AutoFollow;
@@ -2102,6 +2216,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.AutoAcceptPartyInviteEnabled = state.AutoAcceptPartyInviteEnabled;
         plugin.Configuration.PauseLinkInCombat = state.PauseInCombat;
         plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 1f, 15f);
+        plugin.Configuration.PreferBossModFollow = state.PreferBossModFollow;
         plugin.Configuration.VnavmeshStuckRecoveryEnabled = state.VnavmeshStuckRecoveryEnabled;
         plugin.Configuration.SyncLeaderInteractionEnabled = state.SyncLeaderInteractionEnabled;
         plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
@@ -2123,14 +2238,30 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void RunFollowerAutomation(LinkedCharacterState leader, DateTime now)
     {
+        var transition = FollowStateMachine.ClassifyTransition(
+            cityJumpConfirmed || residentialJumpConfirmed || pendingOccultDestinationId != 0,
+            pendingGeneralAetheryteId != 0 || housingMovementActive || lifestreamBusyThisFrame,
+            leader.InDuty != Plugin.Condition[ConditionFlag.BoundByDuty],
+            leader.TerritoryType != Plugin.ClientState.TerritoryType,
+            TryGetLeaderObject(out _, out _));
+        followState.Enter(transition);
+        if (transition != FollowState.Following)
+        {
+            StopBmrFollow();
+            StopVnavRecovery();
+            if (!occultSourceApproachActive && !zoneTransitionApproachActive)
+                smoothFollow.Stop();
+        }
         if (occultSourceApproachActive)
         {
+            StopBmrFollow();
             StopVnavRecovery();
             LastAction = "移動元エーテライトへ接近中";
             return;
         }
         if (zoneTransitionApproachActive)
         {
+            StopBmrFollow();
             StopVnavRecovery();
             LastAction = "エリア境界へ移動中";
             return;
@@ -2147,6 +2278,30 @@ public sealed class CharacterLinkCoordinator : IDisposable
             LastAction = "Lifestream移動中のため追従を停止";
             return;
         }
+        if ((cityJumpConfirmed || residentialJumpConfirmed) && !lifestreamBusyThisFrame)
+        {
+            StopBmrFollow();
+            StopVnavRecovery();
+            StopCombatAutomation();
+            var origin = aethernetEvidence.Origin;
+            var follower = Plugin.ObjectTable.LocalPlayer;
+            if (!IsBlocked() && follower is not null &&
+                aethernetEvidence.OriginTerritory == Plugin.ClientState.TerritoryType &&
+                System.Numerics.Vector3.Distance(follower.Position, origin) is > 3f and < 60f)
+                smoothFollow.Follow(origin - follower.Position);
+            else
+                smoothFollow.Stop();
+            LastAction = "転送元への接近・Aethernet受付待ち";
+            return;
+        }
+        if (pendingGeneralAetheryteId != 0 || pendingOccultDestinationId != 0 ||
+            transition == FollowState.DutyTransition)
+        {
+            ReleaseFollowMovement();
+            StopCombatAutomation();
+            LastAction = "転送・コンテンツ突入の完了待ち";
+            return;
+        }
         if (leader.WorldName != Plugin.PlayerState.CurrentWorld.Value.Name.ToString() ||
             leader.TerritoryType != Plugin.ClientState.TerritoryType)
         {
@@ -2154,8 +2309,17 @@ public sealed class CharacterLinkCoordinator : IDisposable
             LastAction = "リーダーと別エリアです";
             return;
         }
+        if (!vnavRecoveryActive && IsVnavMovementRunning())
+        {
+            StopBmrFollow();
+            smoothFollow.Stop();
+            followState.Enter(FollowState.Suspended);
+            LastAction = "他のvnavmesh移動の完了待ち";
+            return;
+        }
         if (combatAutomationActive)
         {
+            if (UpdateCombatFollowRecovery(leader, now)) return;
             // BMR/RSRの戦闘連携中は移動入力の所有権を戦闘AIへ完全に渡す。
             // AltMateのSmoothFollowやvnavmeshを残すと、AIの位置取りを上書きする。
             followController.Reset();
@@ -2196,6 +2360,9 @@ public sealed class CharacterLinkCoordinator : IDisposable
                             (leader.InCombat || Plugin.Condition[ConditionFlag.InCombat])))
         {
             StopVnavRecovery();
+            StopBmrFollow();
+            smoothFollow.Stop();
+            followState.Enter(FollowState.Suspended);
             LastAction = "安全条件により一時停止";
             return;
         }
@@ -2206,14 +2373,38 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (local is null || leaderObject is null)
         {
             StopVnavRecovery();
-            LastAction = "リーダーが表示範囲外です";
+            LastAction = "リーダーの再表示・転送先情報を待機中";
             return;
         }
 
+        if (Plugin.Condition[ConditionFlag.RidingPillion])
+        {
+            ReleaseFollowMovement();
+            followState.Enter(FollowState.Mounted);
+            LastAction = "相乗り中";
+            return;
+        }
         if (mountedByRouletteFallback && !leader.Mounted)
         {
             if (Plugin.Condition[ConditionFlag.Mounted])
             {
+                if (Plugin.Condition[ConditionFlag.InFlight])
+                {
+                    StopBmrFollow();
+                    smoothFollow.Stop();
+                    RequestVnavRecovery(leaderObject.Position, 1f, now, true);
+                    if (Vector3.Distance(local.Position, leaderObject.Position) < 5f &&
+                        now - lastRideUtc >= TimeSpan.FromSeconds(2))
+                    {
+                        lastRideUtc = now;
+                        ExecuteGeneralAction(23);
+                    }
+                    LastAction = "降車前にリーダーの地上位置へ移動中";
+                    return;
+                }
+                ReleaseFollowMovement();
+                if (now - lastRideUtc < TimeSpan.FromSeconds(2)) return;
+                lastRideUtc = now;
                 if (ExecuteGeneralAction(23))
                 {
                     mountedByRouletteFallback = false;
@@ -2235,22 +2426,33 @@ public sealed class CharacterLinkCoordinator : IDisposable
         if (plugin.Configuration.AutoRidePillionEnabled && leader.Mounted &&
             !Plugin.Condition[ConditionFlag.Mounted] && !Plugin.Condition[ConditionFlag.RidingPillion])
         {
+            StopBmrFollow();
             StopVnavRecovery();
+            if (pillionAttemptsStartedUtc == default) pillionAttemptsStartedUtc = now;
+            if (EffectiveFollow.MountFallback == true &&
+                now - pillionAttemptsStartedUtc >= TimeSpan.FromSeconds(6) &&
+                now - lastRideUtc >= TimeSpan.FromSeconds(2))
+            {
+                smoothFollow.Stop();
+                lastRideUtc = now;
+                if (ExecuteGeneralAction(9)) mountedByRouletteFallback = true;
+                LastAction = "相乗り待ちを終了し自前マウントを要求";
+                return;
+            }
             if (distance <= 5f && now - lastRideUtc > TimeSpan.FromSeconds(2))
             {
+                smoothFollow.Stop();
+                lastRideUtc = now;
+                pillionAttemptCount++;
                 if (TryRidePillion(leaderObject))
                 {
-                    lastRideUtc = now;
-                    if (pillionAttemptCount == 0)
-                        pillionAttemptsStartedUtc = now;
-                    pillionAttemptCount++;
                     LastAction = $"相乗りを実行しました（{distance:0.0}m）";
                 }
                 else
                 {
                     LastAction = $"相乗り可能条件を待機中（{distance:0.0}m）";
                 }
-                if (plugin.Configuration.MountRouletteFallbackEnabled &&
+                if (EffectiveFollow.MountFallback == true &&
                     pillionAttemptCount >= 3 && now - pillionAttemptsStartedUtc >= TimeSpan.FromSeconds(4))
                 {
                     if (ExecuteGeneralAction(9))
@@ -2283,12 +2485,38 @@ public sealed class CharacterLinkCoordinator : IDisposable
             }
         }
 
-        var spacing = plugin.Configuration.FollowStartDistance;
+        var spacing = EffectiveFollow.Distance ?? 5f;
+        if (!leader.Flying || !Plugin.Condition[ConditionFlag.Mounted] || Plugin.Condition[ConditionFlag.InFlight])
+            takeoffAttempts = 0;
+        if (plugin.Configuration.AutoFollowEnabled && Plugin.Condition[ConditionFlag.Mounted] &&
+            (leader.Flying || Plugin.Condition[ConditionFlag.InFlight]))
+        {
+            StopBmrFollow();
+            smoothFollow.Stop();
+            followState.Enter(FollowState.Flying);
+            if (!Plugin.Condition[ConditionFlag.InFlight])
+            {
+                StopVnavRecovery();
+                if (takeoffAttempts < 3 && Environment.TickCount64 >= nextTakeoffAt)
+                {
+                    nextTakeoffAt = Environment.TickCount64 + 1500;
+                    takeoffAttempts++;
+                    ExecuteGeneralAction(2);
+                }
+                LastAction = takeoffAttempts >= 3 ? "離陸できません。飛行開放・マウント状態を確認してください" : "リーダーに合わせて離陸待ち";
+                return;
+            }
+            if (distance > Math.Max(2f, spacing))
+                RequestVnavRecovery(leaderObject.Position, spacing, now, true);
+            else
+                StopVnavRecovery();
+            LastAction = vnavRecoveryActive ? "飛行追従中（vnavmesh）" : "飛行経路の受付・到着待ち";
+            return;
+        }
         if (!plugin.Configuration.AutoFollowEnabled)
         {
             followController.Reset();
-            smoothFollow.Stop();
-            StopVnavRecovery();
+            ReleaseFollowMovement();
         }
         else
         {
@@ -2297,11 +2525,18 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 : leaderObject.Rotation;
             var follow = followController.Update(local.Position, leaderObject.Position,
                 leaderRotation, spacing);
+            followState.Enter(follow.IsCatchingUp ? FollowState.CatchUp : FollowState.Following);
+            if (!follow.ShouldMove) StopBmrFollow();
             if (follow.ShouldMove &&
                 UpdateVnavRecovery(local.Position, follow.Target, follow.DistanceToTarget, 0.5f, now))
             {
                 smoothFollow.Stop();
                 LastAction = $"vnavmeshで追従復帰中（{distance:0.0}m）";
+            }
+            else if (follow.ShouldMove && TryStartBmrFollow(leader, now))
+            {
+                smoothFollow.Stop();
+                LastAction = "BMRで追従中";
             }
             else if (follow.ShouldMove)
             {
@@ -2314,6 +2549,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
             {
                 smoothFollow.Stop();
                 StopVnavRecovery();
+                followState.ResetProgress();
                 LastAction = leader.Mounted
                     ? $"相乗りを再試行待ち（{distance:0.0}m）"
                     : $"リーダー後方のDead Zone内で待機（{distance:0.0}m）";
@@ -2467,79 +2703,68 @@ public sealed class CharacterLinkCoordinator : IDisposable
     private bool UpdateVnavRecovery(Vector3 localPosition, Vector3 leaderPosition,
         float distance, float spacing, DateTime now)
     {
-        if (!plugin.Configuration.VnavmeshStuckRecoveryEnabled || !IsVnavmeshLoaded)
+        var tick = Environment.TickCount64;
+        if (EffectiveFollow.Recovery != true || !IsVnavmeshLoaded)
         {
             StopVnavRecovery();
-            ResetFollowProgress(localPosition, now);
             return false;
         }
-
         if (vnavRecoveryActive)
         {
-            if (distance <= spacing + 0.5f)
+            CompleteFollowPath();
+            followState.Enter(FollowState.Recovery);
+            if (distance <= spacing + 1f || tick - recoveryStartedAt > 15000 ||
+                (tick - recoveryRequestAt > 1500 && !IsVnavMovementRunning()))
             {
                 StopVnavRecovery();
-                ResetFollowProgress(localPosition, now);
+                followState.ResetProgress();
+                backendRetryAt = tick + 3000;
                 return false;
             }
-
-            if (now - lastVnavRepathUtc >= TimeSpan.FromSeconds(1) && !IsVnavMovementRunning())
-            {
-                vnavRecoveryActive = false;
-                ResetFollowProgress(localPosition, now);
-                return false;
-            }
-
-            if (now - lastVnavRepathUtc >= TimeSpan.FromSeconds(2) &&
-                Vector3.DistanceSquared(lastVnavDestination, leaderPosition) >= 9f)
+            if (tick - recoveryRequestAt >= 1500 &&
+                Vector3.DistanceSquared(lastVnavDestination, leaderPosition) >= 4f)
                 RequestVnavRecovery(leaderPosition, spacing, now);
             return true;
         }
-
-        if (followProgressSampleUtc == default)
-        {
-            ResetFollowProgress(localPosition, now);
+        if (tick < backendRetryAt || !followState.NeedsRecovery(localPosition, distance, tick))
             return false;
-        }
-        if (now - followProgressSampleUtc < TimeSpan.FromMilliseconds(500))
-            return false;
-
-        var moved = Vector3.Distance(followProgressSamplePosition, localPosition);
-        followProgressSamplePosition = localPosition;
-        followProgressSampleUtc = now;
-        if (moved >= 0.15f || distance <= spacing + 2f)
-        {
-            followStalledSinceUtc = default;
-            return false;
-        }
-
-        if (followStalledSinceUtc == default)
-        {
-            followStalledSinceUtc = now;
-            return false;
-        }
-        if (now - followStalledSinceUtc < TimeSpan.FromSeconds(2))
-            return false;
-
-        followStalledSinceUtc = default;
+        StopBmrFollow();
+        backendRetryAt = tick + 3000;
         return RequestVnavRecovery(leaderPosition, spacing, now);
     }
 
-    private bool RequestVnavRecovery(Vector3 destination, float spacing, DateTime now)
+    private bool RequestVnavRecovery(Vector3 destination, float spacing, DateTime now, bool fly = false)
     {
+        var tick = Environment.TickCount64;
+        if (!IsVnavmeshLoaded || combatBmrActive || followBmrOwned ||
+            lifestreamBusyThisFrame || now < travelHandoffUntilUtc ||
+            tick - recoveryRequestAt < 1000 || (!vnavRecoveryActive && IsVnavMovementRunning()))
+            return vnavRecoveryActive;
+        recoveryRequestAt = tick;
         try
         {
             var ready = Plugin.PluginInterface.GetIpcSubscriber<bool>("vnavmesh.Nav.IsReady").InvokeFunc();
             if (!ready)
                 return false;
-            var accepted = Plugin.PluginInterface
-                .GetIpcSubscriber<Vector3, bool, float, bool>("vnavmesh.SimpleMove.PathfindAndMoveCloseTo")
-                .InvokeFunc(destination, false, Math.Max(1f, spacing));
-            if (!accepted)
-                return false;
+            CompleteFollowPath();
+            if (pendingFollowPath is not null) return true;
+            if (vnavRecoveryActive && IsVnavMovementRunning() &&
+                Vector3.DistanceSquared(lastVnavDestination, destination) < 4f &&
+                tick - lastFollowPathRequestAt < 5000) return true;
+            followPathCancellation?.Dispose();
+            followPathCancellation = new CancellationTokenSource();
+            followPathFlying = fly;
+            lastFollowPathRequestAt = tick;
+            pendingFollowPath = Plugin.PluginInterface
+                .GetIpcSubscriber<Vector3, Vector3, bool, CancellationToken, Task<List<Vector3>>>("vnavmesh.Nav.PathfindCancelable")
+                .InvokeFunc(Plugin.ObjectTable.LocalPlayer!.Position, destination, fly, followPathCancellation.Token);
+            // Observe failures even if a later stop discards this generation of the request.
+            _ = pendingFollowPath.ContinueWith(task => { _ = task.Exception; },
+                TaskContinuationOptions.OnlyOnFaulted);
+            if (!vnavRecoveryActive) recoveryStartedAt = tick;
             vnavRecoveryActive = true;
+            smoothFollow.Stop();
             lastVnavDestination = destination;
-            lastVnavRepathUtc = now;
             return true;
         }
         catch (Exception exception)
@@ -2551,7 +2776,11 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void StopVnavRecovery()
     {
-        if (vnavRecoveryActive)
+        followPathCancellation?.Cancel();
+        followPathCancellation?.Dispose();
+        followPathCancellation = null;
+        pendingFollowPath = null;
+        if (followPathIssued)
         {
             try
             {
@@ -2562,13 +2791,13 @@ public sealed class CharacterLinkCoordinator : IDisposable
                 Plugin.Log.Verbose(exception, "vnavmeshの追従復帰を停止できませんでした。");
             }
         }
+        followPathIssued = false;
         vnavRecoveryActive = false;
-        followStalledSinceUtc = default;
-        lastVnavRepathUtc = default;
     }
 
-    private static bool IsVnavMovementRunning()
+    private bool IsVnavMovementRunning()
     {
+        if (pendingFollowPath is not null) return true;
         try
         {
             return Plugin.PluginInterface
@@ -2580,13 +2809,6 @@ public sealed class CharacterLinkCoordinator : IDisposable
         {
             return false;
         }
-    }
-
-    private void ResetFollowProgress(Vector3 position, DateTime now)
-    {
-        followProgressSamplePosition = position;
-        followProgressSampleUtc = now;
-        followStalledSinceUtc = default;
     }
 
     private void ResetPillionAttempts()
@@ -2607,14 +2829,21 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
         peers.Clear();
         lastReceivedSequences.Clear();
+        StopBmrFollow();
+        StopCombatAutomation();
+        followState.Enter(FollowState.Idle);
+        aethernetEvidence.Reset();
+        lastAethernetSampleUtc = default;
+        cityJumpConfirmed = residentialJumpConfirmed = false;
         travelCoordinator.Reset();
         followController.Reset();
         smoothFollow.Stop();
         StopVnavRecovery();
-        followProgressSampleUtc = default;
         ClearPendingInteraction();
         leaderWasInInteraction = false;
         ResetPillionAttempts();
+        takeoffAttempts = 0;
+        nextTakeoffAt = 0;
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
         combatBmrActive = false;
@@ -2649,14 +2878,21 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     private void ClearCrossWorldAutomation()
     {
+        StopBmrFollow();
+        StopCombatAutomation();
+        followState.Enter(FollowState.Idle);
+        aethernetEvidence.Reset();
+        lastAethernetSampleUtc = default;
+        cityJumpConfirmed = residentialJumpConfirmed = false;
         travelCoordinator.Reset();
         followController.Reset();
         smoothFollow.Stop();
         StopVnavRecovery();
-        followProgressSampleUtc = default;
         ClearPendingInteraction();
         leaderWasInInteraction = false;
         ResetPillionAttempts();
+        takeoffAttempts = 0;
+        nextTakeoffAt = 0;
         mountedByRouletteFallback = false;
         combatAutomationActive = false;
         leaderCombatEndedUtc = null;
@@ -2697,6 +2933,14 @@ public sealed class CharacterLinkCoordinator : IDisposable
         }
     }
 
+    private static bool IsAutomationSuspended() => Plugin.Condition.Any(
+        ConditionFlag.BetweenAreas, ConditionFlag.BetweenAreas51,
+        ConditionFlag.Occupied, ConditionFlag.OccupiedInEvent,
+        ConditionFlag.OccupiedInQuestEvent, ConditionFlag.OccupiedInCutSceneEvent,
+        ConditionFlag.WatchingCutscene, ConditionFlag.WatchingCutscene78,
+        ConditionFlag.Crafting, ConditionFlag.Gathering, ConditionFlag.TradeOpen,
+        ConditionFlag.Unconscious);
+
     private static bool IsBlocked() => Plugin.Condition.Any(
         ConditionFlag.BetweenAreas, ConditionFlag.BetweenAreas51,
         ConditionFlag.Occupied, ConditionFlag.OccupiedInEvent,
@@ -2721,6 +2965,7 @@ public sealed class CharacterLinkCoordinator : IDisposable
 
     public void Dispose()
     {
+        StopBmrFollow();
         if (combatAutomationActive)
             StopCombatAutomation();
         StopVnavRecovery();
@@ -2767,6 +3012,8 @@ public sealed class LinkedCharacterState
     public bool InCombat { get; set; }
     public bool Mounted { get; set; }
     public bool RidingPillion { get; set; }
+    public bool Flying { get; set; }
+    public bool InDuty { get; set; }
     public byte CastActionType { get; set; }
     public uint CastActionId { get; set; }
     public uint ActiveAetheryteId { get; set; }
@@ -2796,6 +3043,7 @@ public sealed class LinkedCharacterState
     public bool AutoAcceptPartyInviteEnabled { get; set; }
     public bool PauseInCombat { get; set; }
     public float FollowDistance { get; set; }
+    public bool PreferBossModFollow { get; set; }
     public bool VnavmeshStuckRecoveryEnabled { get; set; }
     public bool SyncLeaderInteractionEnabled { get; set; }
     public bool CombatLinkEnabled { get; set; }

@@ -174,6 +174,19 @@ internal sealed class SharedConfigurationStore : IDisposable
         observedFile = FileStamp();
     }
 
+    private static void MergeOverrideChanges<TKey>(Dictionary<TKey, FollowOverrides> target,
+        Dictionary<TKey, FollowOverrides> current, Dictionary<TKey, FollowOverrides> baseline) where TKey : notnull
+    {
+        foreach (var key in current.Keys.Union(baseline.Keys))
+        {
+            current.TryGetValue(key, out var value);
+            baseline.TryGetValue(key, out var before);
+            if (JsonSerializer.Serialize(value) == JsonSerializer.Serialize(before)) continue;
+            if (value is null) target.Remove(key);
+            else target[key] = JsonSerializer.Deserialize<FollowOverrides>(JsonSerializer.Serialize(value))!;
+        }
+    }
+
     private static Configuration Clone(Configuration source) =>
         JsonSerializer.Deserialize<Configuration>(JsonSerializer.Serialize(source)) ?? new Configuration();
 
@@ -279,6 +292,8 @@ internal sealed class SharedConfigurationStore : IDisposable
             target.CycleAnchorUtc = incoming.CycleAnchorUtc;
         }
         if (!preferIncomingSettings) return;
+        target.CharacterFollowOverrides = incoming.CharacterFollowOverrides;
+        target.PairFollowOverrides = incoming.PairFollowOverrides;
         target.LinkEnabled = incoming.LinkEnabled;
         target.LinkLeaderContentId = incoming.LinkLeaderContentId;
         target.AutoFollowEnabled = incoming.AutoFollowEnabled;
@@ -287,6 +302,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.AutoAcceptPartyInviteEnabled = incoming.AutoAcceptPartyInviteEnabled;
         target.PauseLinkInCombat = incoming.PauseLinkInCombat;
         target.FollowStartDistance = incoming.FollowStartDistance;
+        target.PreferBossModFollow = incoming.PreferBossModFollow;
         target.VnavmeshStuckRecoveryEnabled = incoming.VnavmeshStuckRecoveryEnabled;
         target.SyncLeaderInteractionEnabled = incoming.SyncLeaderInteractionEnabled;
         target.CombatLinkEnabled = incoming.CombatLinkEnabled;
@@ -329,6 +345,9 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.AutoAcceptPartyInviteEnabled != baseline.AutoAcceptPartyInviteEnabled) target.AutoAcceptPartyInviteEnabled = current.AutoAcceptPartyInviteEnabled;
         if (current.PauseLinkInCombat != baseline.PauseLinkInCombat) target.PauseLinkInCombat = current.PauseLinkInCombat;
         if (Math.Abs(current.FollowStartDistance - baseline.FollowStartDistance) > 0.001f) target.FollowStartDistance = current.FollowStartDistance;
+        MergeOverrideChanges(target.CharacterFollowOverrides, current.CharacterFollowOverrides, baseline.CharacterFollowOverrides);
+        MergeOverrideChanges(target.PairFollowOverrides, current.PairFollowOverrides, baseline.PairFollowOverrides);
+        if (current.PreferBossModFollow != baseline.PreferBossModFollow) target.PreferBossModFollow = current.PreferBossModFollow;
         if (current.VnavmeshStuckRecoveryEnabled != baseline.VnavmeshStuckRecoveryEnabled) target.VnavmeshStuckRecoveryEnabled = current.VnavmeshStuckRecoveryEnabled;
         if (current.SyncLeaderInteractionEnabled != baseline.SyncLeaderInteractionEnabled) target.SyncLeaderInteractionEnabled = current.SyncLeaderInteractionEnabled;
         if (current.CombatLinkEnabled != baseline.CombatLinkEnabled) target.CombatLinkEnabled = current.CombatLinkEnabled;

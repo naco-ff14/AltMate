@@ -28,6 +28,9 @@ public sealed class Configuration : IPluginConfiguration
     public bool AutoAcceptPartyInviteEnabled { get; set; } = true;
     public bool PauseLinkInCombat { get; set; } = true;
     public float FollowStartDistance { get; set; } = 5f;
+    public bool PreferBossModFollow { get; set; }
+    public Dictionary<ulong, FollowOverrides> CharacterFollowOverrides { get; set; } = new();
+    public Dictionary<string, FollowOverrides> PairFollowOverrides { get; set; } = new();
     public bool VnavmeshStuckRecoveryEnabled { get; set; } = true;
     public bool SyncLeaderInteractionEnabled { get; set; }
     public bool CombatLinkEnabled { get; set; }
@@ -68,6 +71,31 @@ public sealed class Configuration : IPluginConfiguration
     public int LastHousingSection { get; set; }
 
     public void Save() => Plugin.SaveConfiguration(this);
+}
+
+[Serializable]
+public sealed class FollowOverrides
+{
+    public float? Distance { get; set; }
+    public bool? PreferBossMod { get; set; }
+    public bool? Recovery { get; set; }
+    public bool? MountFallback { get; set; }
+
+    public static string PairKey(ulong follower, ulong leader) => $"{follower}:{leader}";
+
+    public static FollowOverrides Resolve(Configuration config, ulong follower, ulong leader)
+    {
+        config.CharacterFollowOverrides.TryGetValue(follower, out var character);
+        config.PairFollowOverrides.TryGetValue(PairKey(follower, leader), out var pair);
+        var distance = pair?.Distance ?? character?.Distance ?? config.FollowStartDistance;
+        return new FollowOverrides
+        {
+            Distance = float.IsFinite(distance) ? Math.Clamp(distance, 1f, 15f) : 5f,
+            PreferBossMod = pair?.PreferBossMod ?? character?.PreferBossMod ?? config.PreferBossModFollow,
+            Recovery = pair?.Recovery ?? character?.Recovery ?? config.VnavmeshStuckRecoveryEnabled,
+            MountFallback = pair?.MountFallback ?? character?.MountFallback ?? config.MountRouletteFallbackEnabled,
+        };
+    }
 }
 
 public enum OwnedEstateKind

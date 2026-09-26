@@ -2,6 +2,8 @@ using AltMate;
 using System.Diagnostics;
 using System.Reflection;
 
+FollowRegression.Run();
+
 var directory = Path.Combine(Path.GetTempPath(), "AltMate-regression-" + Guid.NewGuid());
 var mutexName = "Local\\AltMate.Regression." + Guid.NewGuid();
 var observation = new StableGilObservation();
@@ -49,6 +51,19 @@ try
     Require(b.FollowStartDistance == 12 && b.Language == "en", "independent settings merge");
     Require(first.ReloadIfNewer(a, revision, out _), "revision notification reload");
     Require(a.Language == "en" && a.FollowStartDistance == 12, "reload contents");
+
+    a.CharacterFollowOverrides[1] = new FollowOverrides { Distance = 4 };
+    Require(first.TrySaveMerged(a, true, out revision), "save character follow override");
+    b.PairFollowOverrides["2:1"] = new FollowOverrides { PreferBossMod = true };
+    Require(second.TrySaveMerged(b, true, out revision), "merge independent pair override");
+    Require(b.CharacterFollowOverrides[1].Distance == 4 && b.PairFollowOverrides["2:1"].PreferBossMod == true,
+        "stale client does not erase another character profile");
+    Require(first.ReloadIfNewer(a, revision, out _), "reload follow overrides");
+    a.CharacterFollowOverrides.Remove(1);
+    Require(first.TrySaveMerged(a, true, out revision), "remove character override");
+    Require(second.ReloadIfNewer(b, revision, out _), "reload removed override");
+    Require(!b.CharacterFollowOverrides.ContainsKey(1) && b.PairFollowOverrides.ContainsKey("2:1"),
+        "profile deletion preserves independent pair");
 
     a.CrafterLevelingCharacters[123] = new CrafterLevelingSettings();
     a.CrafterLevelingCharacters[123].GearCraftingSelections[987] = 4;

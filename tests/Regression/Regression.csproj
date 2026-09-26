@@ -6,6 +6,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../FollowStateMachine.cs" Link="FollowStateMachine.cs" />
+    <Compile Include="../../FollowController.cs" Link="FollowController.cs" />
     <Compile Include="../../StableGilObservation.cs" Link="StableGilObservation.cs" />
     <Compile Include="../../FreeCompanyChestSession.cs" Link="FreeCompanyChestSession.cs" />
     <Compile Include="../../SharedConfigurationStore.cs" Link="SharedConfigurationStore.cs" />

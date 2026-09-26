@@ -1785,6 +1785,15 @@ public sealed partial class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        ImGui.TextDisabled($"追従状態: {plugin.CharacterLink.FollowStatus}");
+        var preferBmrFollow = plugin.Configuration.PreferBossModFollow;
+        if (ImGui.Checkbox(Loc.L("通常追従にBMRを優先（停止時はvnavmeshへ復旧）", "Prefer BMR follow with vnavmesh recovery"), ref preferBmrFollow))
+        {
+            plugin.Configuration.PreferBossModFollow = preferBmrFollow;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        DrawFollowOverrides();
         var vnavRecovery = plugin.Configuration.VnavmeshStuckRecoveryEnabled;
         if (ImGui.Checkbox(Loc.L("追従が詰まった時にvnavmeshで復帰", "Use vnavmesh when follow gets stuck"), ref vnavRecovery))
         {
