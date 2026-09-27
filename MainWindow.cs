@@ -1837,12 +1837,28 @@ public sealed partial class MainWindow : Window
         ImGui.TextDisabled(Loc.L("学者：鼓舞激励の策／賢者：エウクラシア・ディアグノシス",
             "Scholar: Adloquium / Sage: Eukrasian Diagnosis"));
         var useBmr = plugin.Configuration.UseBossModReborn;
-        if (ImGui.Checkbox(Loc.IsEnglish ? "BossMod Reborn (movement and targeting)" : "BossMod Reborn（移動・ターゲット）", ref useBmr))
+        if (ImGui.Checkbox(Loc.IsEnglish ? "BossMod Reborn" : "BossMod Reborn", ref useBmr))
         {
             plugin.Configuration.UseBossModReborn = useBmr;
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var bmrRole = (int)plugin.Configuration.BossModRole;
+        if (ImGui.Combo(Loc.L("BMRの戦闘担当", "BMR combat role"), ref bmrRole,
+            Loc.IsEnglish ? new[] { "Preserve existing BMR settings", "Movement only", "Movement and actions" }
+                : new[] { "BMRの既存設定を維持（標準）", "移動のみ", "移動＋スキル回し" }, 3))
+        {
+            plugin.Configuration.BossModRole = (BossModCombatRole)bmrRole;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.TextDisabled(Loc.L("標準ではForbidActionsを変更せず、BMR有効時はRSRを起動しません。",
+            "Default preserves ForbidActions and does not start RSR alongside BMR."));
+        ImGui.TextDisabled(Loc.L("移動のみ／移動＋スキル回しは一時変更し、終了時に復元します。",
+            "Explicit roles temporarily change ForbidActions and restore it on exit."));
+        ImGui.TextDisabled(Loc.L("RSR使用時はBMRを無効、または移動のみに設定。RSR稼働時の移動はAltMateが担当します。",
+            "For RSR, disable BMR or select movement only. AltMate handles movement while RSR runs."));
+        ImGui.TextDisabled(plugin.CharacterLink.BmrSettingStatus);
         var useRsr = plugin.Configuration.UseRotationSolverReborn;
         if (ImGui.Checkbox(Loc.IsEnglish ? "Rotation Solver Reborn (combat rotation)" : "Rotation Solver Reborn（攻撃ローテーション）", ref useRsr))
         {

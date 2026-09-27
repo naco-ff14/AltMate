@@ -36,6 +36,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool CombatLinkEnabled { get; set; }
     public bool AutoBarrierLeaderEnabled { get; set; } = true;
     public bool UseBossModReborn { get; set; } = true;
+    public BossModCombatRole BossModRole { get; set; } = BossModCombatRole.PreserveExisting;
     public bool UseRotationSolverReborn { get; set; } = true;
     public float CombatStopDelaySeconds { get; set; } = 3f;
     public bool OccultAethernetSyncEnabled { get; set; } = true;

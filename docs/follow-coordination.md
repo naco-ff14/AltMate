@@ -64,3 +64,19 @@ vnavmeshの契約: https://github.com/awgil/ffxiv_navmesh/blob/master/vnavmesh/I
 - Wrathは競合監視のみ。Wrathの自動起動・設定書換え・専用リース取得は行わない。IPCが使えない場合は競合回避を優先しRSR開始を待機する。
 - 設定階層の対象は上記4項目。他の戦闘/転送設定は既存の共通設定を維持する。
 - 通常追従のBMR優先を使う場合は、連携操作画面の新チェック項目をONにする。
+
+## BMR設定保持の追加修正（v1.62.1）
+
+- 標準は「BMRの既存設定を維持」。通常追従・戦闘開始で `forbidactions` のON/OFF命令を送らない。現在値がONでもOFFでも維持する。
+- 標準でBMRが有効な場合、AltMateはRSRを同時起動しない。BMRの既存プリセットをそのまま使う。
+- 「移動のみ」を明示した場合に限りForbidActionsを一時的にON、「移動＋スキル回し」の戦闘開始では一時的にOFFにする。後者の通常追従では設定を変更しない。
+- 明示的変更は公開 `BossMod.Configuration` IPCでAIConfig.ForbidActionsを読み、元の値を記録してから適用する。読み取り不可・曖昧なIPC提供元の場合はBMRの開始を保留し、画面に理由を表示する。
+- 変更後の値を再読込して確認し、停止・設定変更・ログアウト等で元の値に戻す。現在値がAltMateの設定値と異なる場合は手動変更として維持する。復元失敗は記録を保持して再試行する。
+- 保存済みの値にも復元を反映する。プロセスの強制終了・クラッシュ、BMRを先にアンロードした場合の復元までは保証しない。BMRをアンロードしたセッションの記録を新しいインスタンスへ自動適用しない。
+- ForbidActions単独をスキル回しの排他制御として扱わない。「移動のみ」でRSRが有効なら、BMRは起動せずAltMateが移動を担当する。Wrath稼働中もBMR/RSRを新規起動しない。ユーザーが別途手動で起動した回しまで停止する仕組みではない。
+- 192通りの役割・稼働条件、標準で読み書きゼロ、元のON/OFFの復元、手動変更、読み書き失敗と再試行、設定共有を検証。ビルド・回帰テスト成功。ゲーム内での今回の修正とIPC互換性は未検証。
+- この復元の対象はForbidActionsのみ。追従先や他のBMR設定を含めた全設定復元は別の作業となる。
+
+参照した公開契約:
+- https://github.com/FFXIV-CombatReborn/BossmodReborn/blob/main/BossMod/Framework/IPCProvider.cs
+- https://github.com/FFXIV-CombatReborn/BossmodReborn/blob/main/BossMod/Config/ConfigRoot.cs

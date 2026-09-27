@@ -6,6 +6,12 @@ namespace AltMate;
 
 public sealed partial class CharacterLinkCoordinator
 {
+    private CombatAutomationPlan ResolveCombatPlan() => CombatAutomationPlan.Resolve(
+        plugin.Configuration.UseBossModReborn, IsPluginLoaded("BossModReborn"), plugin.Configuration.BossModRole,
+        plugin.Configuration.UseRotationSolverReborn,
+        IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn"),
+        IsWrathRotationActive(), IsCastingJob(Plugin.PlayerState.ClassJob.RowId));
+
     private void CompleteFollowPath()
     {
         var task = pendingFollowPath;
@@ -129,16 +135,27 @@ public sealed partial class CharacterLinkCoordinator
             return false;
         }
         if (followBmrOwned) return true;
+        if (IsWrathRotationActive() || rotationOwned) return false;
+        var temporaryForbid = plugin.Configuration.BossModRole == BossModCombatRole.MovementOnly ? (bool?)true : null;
+        if (!PrepareBmrActions(temporaryForbid))
+        {
+            backendRetryAt = Environment.TickCount64 + 3000;
+            return false;
+        }
         try
         {
             Plugin.CommandManager.ProcessCommand($"/bmrai follow {leader.CharacterName}");
-            Plugin.CommandManager.ProcessCommand("/bmrai forbidactions on");
             Plugin.CommandManager.ProcessCommand("/bmrai followoutofcombat on");
             followBmrOwned = Plugin.CommandManager.ProcessCommand("/bmrai on");
-            if (!followBmrOwned) backendRetryAt = Environment.TickCount64 + 3000;
+            if (!followBmrOwned)
+            {
+                RestoreBmrActions();
+                backendRetryAt = Environment.TickCount64 + 3000;
+            }
         }
         catch (Exception exception)
         {
+            RestoreBmrActions();
             Plugin.Log.Verbose(exception, "BMR追従の開始に失敗しました。");
             backendRetryAt = Environment.TickCount64 + 3000;
         }
@@ -158,5 +175,6 @@ public sealed partial class CharacterLinkCoordinator
             Plugin.Log.Verbose(exception, "BMR追従の停止に失敗しました。");
         }
         followBmrOwned = false;
+        RestoreBmrActions();
     }
 }

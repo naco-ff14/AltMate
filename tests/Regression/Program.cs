@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Reflection;
 
 FollowRegression.Run();
+CombatRegression.Run();
 
 var directory = Path.Combine(Path.GetTempPath(), "AltMate-regression-" + Guid.NewGuid());
 var mutexName = "Local\\AltMate.Regression." + Guid.NewGuid();
@@ -43,12 +44,14 @@ try
     second.LoadInto(b);
 
     a.FollowStartDistance = 12;
+    a.BossModRole = BossModCombatRole.MovementAndActions;
     Require(first.TrySaveMerged(a, true, out var revision), "initial save");
     // This client still has the older baseline. Its independent edit must not
     // overwrite the first client's change during the eventual deferred merge.
     b.Language = "en";
     Require(second.TrySaveMerged(b, true, out revision), "stale-baseline save");
     Require(b.FollowStartDistance == 12 && b.Language == "en", "independent settings merge");
+    Require(b.BossModRole == BossModCombatRole.MovementAndActions, "BMR role survives another client's save");
     Require(first.ReloadIfNewer(a, revision, out _), "revision notification reload");
     Require(a.Language == "en" && a.FollowStartDistance == 12, "reload contents");
 

@@ -307,6 +307,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.SyncLeaderInteractionEnabled = incoming.SyncLeaderInteractionEnabled;
         target.CombatLinkEnabled = incoming.CombatLinkEnabled;
         target.AutoBarrierLeaderEnabled = incoming.AutoBarrierLeaderEnabled;
+        target.BossModRole = incoming.BossModRole;
         target.UseBossModReborn = incoming.UseBossModReborn;
         target.UseRotationSolverReborn = incoming.UseRotationSolverReborn;
         target.CombatStopDelaySeconds = incoming.CombatStopDelaySeconds;
@@ -352,6 +353,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.SyncLeaderInteractionEnabled != baseline.SyncLeaderInteractionEnabled) target.SyncLeaderInteractionEnabled = current.SyncLeaderInteractionEnabled;
         if (current.CombatLinkEnabled != baseline.CombatLinkEnabled) target.CombatLinkEnabled = current.CombatLinkEnabled;
         if (current.AutoBarrierLeaderEnabled != baseline.AutoBarrierLeaderEnabled) target.AutoBarrierLeaderEnabled = current.AutoBarrierLeaderEnabled;
+        if (current.BossModRole != baseline.BossModRole) target.BossModRole = current.BossModRole;
         if (current.UseBossModReborn != baseline.UseBossModReborn) target.UseBossModReborn = current.UseBossModReborn;
         if (current.UseRotationSolverReborn != baseline.UseRotationSolverReborn) target.UseRotationSolverReborn = current.UseRotationSolverReborn;
         if (Math.Abs(current.CombatStopDelaySeconds - baseline.CombatStopDelaySeconds) > 0.001f) target.CombatStopDelaySeconds = current.CombatStopDelaySeconds;

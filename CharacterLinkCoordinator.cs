@@ -89,6 +89,8 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
     private bool localCharacterUnavailable;
     private DateTime localCharacterReadySinceUtc;
     private bool combatAutomationActive;
+    private CombatAutomationPlan? activeCombatPlan;
+    private long nextCombatStartAt;
     private bool combatBmrActive;
     private DateTime? leaderCombatEndedUtc;
     private DateTime lastBarrierAttemptUtc;
@@ -1787,14 +1789,12 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             return;
         }
 
-        if (combatBmrActive && !IsPluginLoaded("BossModReborn")) combatBmrActive = false;
-        if (rotationOwned && (!(IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn")) ||
-            IsWrathRotationActive()))
+        if (activeCombatPlan is { } active && active != ResolveCombatPlan())
             StopCombatAutomation();
         if (leader.InCombat || Plugin.Condition[ConditionFlag.InCombat])
         {
             leaderCombatEndedUtc = null;
-            if (!combatAutomationActive)
+            if (!combatAutomationActive && Environment.TickCount64 >= nextCombatStartAt)
                 StartCombatAutomation(leader);
             return;
         }
@@ -1882,24 +1882,23 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
 
     private void StartCombatAutomation(LinkedCharacterState leader)
     {
+        nextCombatStartAt = Environment.TickCount64 + 2000;
         ReleaseFollowMovement();
         var messages = new System.Collections.Generic.List<string>();
         combatBmrActive = false;
-        var castingJob = IsCastingJob(Plugin.PlayerState.ClassJob.RowId);
-        // Wrath is externally managed. Do not start a second rotation engine beside it.
-        var rsrAvailable = !IsWrathRotationActive() && plugin.Configuration.UseRotationSolverReborn &&
-                           (IsPluginLoaded("RotationSolver") || IsPluginLoaded("RotationSolverReborn"));
-        if (plugin.Configuration.UseBossModReborn && IsPluginLoaded("BossModReborn") &&
-            (!castingJob || !rsrAvailable))
+        var plan = ResolveCombatPlan();
+        activeCombatPlan = plan;
+        if (plan.BossModMovement && PrepareBmrActions(plan.ForbidActions))
         {
             Plugin.CommandManager.ProcessCommand($"/bmrai follow {leader.CharacterName}");
-            Plugin.CommandManager.ProcessCommand("/bmrai forbidactions on");
             Plugin.CommandManager.ProcessCommand("/bmrai followcombat on");
             Plugin.CommandManager.ProcessCommand("/bmrai followtarget on");
             combatBmrActive = Plugin.CommandManager.ProcessCommand("/bmrai on");
-            if (combatBmrActive) messages.Add("BMR");
+            if (combatBmrActive) messages.Add(plan.ForbidActions is null ? "BMR（既存設定）"
+                : plan.ForbidActions == true ? "BMR（移動のみ）" : "BMR（移動＋スキル）");
+            else RestoreBmrActions();
         }
-        if (rsrAvailable)
+        if (plan.RotationSolver)
         {
             rotationOwned = Plugin.CommandManager.ProcessCommand("/rsr Auto");
             if (rotationOwned) messages.Add("RSR");
@@ -1908,11 +1907,12 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         combatAutomationActive = messages.Count > 0;
         CombatStatus = combatAutomationActive
             ? $"戦闘連携中：{string.Join(" + ", messages)}"
-            : "BMR／RSRが読み込まれていません";
+            : "戦闘担当なし：プラグイン状態・役割設定を確認してください";
     }
 
     private void StopCombatAutomation()
     {
+        activeCombatPlan = null;
         if (combatRecovery) StopVnavRecovery();
         combatRecovery = false;
         if (rotationOwned &&
@@ -1920,6 +1920,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             Plugin.CommandManager.ProcessCommand("/rsr Off");
         if (combatBmrActive && IsPluginLoaded("BossModReborn"))
             Plugin.CommandManager.ProcessCommand("/bmrai off");
+        if (!followBmrOwned) RestoreBmrActions();
         rotationOwned = false;
         combatAutomationActive = false;
         combatBmrActive = false;
@@ -2178,6 +2179,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 CombatLinkEnabled = plugin.Configuration.CombatLinkEnabled,
                 AutoBarrierLeaderEnabled = plugin.Configuration.AutoBarrierLeaderEnabled,
                 UseBossModReborn = plugin.Configuration.UseBossModReborn,
+                BossModRole = plugin.Configuration.BossModRole,
                 UseRotationSolverReborn = plugin.Configuration.UseRotationSolverReborn,
                 CombatStopDelaySeconds = plugin.Configuration.CombatStopDelaySeconds,
                 OccultAethernetSyncEnabled = plugin.Configuration.OccultAethernetSyncEnabled,
@@ -2222,6 +2224,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
         plugin.Configuration.AutoBarrierLeaderEnabled = state.AutoBarrierLeaderEnabled;
         plugin.Configuration.UseBossModReborn = state.UseBossModReborn;
+        plugin.Configuration.BossModRole = Enum.IsDefined(state.BossModRole) ? state.BossModRole : BossModCombatRole.PreserveExisting;
         plugin.Configuration.UseRotationSolverReborn = state.UseRotationSolverReborn;
         plugin.Configuration.CombatStopDelaySeconds = Math.Clamp(state.CombatStopDelaySeconds, 0f, 15f);
         plugin.Configuration.OccultAethernetSyncEnabled = state.OccultAethernetSyncEnabled;
@@ -3049,6 +3052,7 @@ public sealed class LinkedCharacterState
     public bool CombatLinkEnabled { get; set; }
     public bool AutoBarrierLeaderEnabled { get; set; }
     public bool UseBossModReborn { get; set; }
+    public BossModCombatRole BossModRole { get; set; }
     public bool UseRotationSolverReborn { get; set; }
     public float CombatStopDelaySeconds { get; set; }
     public bool OccultAethernetSyncEnabled { get; set; }
