@@ -18,6 +18,14 @@ internal static class FollowRegression
         Check(!near.Update(new Vector3(2, 0, 0), Vector3.Zero, 3, 5, 100, true).ShouldMove, "leader turning does not circle");
         var approach = near.Update(new Vector3(10, 0, 0), Vector3.Zero, 0, 5, 200, true);
         Check(approach.ShouldMove && approach.Target == new Vector3(5, 0, 0), "nearby approaches nearest boundary");
+        foreach (var dc in new[] { "Elemental", "Gaia", "Mana", "Meteor", "Dynamis", "Chaos", "Light", "Aether", "Primal", "Crystal" })
+        {
+            var types = Enumerable.Range(1, 30).Select(w => HousingPurchaseTypes.Resolve(dc, w)).ToArray();
+            Check(types.Count(x => x == "FC") == 7 && types.Count(x => x == "Solo") == 5 && types.Count(x => x == "FC/Solo") == 18, "ward type totals");
+            Check(types[5] == "FC" && types[6] == "FC/Solo" && types[19] == "FC/Solo" && types[20] == "Solo" && types[24] == "FC" && types[25] == "FC/Solo" && types[29] == "Solo", "ward boundaries");
+        }
+        Check(HousingPurchaseTypes.Resolve("Materia", 9) == "FC" && HousingPurchaseTypes.Resolve("Materia", 10) == "Solo" && HousingPurchaseTypes.Resolve("Materia", 25) is null, "Materia exception");
+        Check(HousingPurchaseTypes.Resolve("Unknown", 1) is null && HousingPurchaseTypes.Resolve("Mana", 0) is null && HousingPurchaseTypes.Resolve("Mana", 31) is null, "unverified wards stay unknown");
         long StuckAt(int fps)
         {
             var machine = new FollowStateMachine();

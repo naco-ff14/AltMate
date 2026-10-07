@@ -43,6 +43,10 @@ public sealed partial class MainWindow : Window
     private string scanMessage = string.Empty;
     private int sizeFilterIndex;
     private string worldFilter = "ALL";
+    private bool initializeHousingWorldFilter = true;
+    private ulong housingFilterCharacter;
+
+    internal void ResetHousingWorldFilter() => initializeHousingWorldFilter = true;
     private string mapPreviewMessage = string.Empty;
     private MainSection selectedSection = MainSection.Home;
     private HousingSection selectedHousingSection = HousingSection.Lottery;
@@ -2252,7 +2256,21 @@ public sealed partial class MainWindow : Window
         ImGui.Combo(Loc.L("サイズ", "Size"), ref sizeFilterIndex, SizeFilters, SizeFilters.Length);
         ImGui.SameLine();
 
+        string? homeWorld = null;
+        if (Plugin.ClientState.IsLoggedIn && Plugin.PlayerState.IsLoaded && Plugin.PlayerState.ContentId != 0)
+        {
+            homeWorld = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
+            if (!string.IsNullOrWhiteSpace(homeWorld) &&
+                (initializeHousingWorldFilter || housingFilterCharacter != Plugin.PlayerState.ContentId))
+            {
+                worldFilter = homeWorld;
+                housingFilterCharacter = Plugin.PlayerState.ContentId;
+                initializeHousingWorldFilter = false;
+            }
+        }
+        // Keep the home world selectable even when no vacant plots have been recorded there.
         var worlds = plugin.Configuration.OpenPlots.Select(x => x.WorldName)
+            .Concat(string.IsNullOrWhiteSpace(homeWorld) ? Array.Empty<string>() : new[] { homeWorld })
             .Distinct().OrderBy(x => x).Prepend("ALL").ToArray();
         if (!worlds.Contains(worldFilter))
             worldFilter = "ALL";
@@ -2292,19 +2310,22 @@ public sealed partial class MainWindow : Window
             return;
         }
 
+        var compactPlots = ImGui.GetContentRegionAvail().X < 850 * ImGuiHelpers.GlobalScale;
+        float PlotColumnWidth(string text) => ImGui.CalcTextSize(text).X + 6 * ImGuiHelpers.GlobalScale;
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
                     ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY;
-        if (!ImGui.BeginTable("open-plots", 7, flags, new Vector2(0, -1)))
+        if (!ImGui.BeginTable("open-plots", 8, flags, new Vector2(0, -1)))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
         ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthStretch, 1f);
-        ImGui.TableSetupColumn(Loc.L("住宅街", "District"), ImGuiTableColumnFlags.WidthStretch, 1.2f);
-        ImGui.TableSetupColumn(Loc.L("区・番地", "Ward / Plot"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn(Loc.L("サイズ", "Size"), ImGuiTableColumnFlags.WidthFixed, 55 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn(Loc.L("価格", "Price"), ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn(Loc.L("応募", "Entry"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
-        ImGui.TableSetupColumn(Loc.L("確認日時", "Checked At"), ImGuiTableColumnFlags.WidthFixed, 145 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("街", "City"), ImGuiTableColumnFlags.WidthFixed, MathF.Max(32 * ImGuiHelpers.GlobalScale, PlotColumnWidth(Loc.L("街", "City"))));
+        ImGui.TableSetupColumn(Loc.L("区・番地", "Plot"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(Loc.L("30区 60番", "W30 P60")));
+        ImGui.TableSetupColumn(Loc.L("購入対象", "Buyer"), ImGuiTableColumnFlags.WidthFixed, MathF.Max(PlotColumnWidth("FC/Solo"), PlotColumnWidth(Loc.L("購入対象", "Buyer"))));
+        ImGui.TableSetupColumn(Loc.L("サイズ", "Size"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(Loc.L("サイズ", "Size")));
+        ImGui.TableSetupColumn(Loc.L("価格(G)", "Price(G)"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth("99,999,999"));
+        ImGui.TableSetupColumn(Loc.L("自キャラ", "Mine"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(Loc.L("自キャラ", "Mine")));
+        ImGui.TableSetupColumn(Loc.L("確認", "Checked"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(compactPlots ? "MM/dd" : "MM/dd HH:mm"));
         ImGui.TableHeadersRow();
 
         foreach (var plot in filteredPlots)
@@ -2340,23 +2361,95 @@ public sealed partial class MainWindow : Window
                 ImGui.EndPopup();
             }
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(plot.DistrictName);
+            DrawHousingDistrictIcon(plot);
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(Loc.L($"{plot.WardNumber}区 {plot.PlotNumber}番地", $"W{plot.WardNumber} P{plot.PlotNumber}"));
+            ImGui.TextUnformatted(Loc.L($"{plot.WardNumber}区 {plot.PlotNumber}番", $"W{plot.WardNumber} P{plot.PlotNumber}"));
+            ImGui.TableNextColumn();
+            var purchaseType = GetHousingPurchaseType(plot);
+            ImGui.TextUnformatted(purchaseType ?? Loc.L("未確認", "Unknown"));
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(purchaseType is null
+                    ? Loc.L("このワールド・区の応募タイプは未確認です。現地で確認してください。", "Buyer type is unverified for this world/ward. Check in game.")
+                    : Loc.L("FC：フリーカンパニー用 / Solo：個人用 / FC/Solo：両方\n公式の区分表に基づく表示（2026-10-07確認）。", "FC: free company / Solo: private / FC/Solo: both\nBased on official ward classifications, checked 2026-10-07."));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(plot.Size);
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted($"{plot.Price:N0} G");
+            ImGui.TextUnformatted($"{plot.Price:N0}");
             ImGui.TableNextColumn();
             if (bidCount > 0)
-                ImGui.TextColored(new Vector4(0.35f, 1f, 0.55f, 1f), Loc.L($"応募中 ×{bidCount}", $"Entered ×{bidCount}"));
+                ImGui.TextColored(new Vector4(0.35f, 1f, 0.55f, 1f), Loc.L($"{bidCount}人", $"{bidCount}"));
             else
                 ImGui.TextDisabled("—");
+            if (ImGui.IsItemHovered())
+            {
+                ImGui.BeginTooltip();
+                ImGui.TextUnformatted(Loc.L("この土地に応募した自キャラクター", "Your characters entered for this plot"));
+                ImGui.Separator();
+                if (bidCount == 0)
+                    ImGui.TextDisabled(Loc.L("今回の応募記録はありません。", "No entries recorded for this cycle."));
+                else
+                {
+                    foreach (var character in plugin.GetBiddingCharacters(plot)
+                        .OrderBy(x => x.WorldName).ThenBy(x => x.CharacterName))
+                    {
+                        ImGui.TextUnformatted($"{character.CharacterName} @ {character.WorldName}");
+                        if (character.ResultChecked)
+                        {
+                            ImGui.SameLine();
+                            ImGui.TextDisabled(Loc.L("（結果確認済み）", "(Result checked)"));
+                        }
+                    }
+                }
+                ImGui.EndTooltip();
+            }
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(FormatDate(plot.CheckedAt));
+            ImGui.TextUnformatted(plot.CheckedAt == default ? "—"
+                : plot.CheckedAt.ToString(compactPlots ? "MM/dd\nHH:mm" : "MM/dd HH:mm"));
+            if (ImGui.IsItemHovered()) ImGui.SetTooltip(FormatDate(plot.CheckedAt));
         }
 
         ImGui.EndTable();
+    }
+
+    private static void DrawHousingDistrictIcon(OpenPlotRecord plot)
+    {
+        // Town icons: Limsa Lominsa, Gridania, Ul'dah, Kugane, Ishgard.
+        uint iconId = plot.TerritoryTypeId switch
+        {
+            339 => 60881,
+            340 => 60882,
+            341 => 60883,
+            641 => 60885,
+            979 => 60884,
+            _ => 0,
+        };
+        var drawn = false;
+        if (iconId != 0)
+        {
+            try
+            {
+                var icon = Plugin.TextureProvider.GetFromGameIcon(iconId).GetWrapOrDefault();
+                if (icon is not null)
+                {
+                    var size = 24 * ImGuiHelpers.GlobalScale;
+                    ImGui.Image(icon.Handle, new Vector2(size, size));
+                    drawn = true;
+                }
+            }
+            catch { /* Keep the district identifiable if its texture is unavailable. */ }
+        }
+        if (!drawn) ImGui.TextUnformatted(Loc.L("街", "City"));
+        if (ImGui.IsItemHovered()) ImGui.SetTooltip(plot.DistrictName);
+    }
+
+    private static string? GetHousingPurchaseType(OpenPlotRecord plot)
+    {
+        try
+        {
+            var world = Plugin.DataManager.GetExcelSheet<Lumina.Excel.Sheets.World>().GetRow(plot.WorldId);
+            return HousingPurchaseTypes.Resolve(world.DataCenter.Value.Name.ToString(), plot.WardNumber);
+        }
+        catch { return null; }
     }
 
     private bool MatchesSizeFilter(string size) => SizeFilters[sizeFilterIndex] switch

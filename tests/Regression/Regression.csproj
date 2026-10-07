@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../HousingPurchaseTypes.cs" Link="HousingPurchaseTypes.cs" />
     <Compile Include="../../TemporaryBooleanSetting.cs" Link="TemporaryBooleanSetting.cs" />
     <Compile Include="../../CombatAutomationPolicy.cs" Link="CombatAutomationPolicy.cs" />
     <Compile Include="../../FollowStateMachine.cs" Link="FollowStateMachine.cs" />

@@ -400,6 +400,7 @@ public sealed class Plugin : IDalamudPlugin
 
     private void OnLogin()
     {
+        mainWindow.ResetHousingWorldFilter();
         CheckCurrentCharacter(false);
         ShowWindowIfAttentionNeeded();
     }
@@ -930,12 +931,13 @@ public sealed class Plugin : IDalamudPlugin
         }
     }
 
-    internal int GetBidCount(OpenPlotRecord plot)
+    internal int GetBidCount(OpenPlotRecord plot) => GetBiddingCharacters(plot).Count();
+
+    internal System.Collections.Generic.IEnumerable<CharacterLotteryRecord> GetBiddingCharacters(OpenPlotRecord plot)
     {
         var cycle = GetCurrentCycle();
-        return Configuration.Characters.Values.Count(record =>
-            cycle.HasEntry(record) &&
-            IsBidForPlot(record, plot));
+        return Configuration.Characters.Values.Where(record =>
+            cycle.HasEntry(record) && IsBidForPlot(record, plot));
     }
 
     private static bool IsBidForPlot(CharacterLotteryRecord record, OpenPlotRecord plot)
