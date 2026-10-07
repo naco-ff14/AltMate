@@ -2315,19 +2315,19 @@ public sealed partial class MainWindow : Window
         var worldColumnWidth = MathF.Max(PlotColumnWidth(Loc.L("ワールド", "World")),
             filteredPlots.Max(plot => PlotColumnWidth(plot.WorldName)));
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
-                    ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.ScrollY;
+                    ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY;
         if (!ImGui.BeginTable("open-plots", 8, flags, new Vector2(0, -1)))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthFixed, worldColumnWidth);
+        ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthStretch, MathF.Max(worldColumnWidth, 85 * ImGuiHelpers.GlobalScale));
         ImGui.TableSetupColumn(Loc.L("街", "City"), ImGuiTableColumnFlags.WidthFixed, MathF.Max(32 * ImGuiHelpers.GlobalScale, PlotColumnWidth(Loc.L("街", "City"))));
-        ImGui.TableSetupColumn(Loc.L("区・番地", "Plot"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(Loc.L("30区 60番", "W30 P60")));
-        ImGui.TableSetupColumn(Loc.L("購入対象", "Buyer"), ImGuiTableColumnFlags.WidthFixed, MathF.Max(PlotColumnWidth("FC/Solo"), PlotColumnWidth(Loc.L("購入対象", "Buyer"))));
+        ImGui.TableSetupColumn(Loc.L("区・番地", "Plot"), ImGuiTableColumnFlags.WidthStretch, PlotColumnWidth(Loc.L("30区 60番", "W30 P60")));
+        ImGui.TableSetupColumn(Loc.L("購入対象", "Buyer"), ImGuiTableColumnFlags.WidthStretch, MathF.Max(PlotColumnWidth("FC/Solo"), PlotColumnWidth(Loc.L("購入対象", "Buyer"))));
         ImGui.TableSetupColumn(Loc.L("サイズ", "Size"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(Loc.L("サイズ", "Size")));
-        ImGui.TableSetupColumn(Loc.L("価格(G)", "Price(G)"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth("99,999,999"));
-        ImGui.TableSetupColumn(Loc.L("自キャラ", "Mine"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(Loc.L("自キャラ", "Mine")));
-        ImGui.TableSetupColumn(Loc.L("確認", "Checked"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(compactPlots ? "MM/dd" : "MM/dd HH:mm"));
+        ImGui.TableSetupColumn(Loc.L("価格(G)", "Price(G)"), ImGuiTableColumnFlags.WidthStretch, PlotColumnWidth("99,999,999"));
+        ImGui.TableSetupColumn(Loc.L("自キャラ", "Mine"), ImGuiTableColumnFlags.WidthStretch, PlotColumnWidth(Loc.L("自キャラ", "Mine")));
+        ImGui.TableSetupColumn(Loc.L("確認", "Checked"), ImGuiTableColumnFlags.WidthStretch, PlotColumnWidth(compactPlots ? "MM/dd" : "MM/dd HH:mm"));
         ImGui.TableHeadersRow();
 
         foreach (var plot in filteredPlots)
