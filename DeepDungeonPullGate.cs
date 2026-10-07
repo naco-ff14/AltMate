@@ -2,6 +2,7 @@ namespace AltMate;
 
 internal sealed class DeepDungeonPullGate
 {
+    internal static bool AllowLeaderFollow(bool waiting, bool safetyBlocked) => waiting && !safetyBlocked;
     private bool released;
     private ulong leader;
     private uint territory;

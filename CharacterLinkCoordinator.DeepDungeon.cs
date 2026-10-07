@@ -39,8 +39,9 @@ public sealed partial class CharacterLinkCoordinator
     {
         StopBmrFollow();
         StopVnavRecovery();
-        if (IsBlocked() || plugin.Configuration.PauseLinkInCombat ||
-            Plugin.Condition[ConditionFlag.Casting] || Plugin.Condition[ConditionFlag.Casting87] ||
+        // Pull waiting replaces combat-AI movement with leader follow. The generic
+        // pause-in-combat option must not prevent retreating with the leader here.
+        if (!DeepDungeonPullGate.AllowLeaderFollow(ddPullWaiting, IsBlocked()) ||
             Plugin.ObjectTable.LocalPlayer is not { } local ||
             !TryGetLeaderObject(out _, out var leaderObject))
         {

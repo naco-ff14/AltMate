@@ -4,6 +4,9 @@ using System.Reflection;
 
 FollowRegression.Run();
 CombatRegression.Run();
+Require(DeepDungeonPullGate.AllowLeaderFollow(true, false), "DD pull retains leader follow instead of generic combat pause");
+Require(!DeepDungeonPullGate.AllowLeaderFollow(true, true), "DD pull respects casting/event safety block");
+Require(!DeepDungeonPullGate.AllowLeaderFollow(false, false), "DD retreat movement only while waiting");
 var pullGate = new DeepDungeonPullGate();
 Require(!pullGate.Update(false, true, false, 1, 1), "no pull gate outside DD");
 Require(pullGate.Update(true, true, false, 1, 1), "ranged pull waits");
