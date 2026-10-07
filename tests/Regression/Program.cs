@@ -4,6 +4,18 @@ using System.Reflection;
 
 FollowRegression.Run();
 CombatRegression.Run();
+var pullGate = new DeepDungeonPullGate();
+Require(!pullGate.Update(false, true, false, 1, 1), "no pull gate outside DD");
+Require(pullGate.Update(true, true, false, 1, 1), "ranged pull waits");
+Require(!pullGate.Update(true, true, true, 1, 1), "enemy arrival releases combat");
+Require(!pullGate.Update(true, true, false, 1, 1), "enemy moving away does not retrigger");
+Require(!pullGate.Update(true, false, false, 1, 1), "combat end resets gate");
+Require(pullGate.Update(true, true, false, 1, 1), "next pull waits again");
+Require(!pullGate.Update(true, true, true, 1, 1), "second arrival");
+Require(pullGate.Update(true, true, false, 2, 1), "leader change resets gate");
+Require(!pullGate.Update(true, true, true, 2, 1), "release before floor change");
+Require(pullGate.Update(true, true, false, 2, 2), "territory change resets gate");
+Console.WriteLine("PASS: DD pull waiting, arrival, combat latch, leader/territory reset.");
 
 var directory = Path.Combine(Path.GetTempPath(), "AltMate-regression-" + Guid.NewGuid());
 var mutexName = "Local\\AltMate.Regression." + Guid.NewGuid();

@@ -524,6 +524,9 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
 
         if (!plugin.Configuration.LinkEnabled || runtimeStopped || IsLeader)
         {
+            ddPullWaiting = false;
+            ddPullGate.Update(false, false, false, 0, 0);
+            ddRetreatFollow.Reset();
             ReleaseFollowMovement();
             StopCombatAutomation();
             followState.Enter(FollowState.Idle);
@@ -1781,6 +1784,14 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
 
     private void UpdateCombatAutomation(LinkedCharacterState leader, DateTime now)
     {
+        UpdateDeepDungeonPull(leader);
+        if (ddPullWaiting)
+        {
+            StopCombatAutomation();
+            StopBmrFollow();
+            CombatStatus = "DD釣り待ち：敵の到着までBMR/RSR開始を保留";
+            return;
+        }
         if (!plugin.Configuration.CombatLinkEnabled)
         {
             if (combatAutomationActive)
@@ -2320,6 +2331,11 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             smoothFollow.Stop();
             followState.Enter(FollowState.Suspended);
             LastAction = "他のvnavmesh移動の完了待ち";
+            return;
+        }
+        if (ddPullWaiting)
+        {
+            FollowDuringDeepDungeonPull();
             return;
         }
         if (combatAutomationActive)
