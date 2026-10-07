@@ -14,6 +14,7 @@ internal sealed unsafe class SmoothFollowController : IDisposable
     private Vector3? desiredDirection;
     private float desiredStrength = 1f;
     private long desiredUntilTick;
+    private long nextDiagnosticTick;
     private readonly Hook<ReadWalkInputDelegate>? walkHook;
 
     private delegate void ReadWalkInputDelegate(nint self, float* sumLeft, float* sumForward,
@@ -57,6 +58,16 @@ internal sealed unsafe class SmoothFollowController : IDisposable
         {
             desiredDirection = null;
             return;
+        }
+
+        if (additiveInput == 0 && desiredDirection is { } requested &&
+            Plugin.Condition[Dalamud.Game.ClientState.Conditions.ConditionFlag.InDeepDungeon] &&
+            Environment.TickCount64 >= nextDiagnosticTick)
+        {
+            nextDiagnosticTick = Environment.TickCount64 + 5000;
+            var local = Plugin.ObjectTable.LocalPlayer;
+            var target = Plugin.TargetManager.Target;
+            Plugin.Log.Information($"AltMate DD movement: position={local?.Position}, requestedWorldDirection={requested}, existingInput=({*sumLeft},{*sumForward}), forwardAngle={GetForwardAngle()}, gameTarget={target?.BaseId}, targetPosition={target?.Position}");
         }
 
         if (additiveInput != 0 || *sumLeft != 0 || *sumForward != 0 ||

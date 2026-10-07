@@ -2568,16 +2568,20 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
 
     private void UpdateLeaderInteractionBroadcast(DateTime now)
     {
-        if (!IsLeader || !plugin.Configuration.LinkEnabled ||
+        if (Plugin.Condition[ConditionFlag.InDeepDungeon] ||
+            !IsLeader || !plugin.Configuration.LinkEnabled ||
             !plugin.Configuration.SyncLeaderInteractionEnabled)
         {
             leaderWasInInteraction = false;
+            observedInteractionTargetDataId = 0;
+            observedInteractionTargetUtc = default;
             return;
         }
 
         var target = Plugin.TargetManager.Target;
         if (target is not null && target.IsValid() && target.BaseId != 0 &&
-            target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Pc)
+            target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Pc &&
+            target.ObjectKind != Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Treasure)
         {
             observedInteractionTargetDataId = target.BaseId;
             observedInteractionTargetName = target.Name.TextValue;
@@ -2585,6 +2589,11 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             observedInteractionTargetUtc = now;
         }
 
+        if (target?.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Treasure)
+        {
+            observedInteractionTargetDataId = 0;
+            observedInteractionTargetUtc = default;
+        }
         var inInteraction = Plugin.Condition.Any(
             ConditionFlag.OccupiedInEvent, ConditionFlag.OccupiedInQuestEvent);
         if (inInteraction && !leaderWasInInteraction &&
@@ -2630,6 +2639,19 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
 
     private unsafe bool UpdateFollowerInteraction(DateTime now)
     {
+        // DD objects are shared, and object-kind checks alone do not identify every coffer.
+        // Do not turn a relayed interaction into a straight-line movement through rooms.
+        if (Plugin.Condition[ConditionFlag.InDeepDungeon])
+        {
+            if (pendingInteractionTargetDataId != 0)
+            {
+                Plugin.Log.Information($"AltMate DD: discarded interaction target {pendingInteractionTargetDataId} at {pendingInteractionTargetPosition}");
+                smoothFollow.Stop();
+            }
+            ClearPendingInteraction();
+            linkedInteractionConfirmationExpiresUtc = DateTime.MinValue;
+            return false;
+        }
         var occultAetheryteInteraction = IsOccultAetherytePosition(
             Plugin.ClientState.TerritoryType, pendingInteractionTargetPosition);
         // クレセントの転送網はリーダーと同時には開かない。目的地が確定するまで
@@ -2675,6 +2697,16 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             .FirstOrDefault();
         if (target is null)
             return false;
+        // BaseId identifies an object type, not an instance. Never chase another copy
+        // after the leader's object disappears, and never relay shared treasure interactions.
+        if (target.ObjectKind == Dalamud.Game.ClientState.Objects.Enums.ObjectKind.Treasure ||
+            Vector3.DistanceSquared(target.Position, pendingInteractionTargetPosition) > 9f)
+        {
+            ClearPendingInteraction();
+            linkedInteractionConfirmationExpiresUtc = DateTime.MinValue;
+            smoothFollow.Stop();
+            return false;
+        }
 
         var distance = Vector3.Distance(local.Position, target.Position);
         if (distance > 2.8f)
