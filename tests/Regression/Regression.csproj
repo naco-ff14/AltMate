@@ -9,6 +9,7 @@
     <Compile Include="../../TemporaryBooleanSetting.cs" Link="TemporaryBooleanSetting.cs" />
     <Compile Include="../../CombatAutomationPolicy.cs" Link="CombatAutomationPolicy.cs" />
     <Compile Include="../../FollowStateMachine.cs" Link="FollowStateMachine.cs" />
+    <Compile Include="../../LotteryPayment.cs" Link="LotteryPayment.cs" />
     <Compile Include="../../FollowController.cs" Link="FollowController.cs" />
     <Compile Include="../../StableGilObservation.cs" Link="StableGilObservation.cs" />
     <Compile Include="../../FreeCompanyChestSession.cs" Link="FreeCompanyChestSession.cs" />

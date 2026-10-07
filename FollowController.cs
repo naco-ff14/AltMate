@@ -19,7 +19,7 @@ internal sealed class FollowController
     private long previousTick = -1;
 
     internal FollowDecision Update(Vector3 followerPosition, Vector3 leaderPosition,
-        float leaderRotation, float spacing, long now = -1)
+        float leaderRotation, float spacing, long now = -1, bool nearby = false)
     {
         now = now < 0 ? Environment.TickCount64 : now;
         if (previousTick >= 0 && now > previousTick && now - previousTick <= 500)
@@ -39,6 +39,14 @@ internal sealed class FollowController
         // Dalamud/FFXIV rotations use X=sin(rotation), Z=cos(rotation) as forward.
         var leaderForward = new Vector3(MathF.Sin(leaderRotation), 0f, MathF.Cos(leaderRotation));
         var target = leaderPosition - leaderForward * spacing + velocity * 0.12f;
+        if (nearby)
+        {
+            var radial = followerPosition - leaderPosition;
+            radial.Y = 0;
+            var distance = radial.Length();
+            target = distance <= spacing ? followerPosition
+                : leaderPosition + radial / distance * spacing;
+        }
         target.Y = followerPosition.Y;
 
         var offset = target - followerPosition;

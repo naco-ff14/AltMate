@@ -2172,6 +2172,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 MountRouletteFallbackEnabled = plugin.Configuration.MountRouletteFallbackEnabled,
                 AutoAcceptPartyInviteEnabled = plugin.Configuration.AutoAcceptPartyInviteEnabled,
                 PauseInCombat = plugin.Configuration.PauseLinkInCombat,
+                FollowNearby = plugin.Configuration.FollowNearby,
                 FollowDistance = plugin.Configuration.FollowStartDistance,
                 PreferBossModFollow = plugin.Configuration.PreferBossModFollow,
                 VnavmeshStuckRecoveryEnabled = plugin.Configuration.VnavmeshStuckRecoveryEnabled,
@@ -2217,6 +2218,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.MountRouletteFallbackEnabled = state.MountRouletteFallbackEnabled;
         plugin.Configuration.AutoAcceptPartyInviteEnabled = state.AutoAcceptPartyInviteEnabled;
         plugin.Configuration.PauseLinkInCombat = state.PauseInCombat;
+        plugin.Configuration.FollowNearby = state.FollowNearby;
         plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 1f, 15f);
         plugin.Configuration.PreferBossModFollow = state.PreferBossModFollow;
         plugin.Configuration.VnavmeshStuckRecoveryEnabled = state.VnavmeshStuckRecoveryEnabled;
@@ -2527,7 +2529,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 ? leader.Rotation
                 : leaderObject.Rotation;
             var follow = followController.Update(local.Position, leaderObject.Position,
-                leaderRotation, spacing);
+                leaderRotation, spacing, nearby: plugin.Configuration.FollowNearby);
             followState.Enter(follow.IsCatchingUp ? FollowState.CatchUp : FollowState.Following);
             if (!follow.ShouldMove) StopBmrFollow();
             if (follow.ShouldMove &&
@@ -2544,7 +2546,9 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             else if (follow.ShouldMove)
             {
                 smoothFollow.Follow(follow.Direction, follow.Strength);
-                LastAction = follow.IsCatchingUp
+                LastAction = plugin.Configuration.FollowNearby
+                    ? $"リーダーの近くへ移動中（{distance:0.0}m）"
+                    : follow.IsCatchingUp
                     ? $"リーダー後方へCatchUp中（{distance:0.0}m）"
                     : $"リーダー後方を追従中（{distance:0.0}m）";
             }
@@ -2555,7 +2559,9 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 followState.ResetProgress();
                 LastAction = leader.Mounted
                     ? $"相乗りを再試行待ち（{distance:0.0}m）"
-                    : $"リーダー後方のDead Zone内で待機（{distance:0.0}m）";
+                    : plugin.Configuration.FollowNearby
+                        ? $"指定距離内で待機（{distance:0.0}m）"
+                        : $"リーダー後方のDead Zone内で待機（{distance:0.0}m）";
             }
         }
     }
@@ -3045,6 +3051,7 @@ public sealed class LinkedCharacterState
     public bool MountRouletteFallbackEnabled { get; set; }
     public bool AutoAcceptPartyInviteEnabled { get; set; }
     public bool PauseInCombat { get; set; }
+    public bool FollowNearby { get; set; }
     public float FollowDistance { get; set; }
     public bool PreferBossModFollow { get; set; }
     public bool VnavmeshStuckRecoveryEnabled { get; set; }

@@ -302,6 +302,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.AutoAcceptPartyInviteEnabled = incoming.AutoAcceptPartyInviteEnabled;
         target.PauseLinkInCombat = incoming.PauseLinkInCombat;
         target.FollowStartDistance = incoming.FollowStartDistance;
+        target.FollowNearby = incoming.FollowNearby;
         target.PreferBossModFollow = incoming.PreferBossModFollow;
         target.VnavmeshStuckRecoveryEnabled = incoming.VnavmeshStuckRecoveryEnabled;
         target.SyncLeaderInteractionEnabled = incoming.SyncLeaderInteractionEnabled;
@@ -348,6 +349,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (Math.Abs(current.FollowStartDistance - baseline.FollowStartDistance) > 0.001f) target.FollowStartDistance = current.FollowStartDistance;
         MergeOverrideChanges(target.CharacterFollowOverrides, current.CharacterFollowOverrides, baseline.CharacterFollowOverrides);
         MergeOverrideChanges(target.PairFollowOverrides, current.PairFollowOverrides, baseline.PairFollowOverrides);
+        if (current.FollowNearby != baseline.FollowNearby) target.FollowNearby = current.FollowNearby;
         if (current.PreferBossModFollow != baseline.PreferBossModFollow) target.PreferBossModFollow = current.PreferBossModFollow;
         if (current.VnavmeshStuckRecoveryEnabled != baseline.VnavmeshStuckRecoveryEnabled) target.VnavmeshStuckRecoveryEnabled = current.VnavmeshStuckRecoveryEnabled;
         if (current.SyncLeaderInteractionEnabled != baseline.SyncLeaderInteractionEnabled) target.SyncLeaderInteractionEnabled = current.SyncLeaderInteractionEnabled;

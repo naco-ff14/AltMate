@@ -66,6 +66,44 @@ public sealed class Plugin : IDalamudPlugin
     private string? viewedAddress;
     private DateTime? viewedEntryEnd;
     private uint viewedPlotPrice;
+    private CharacterLotteryRecord? pendingBid;
+    private uint pendingBidGil;
+    private long pendingBidUntil;
+
+    internal void ResetLotteryRecord(CharacterLotteryRecord record)
+    {
+        if (pendingBid?.ContentId == record.ContentId) pendingBid = null;
+        record.PlotAddress = null;
+        record.EntryPhaseEndsAt = null;
+        record.ResultChecked = false;
+        record.BidGilDeposited = 0;
+        record.BidWorldId = record.BidTerritoryTypeId = 0;
+        record.BidWardNumber = record.BidPlotNumber = 0;
+        record.LastCheckedAt = DateTime.Now;
+        Configuration.Save();
+    }
+
+    private unsafe void CheckPendingBid(IFramework _)
+    {
+        if (pendingBid is not { } bid) return;
+        if (!ClientState.IsLoggedIn || PlayerState.ContentId != bid.ContentId || Environment.TickCount64 > pendingBidUntil)
+        { pendingBid = null; return; }
+        var inventory = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance();
+        if (inventory == null || !LotteryPayment.Confirmed(pendingBidGil, inventory->GetGil(), bid.BidGilDeposited)) return;
+        pendingBid = null;
+        if (!Configuration.Characters.TryGetValue(bid.ContentId, out var record)) return;
+        record.PlotAddress = bid.PlotAddress;
+        record.EntryPhaseEndsAt = bid.EntryPhaseEndsAt;
+        record.ResultChecked = false;
+        record.LastCheckedAt = DateTime.Now;
+        record.BidWorldId = bid.BidWorldId;
+        record.BidTerritoryTypeId = bid.BidTerritoryTypeId;
+        record.BidWardNumber = bid.BidWardNumber;
+        record.BidPlotNumber = bid.BidPlotNumber;
+        record.BidGilDeposited = bid.BidGilDeposited;
+        if (bid.EntryPhaseEndsAt is { } end) Configuration.CycleAnchorUtc = end.AddDays(-5).ToUniversalTime();
+        Configuration.Save();
+    }
     private readonly HousingWardObserver? wardObserver;
     private readonly GilTracker gilTracker;
     internal string? FreeCompanyChestStatus => gilTracker.FreeCompanyChestStatus;
@@ -212,6 +250,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.DisableGposeUiHide = true;
         PluginInterface.UiBuilder.Draw += windowSystem.Draw;
         Framework.Update += FlushPendingConfiguration;
+        Framework.Update += CheckPendingBid;
         PluginInterface.UiBuilder.OpenMainUi += mainWindow.Toggle;
         PluginInterface.UiBuilder.OpenConfigUi += mainWindow.OpenSettings;
         ClientState.Login += OnLogin;
@@ -822,11 +861,13 @@ public sealed class Plugin : IDalamudPlugin
     private void OnLinkedSelectYesnoClose(AddonEvent _, AddonArgs __) =>
         CharacterLink.OnSelectYesnoClosed();
 
-    private void OnBidConfirmed(AddonEventType _, AddonEventData __)
+    private unsafe void OnBidConfirmed(AddonEventType _, AddonEventData __)
     {
         CheckCurrentCharacter(false);
-        if (!Configuration.Characters.TryGetValue(PlayerState.ContentId, out var record))
-            return;
+        pendingBid = null;
+        var inventory = FFXIVClientStructs.FFXIV.Client.Game.InventoryManager.Instance();
+        if (inventory == null || !PlayerState.IsLoaded) return;
+        var record = new CharacterLotteryRecord { ContentId = PlayerState.ContentId };
         record.PlotAddress = string.IsNullOrWhiteSpace(viewedAddress) ? "応募した土地" : viewedAddress;
         record.EntryPhaseEndsAt = viewedEntryEnd;
         record.ResultChecked = false;
@@ -835,9 +876,10 @@ public sealed class Plugin : IDalamudPlugin
         record.BidGilDeposited = viewedPlotPrice != 0
             ? viewedPlotPrice
             : FindSavedPlotPrice(record);
-        if (viewedEntryEnd is { } entryEnd)
-            Configuration.CycleAnchorUtc = entryEnd.AddDays(-5).ToUniversalTime();
-        Configuration.Save();
+        if (record.BidGilDeposited == 0) return;
+        pendingBidGil = inventory->GetGil();
+        pendingBidUntil = Environment.TickCount64 + 10000;
+        pendingBid = record;
     }
 
     private uint FindSavedPlotPrice(CharacterLotteryRecord record) => Configuration.OpenPlots
@@ -993,6 +1035,7 @@ public sealed class Plugin : IDalamudPlugin
     public void Dispose()
     {
         Framework.Update -= FlushPendingConfiguration;
+        Framework.Update -= CheckPendingBid;
         FlushPendingConfiguration(wait: true);
         Animations.Dispose();
         CrafterRetainers.Dispose();

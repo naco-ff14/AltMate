@@ -127,7 +127,7 @@ public sealed partial class CharacterLinkCoordinator
 
     private bool TryStartBmrFollow(LinkedCharacterState leader, DateTime now)
     {
-        if (EffectiveFollow.PreferBossMod != true || !IsPluginLoaded("BossModReborn") ||
+        if (plugin.Configuration.FollowNearby || EffectiveFollow.PreferBossMod != true || !IsPluginLoaded("BossModReborn") ||
             combatAutomationActive || vnavRecoveryActive || IsVnavMovementRunning() ||
             Environment.TickCount64 < backendRetryAt)
         {

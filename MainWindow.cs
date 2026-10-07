@@ -1777,6 +1777,14 @@ public sealed partial class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var nearby = plugin.Configuration.FollowNearby;
+        if (ImGui.Checkbox(Loc.L("後ろに回り込まず、近くまで寄る", "Stay nearby instead of following behind"), ref nearby))
+        {
+            plugin.Configuration.FollowNearby = nearby;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.TextDisabled(Loc.L("近くまで寄る：指定距離内で停止。通常追従はAltMateが操作します。", "Nearby: stop within follow distance; AltMate controls normal movement."));
         var followDistance = plugin.Configuration.FollowStartDistance;
         ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderFloat(Loc.T("FollowDistance"), ref followDistance, 1f, 15f, "%.1f m"))
@@ -2156,6 +2164,12 @@ public sealed partial class MainWindow : Window
                 }
                 if (!canTravel)
                     ImGui.EndDisabled();
+                if (ImGui.MenuItem(Loc.L("このキャラクターの抽選記録をリセット", "Reset this character's lottery record")))
+                {
+                    plugin.ResetLotteryRecord(record);
+                    hasEntry = false;
+                }
+                ImGui.TextDisabled(Loc.L("AltMateの記録のみ消去。ゲーム内の応募・所持ギルは変わりません。", "Clears AltMate records only; does not cancel entry or change gil."));
                 ImGui.EndPopup();
             }
             ImGui.TableNextColumn();

@@ -27,6 +27,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool MountRouletteFallbackEnabled { get; set; } = true;
     public bool AutoAcceptPartyInviteEnabled { get; set; } = true;
     public bool PauseLinkInCombat { get; set; } = true;
+    public bool FollowNearby { get; set; }
     public float FollowStartDistance { get; set; } = 5f;
     public bool PreferBossModFollow { get; set; }
     public Dictionary<ulong, FollowOverrides> CharacterFollowOverrides { get; set; } = new();

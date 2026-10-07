@@ -9,6 +9,15 @@ internal static class FollowRegression
         {
             if (!value) throw new Exception("FAILED: " + description);
         }
+        Check(!LotteryPayment.Confirmed(100, 100, 50), "failed payment is not an entry");
+        Check(!LotteryPayment.Confirmed(10, 10, 50), "insufficient gil is not an entry");
+        Check(LotteryPayment.Confirmed(100, 50, 50), "exact payment confirms entry");
+        Check(!LotteryPayment.Confirmed(100, 99, 50), "unrelated amount is ignored");
+        var near = new FollowController();
+        Check(!near.Update(new Vector3(2, 0, 0), Vector3.Zero, 0, 5, 0, true).ShouldMove, "nearby holds position");
+        Check(!near.Update(new Vector3(2, 0, 0), Vector3.Zero, 3, 5, 100, true).ShouldMove, "leader turning does not circle");
+        var approach = near.Update(new Vector3(10, 0, 0), Vector3.Zero, 0, 5, 200, true);
+        Check(approach.ShouldMove && approach.Target == new Vector3(5, 0, 0), "nearby approaches nearest boundary");
         long StuckAt(int fps)
         {
             var machine = new FollowStateMachine();
