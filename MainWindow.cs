@@ -2312,13 +2312,15 @@ public sealed partial class MainWindow : Window
 
         var compactPlots = ImGui.GetContentRegionAvail().X < 850 * ImGuiHelpers.GlobalScale;
         float PlotColumnWidth(string text) => ImGui.CalcTextSize(text).X + 6 * ImGuiHelpers.GlobalScale;
+        var worldColumnWidth = MathF.Max(PlotColumnWidth(Loc.L("ワールド", "World")),
+            filteredPlots.Max(plot => PlotColumnWidth(plot.WorldName)));
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
-                    ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.ScrollY;
+                    ImGuiTableFlags.SizingFixedFit | ImGuiTableFlags.ScrollY;
         if (!ImGui.BeginTable("open-plots", 8, flags, new Vector2(0, -1)))
             return;
 
         ImGui.TableSetupScrollFreeze(0, 1);
-        ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthStretch, 1f);
+        ImGui.TableSetupColumn(Loc.L("ワールド", "World"), ImGuiTableColumnFlags.WidthFixed, worldColumnWidth);
         ImGui.TableSetupColumn(Loc.L("街", "City"), ImGuiTableColumnFlags.WidthFixed, MathF.Max(32 * ImGuiHelpers.GlobalScale, PlotColumnWidth(Loc.L("街", "City"))));
         ImGui.TableSetupColumn(Loc.L("区・番地", "Plot"), ImGuiTableColumnFlags.WidthFixed, PlotColumnWidth(Loc.L("30区 60番", "W30 P60")));
         ImGui.TableSetupColumn(Loc.L("購入対象", "Buyer"), ImGuiTableColumnFlags.WidthFixed, MathF.Max(PlotColumnWidth("FC/Solo"), PlotColumnWidth(Loc.L("購入対象", "Buyer"))));
