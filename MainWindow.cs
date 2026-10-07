@@ -1878,6 +1878,15 @@ public sealed partial class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var ddDelay = plugin.Configuration.DeepDungeonCombatDelaySeconds;
+        ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
+        if (ImGui.SliderFloat(Loc.L("DD：戦闘開始の待ち時間", "DD: combat start delay"), ref ddDelay, 0f, 15f, "%.1f s"))
+        {
+            plugin.Configuration.DeepDungeonCombatDelaySeconds = ddDelay;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.TextDisabled(Loc.L("初期値3秒。待機中はAltMateの移動・戦闘連携を停止。0秒で無効。", "Default 3s. AltMate movement/combat pauses during the delay; 0 disables it."));
         var stopDelay = plugin.Configuration.CombatStopDelaySeconds;
         ImGui.SetNextItemWidth(220 * ImGuiHelpers.GlobalScale);
         if (ImGui.SliderFloat(Loc.T("StopAfterCombat"), ref stopDelay, 0f, 15f,

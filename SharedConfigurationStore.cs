@@ -312,6 +312,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.UseBossModReborn = incoming.UseBossModReborn;
         target.UseRotationSolverReborn = incoming.UseRotationSolverReborn;
         target.CombatStopDelaySeconds = incoming.CombatStopDelaySeconds;
+        target.DeepDungeonCombatDelaySeconds = incoming.DeepDungeonCombatDelaySeconds;
         target.OccultAethernetSyncEnabled = incoming.OccultAethernetSyncEnabled;
         target.SyncReturnEnabled = incoming.SyncReturnEnabled;
         target.SyncDutyCommenceEnabled = incoming.SyncDutyCommenceEnabled;
@@ -358,6 +359,7 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.BossModRole != baseline.BossModRole) target.BossModRole = current.BossModRole;
         if (current.UseBossModReborn != baseline.UseBossModReborn) target.UseBossModReborn = current.UseBossModReborn;
         if (current.UseRotationSolverReborn != baseline.UseRotationSolverReborn) target.UseRotationSolverReborn = current.UseRotationSolverReborn;
+        if (current.DeepDungeonCombatDelaySeconds != baseline.DeepDungeonCombatDelaySeconds) target.DeepDungeonCombatDelaySeconds = current.DeepDungeonCombatDelaySeconds;
         if (Math.Abs(current.CombatStopDelaySeconds - baseline.CombatStopDelaySeconds) > 0.001f) target.CombatStopDelaySeconds = current.CombatStopDelaySeconds;
         if (current.OccultAethernetSyncEnabled != baseline.OccultAethernetSyncEnabled) target.OccultAethernetSyncEnabled = current.OccultAethernetSyncEnabled;
         if (current.SyncReturnEnabled != baseline.SyncReturnEnabled) target.SyncReturnEnabled = current.SyncReturnEnabled;

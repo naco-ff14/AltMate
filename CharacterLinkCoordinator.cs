@@ -525,8 +525,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         if (!plugin.Configuration.LinkEnabled || runtimeStopped || IsLeader)
         {
             ddPullWaiting = false;
-            ddPullGate.Update(false, false, false, 0, 0);
-            ddRetreatFollow.Reset();
+            ddPullGate.Update(false, false, 0, 0, 0, Environment.TickCount64);
             ReleaseFollowMovement();
             StopCombatAutomation();
             followState.Enter(FollowState.Idle);
@@ -1789,7 +1788,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         {
             StopCombatAutomation();
             StopBmrFollow();
-            CombatStatus = "DD釣り待ち：敵の到着までBMR/RSR開始を保留";
+            CombatStatus = $"DD戦闘開始待ち（あと{ddPullGate.RemainingSeconds:0.0}秒）";
             return;
         }
         if (!plugin.Configuration.CombatLinkEnabled)
@@ -2193,6 +2192,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 UseBossModReborn = plugin.Configuration.UseBossModReborn,
                 BossModRole = plugin.Configuration.BossModRole,
                 UseRotationSolverReborn = plugin.Configuration.UseRotationSolverReborn,
+                DeepDungeonCombatDelaySeconds = plugin.Configuration.DeepDungeonCombatDelaySeconds,
                 CombatStopDelaySeconds = plugin.Configuration.CombatStopDelaySeconds,
                 OccultAethernetSyncEnabled = plugin.Configuration.OccultAethernetSyncEnabled,
                 SyncReturnEnabled = plugin.Configuration.SyncReturnEnabled,
@@ -2239,6 +2239,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.UseBossModReborn = state.UseBossModReborn;
         plugin.Configuration.BossModRole = Enum.IsDefined(state.BossModRole) ? state.BossModRole : BossModCombatRole.PreserveExisting;
         plugin.Configuration.UseRotationSolverReborn = state.UseRotationSolverReborn;
+        plugin.Configuration.DeepDungeonCombatDelaySeconds = float.IsFinite(state.DeepDungeonCombatDelaySeconds) ? Math.Clamp(state.DeepDungeonCombatDelaySeconds, 0f, 15f) : 3f;
         plugin.Configuration.CombatStopDelaySeconds = Math.Clamp(state.CombatStopDelaySeconds, 0f, 15f);
         plugin.Configuration.OccultAethernetSyncEnabled = state.OccultAethernetSyncEnabled;
         plugin.Configuration.SyncReturnEnabled = state.SyncReturnEnabled;
@@ -2335,7 +2336,8 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         }
         if (ddPullWaiting)
         {
-            FollowDuringDeepDungeonPull();
+            ReleaseFollowMovement();
+            LastAction = CombatStatus;
             return;
         }
         if (combatAutomationActive)
@@ -3109,6 +3111,7 @@ public sealed class LinkedCharacterState
     public bool UseBossModReborn { get; set; }
     public BossModCombatRole BossModRole { get; set; }
     public bool UseRotationSolverReborn { get; set; }
+    public float DeepDungeonCombatDelaySeconds { get; set; } = 3f;
     public float CombatStopDelaySeconds { get; set; }
     public bool OccultAethernetSyncEnabled { get; set; }
     public bool SyncReturnEnabled { get; set; }
