@@ -501,6 +501,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             return;
 
         DrainReceivedStates();
+        UpdateLeaderMovementObservation();
         UpdateLeaderInteractionBroadcast(now);
         FlushOutboundTeleport();
         FlushOutboundHousingTravel();
@@ -620,6 +621,10 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 case "emote":
                     if (state.TargetContentId == Plugin.PlayerState.ContentId && state.EmoteId != 0)
                         plugin.Animations.PlayLocal(state.EmoteId);
+                    continue;
+                case "jump":
+                case "sprint":
+                    ExecuteLinkedMovementAction(state);
                     continue;
                 case "return":
                     if (state.ContentId == plugin.Configuration.LinkLeaderContentId)
@@ -883,7 +888,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         }
         catch (Exception exception)
         {
-            Plugin.Log.Error(exception, "デミデジョン操作の監視を開始できませんでした。");
+            Plugin.Log.Error(exception, "ジャンプ・スプリント・デミデジョン操作の監視を開始できませんでした。");
         }
     }
 
@@ -993,8 +998,22 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         {
             Plugin.Log.Error(exception, "デミデジョン操作を通知できませんでした。");
         }
-        return useActionHook!.Original(manager, actionType, actionId, targetId, extraParam,
+        var accepted = useActionHook!.Original(manager, actionType, actionId, targetId, extraParam,
             mode, comboRouteId, outOptAreaTargeted);
+        if (accepted)
+        {
+            try
+            {
+                var movementAction = MovementActionSync.Classify(actionType == ActionType.GeneralAction,
+                    actionType == ActionType.Action, actionId);
+                BroadcastMovementAction(movementAction);
+            }
+            catch (Exception exception)
+            {
+                Plugin.Log.Verbose(exception, "ジャンプ・スプリント操作を連携できませんでした。");
+            }
+        }
+        return accepted;
     }
 
     private unsafe void TryAcceptReturnConfirmation()
@@ -2178,6 +2197,8 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 LinkEnabled = plugin.Configuration.LinkEnabled,
                 LeaderContentId = plugin.Configuration.LinkLeaderContentId,
                 AutoFollow = plugin.Configuration.AutoFollowEnabled,
+                SyncJumpEnabled = plugin.Configuration.SyncJumpEnabled,
+                SyncSprintEnabled = plugin.Configuration.SyncSprintEnabled,
                 AutoRidePillion = plugin.Configuration.AutoRidePillionEnabled,
                 MountRouletteFallbackEnabled = plugin.Configuration.MountRouletteFallbackEnabled,
                 AutoAcceptPartyInviteEnabled = plugin.Configuration.AutoAcceptPartyInviteEnabled,
@@ -2225,6 +2246,8 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         plugin.Configuration.LinkEnabled = state.LinkEnabled;
         plugin.Configuration.LinkLeaderContentId = state.LeaderContentId;
         plugin.Configuration.AutoFollowEnabled = state.AutoFollow;
+        plugin.Configuration.SyncJumpEnabled = state.SyncJumpEnabled;
+        plugin.Configuration.SyncSprintEnabled = state.SyncSprintEnabled;
         plugin.Configuration.AutoRidePillionEnabled = state.AutoRidePillion;
         plugin.Configuration.MountRouletteFallbackEnabled = state.MountRouletteFallbackEnabled;
         plugin.Configuration.AutoAcceptPartyInviteEnabled = state.AutoAcceptPartyInviteEnabled;
@@ -2883,6 +2906,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
 
     private void ResetForLogout()
     {
+        ResetMovementObservation();
         while (receivedStates.TryDequeue(out _))
         {
         }
@@ -2937,6 +2961,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
 
     private void ClearCrossWorldAutomation()
     {
+        ResetMovementObservation();
         StopBmrFollow();
         StopCombatAutomation();
         followState.Enter(FollowState.Idle);
@@ -3097,6 +3122,9 @@ public sealed class LinkedCharacterState
     public bool LinkEnabled { get; set; }
     public ulong LeaderContentId { get; set; }
     public bool AutoFollow { get; set; }
+    public bool SyncJumpEnabled { get; set; }
+    public bool SyncSprintEnabled { get; set; }
+    public long MovementActionSentAtUnixMilliseconds { get; set; }
     public bool AutoRidePillion { get; set; }
     public bool MountRouletteFallbackEnabled { get; set; }
     public bool AutoAcceptPartyInviteEnabled { get; set; }

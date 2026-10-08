@@ -23,6 +23,8 @@ public sealed class Configuration : IPluginConfiguration
     public bool LinkEnabled { get; set; }
     public ulong LinkLeaderContentId { get; set; }
     public bool AutoFollowEnabled { get; set; } = true;
+    public bool SyncJumpEnabled { get; set; }
+    public bool SyncSprintEnabled { get; set; }
     public bool AutoRidePillionEnabled { get; set; } = true;
     public bool MountRouletteFallbackEnabled { get; set; } = true;
     public bool AutoAcceptPartyInviteEnabled { get; set; } = true;

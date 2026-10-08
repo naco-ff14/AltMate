@@ -4,6 +4,7 @@ using System.Reflection;
 
 FollowRegression.Run();
 CombatRegression.Run();
+MovementActionRegression.Run();
 var pullGate = new DeepDungeonPullGate();
 Require(!pullGate.Update(false, true, 3, 1, 1, 0), "outside DD no delay");
 Require(pullGate.Update(true, true, 3, 1, 1, 100), "combat starts timer");
@@ -56,13 +57,16 @@ try
     second.LoadInto(b);
 
     a.FollowStartDistance = 12;
+    a.SyncJumpEnabled = true;
     a.BossModRole = BossModCombatRole.MovementAndActions;
     Require(first.TrySaveMerged(a, true, out var revision), "initial save");
     // This client still has the older baseline. Its independent edit must not
     // overwrite the first client's change during the eventual deferred merge.
     b.Language = "en";
+    b.SyncSprintEnabled = true;
     Require(second.TrySaveMerged(b, true, out revision), "stale-baseline save");
     Require(b.FollowStartDistance == 12 && b.Language == "en", "independent settings merge");
+    Require(b.SyncJumpEnabled && b.SyncSprintEnabled, "independent movement sync settings merge");
     Require(b.BossModRole == BossModCombatRole.MovementAndActions, "BMR role survives another client's save");
     Require(first.ReloadIfNewer(a, revision, out _), "revision notification reload");
     Require(a.Language == "en" && a.FollowStartDistance == 12, "reload contents");

@@ -1760,6 +1760,21 @@ public sealed partial class MainWindow : Window
             plugin.Configuration.Save();
             plugin.CharacterLink.SettingsChanged();
         }
+        var syncJump = plugin.Configuration.SyncJumpEnabled;
+        if (ImGui.Checkbox(Loc.L("リーダーのジャンプに合わせてジャンプ", "Jump when the leader jumps"), ref syncJump))
+        {
+            plugin.Configuration.SyncJumpEnabled = syncJump;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        var syncSprint = plugin.Configuration.SyncSprintEnabled;
+        if (ImGui.Checkbox(Loc.L("リーダーのスプリントに合わせてスプリント", "Sprint when the leader sprints"), ref syncSprint))
+        {
+            plugin.Configuration.SyncSprintEnabled = syncSprint;
+            plugin.Configuration.Save();
+            plugin.CharacterLink.SettingsChanged();
+        }
+        ImGui.TextDisabled(Loc.L("同じエリアのフォロワーへ即時連携。使用できない場合は見送ります。", "Relays immediately to followers in the same area; skips actions that cannot be used."));
         var autoRide = plugin.Configuration.AutoRidePillionEnabled;
         if (ImGui.Checkbox(Loc.T("AutoRide"), ref autoRide))
         {
@@ -2177,12 +2192,6 @@ public sealed partial class MainWindow : Window
                 }
                 if (!canTravel)
                     ImGui.EndDisabled();
-                if (ImGui.MenuItem(Loc.L("このキャラクターの抽選記録をリセット", "Reset this character's lottery record")))
-                {
-                    plugin.ResetLotteryRecord(record);
-                    hasEntry = false;
-                }
-                ImGui.TextDisabled(Loc.L("AltMateの記録のみ消去。ゲーム内の応募・所持ギルは変わりません。", "Clears AltMate records only; does not cancel entry or change gil."));
                 ImGui.EndPopup();
             }
             ImGui.TableNextColumn();
@@ -2208,11 +2217,13 @@ public sealed partial class MainWindow : Window
         ImGui.Spacing();
 
         var flags = ImGuiTableFlags.Borders | ImGuiTableFlags.RowBg | ImGuiTableFlags.SizingStretchProp;
-        if (ImGui.BeginTable("display-characters", 3, flags))
+        if (ImGui.BeginTable("display-characters", 4, flags))
         {
             ImGui.TableSetupColumn(Loc.T("Character"));
             ImGui.TableSetupColumn(Loc.L("抽選状態", "Lottery Status"), ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
             ImGui.TableSetupColumn(Loc.L("保持期限", "Demolition Timer"), ImGuiTableColumnFlags.WidthFixed, 110 * ImGuiHelpers.GlobalScale);
+            ImGui.TableSetupColumn(Loc.L("抽選記録", "Lottery Record"), ImGuiTableColumnFlags.WidthFixed,
+                ImGui.CalcTextSize(Loc.L("リセット", "Reset")).X + ImGui.GetStyle().FramePadding.X * 2 + 12 * ImGuiHelpers.GlobalScale);
             ImGui.TableHeadersRow();
             foreach (var record in OrderedCharacters())
             {
@@ -2234,6 +2245,27 @@ public sealed partial class MainWindow : Window
                     record.EnabledForDemolitionDisplay = demolition;
                     record.LastCheckedAt = DateTime.Now;
                     plugin.Configuration.Save();
+                }
+                ImGui.TableNextColumn();
+                var resetPopupId = $"##lottery-reset-confirm-{record.ContentId}";
+                if (ImGui.Button($"{Loc.L("リセット", "Reset")}##lottery-reset-{record.ContentId}"))
+                    ImGui.OpenPopup(resetPopupId);
+                if (ImGui.BeginPopup(resetPopupId))
+                {
+                    ImGui.TextUnformatted($"{record.CharacterName} @ {record.WorldName}");
+                    ImGui.TextUnformatted(Loc.L("このキャラクターの抽選記録をリセットしますか？", "Reset this character's lottery record?"));
+                    ImGui.TextUnformatted(Loc.L("AltMateの応募記録と預かり金の資産計上を消去します。", "Clears the AltMate entry record and its deposited gil from total assets."));
+                    ImGui.TextDisabled(Loc.L("ゲーム内の応募・所持ギルは変わりません。", "Does not cancel the in-game entry or change held gil."));
+                    ImGui.Separator();
+                    if (ImGui.Button(Loc.L("リセットする", "Reset Record")))
+                    {
+                        plugin.ResetLotteryRecord(record);
+                        ImGui.CloseCurrentPopup();
+                    }
+                    ImGui.SameLine();
+                    if (ImGui.Button(Loc.L("キャンセル", "Cancel")))
+                        ImGui.CloseCurrentPopup();
+                    ImGui.EndPopup();
                 }
             }
             ImGui.EndTable();

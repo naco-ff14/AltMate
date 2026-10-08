@@ -297,6 +297,8 @@ internal sealed class SharedConfigurationStore : IDisposable
         target.LinkEnabled = incoming.LinkEnabled;
         target.LinkLeaderContentId = incoming.LinkLeaderContentId;
         target.AutoFollowEnabled = incoming.AutoFollowEnabled;
+        target.SyncJumpEnabled = incoming.SyncJumpEnabled;
+        target.SyncSprintEnabled = incoming.SyncSprintEnabled;
         target.AutoRidePillionEnabled = incoming.AutoRidePillionEnabled;
         target.MountRouletteFallbackEnabled = incoming.MountRouletteFallbackEnabled;
         target.AutoAcceptPartyInviteEnabled = incoming.AutoAcceptPartyInviteEnabled;
@@ -343,6 +345,8 @@ internal sealed class SharedConfigurationStore : IDisposable
         if (current.LinkEnabled != baseline.LinkEnabled) target.LinkEnabled = current.LinkEnabled;
         if (current.LinkLeaderContentId != baseline.LinkLeaderContentId) target.LinkLeaderContentId = current.LinkLeaderContentId;
         if (current.AutoFollowEnabled != baseline.AutoFollowEnabled) target.AutoFollowEnabled = current.AutoFollowEnabled;
+        if (current.SyncJumpEnabled != baseline.SyncJumpEnabled) target.SyncJumpEnabled = current.SyncJumpEnabled;
+        if (current.SyncSprintEnabled != baseline.SyncSprintEnabled) target.SyncSprintEnabled = current.SyncSprintEnabled;
         if (current.AutoRidePillionEnabled != baseline.AutoRidePillionEnabled) target.AutoRidePillionEnabled = current.AutoRidePillionEnabled;
         if (current.MountRouletteFallbackEnabled != baseline.MountRouletteFallbackEnabled) target.MountRouletteFallbackEnabled = current.MountRouletteFallbackEnabled;
         if (current.AutoAcceptPartyInviteEnabled != baseline.AutoAcceptPartyInviteEnabled) target.AutoAcceptPartyInviteEnabled = current.AutoAcceptPartyInviteEnabled;

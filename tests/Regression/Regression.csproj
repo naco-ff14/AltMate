@@ -6,6 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../../MovementActionSync.cs" Link="MovementActionSync.cs" />
     <Compile Include="../../DeepDungeonPullGate.cs" Link="DeepDungeonPullGate.cs" />
     <Compile Include="../../HousingPurchaseTypes.cs" Link="HousingPurchaseTypes.cs" />
     <Compile Include="../../TemporaryBooleanSetting.cs" Link="TemporaryBooleanSetting.cs" />
