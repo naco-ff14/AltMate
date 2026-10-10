@@ -19,6 +19,19 @@ internal static class MovementActionRegression
         Check(!relay.TryMarkSent("jump", 200), "jump observation does not repeat hook");
         Check(relay.TryMarkSent("jump", 251), "later jump accepted");
         Check(!relay.TryMarkSent("teleport", 500), "no arbitrary action forwarding");
+        var sprintObservation = new MovementActionSync();
+        Check(!sprintObservation.ObserveSprint(false, 10), "sprint observation baseline");
+        // A queued action may never report an accepted UseAction call. Its
+        // effect still needs to emit exactly once, with jump sync disabled.
+        Check(sprintObservation.ObserveSprint(true, 10), "effect catches intercepted sprint input");
+        Check(!sprintObservation.ObserveSprint(true, 10), "active effect not repeated each frame");
+        Check(!sprintObservation.ObserveSprint(false, 10), "effect ending is not an action");
+        Check(sprintObservation.ObserveSprint(true, 10), "next sprint effect detected");
+        sprintObservation.ResetObservation();
+        Check(!sprintObservation.ObserveSprint(true, 10), "resume with active effect does not replay");
+        Check(!sprintObservation.ObserveSprint(true, 11), "territory change with active effect does not replay");
+        sprintObservation.ResetSprintObservation();
+        Check(!sprintObservation.ObserveSprint(true, 11), "enabling option mid-effect does not replay");
         foreach (var interval in new[] { 16, 33 })
         {
             var observation = new MovementActionSync();
@@ -57,6 +70,6 @@ internal static class MovementActionRegression
         Check(!CanReceive(sentAt: 9249), "delayed event dropped");
         Check(!CanReceive(sentAt: 10101), "future timestamp ignored");
         Check(!CanReceive(kind: "emote"), "whitelist enforced");
-        Console.WriteLine("PASS: jump/sprint classification, 30/60 FPS jump detection, falling exclusion, duplicate suppression, stop/leader/world/area guards, event expiry.");
+        Console.WriteLine("PASS: jump/sprint classification, intercepted sprint effect detection without replay, 30/60 FPS jump detection, falling exclusion, duplicate suppression, stop/leader/world/area guards, event expiry.");
     }
 }

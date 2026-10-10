@@ -14,6 +14,28 @@ internal sealed class MovementActionSync
     private float previousHeight;
     private long jumpObservationUntil;
     private uint observedTerritory;
+    private bool sprintObservationReady;
+    private bool wasSprinting;
+    private uint sprintTerritory;
+
+    internal bool ObserveSprint(bool sprinting, uint territory)
+    {
+        if (territory == 0)
+        {
+            ResetSprintObservation();
+            return false;
+        }
+        if (!sprintObservationReady || sprintTerritory != territory)
+        {
+            sprintObservationReady = true;
+            sprintTerritory = territory;
+            wasSprinting = sprinting;
+            return false;
+        }
+        var started = sprinting && !wasSprinting;
+        wasSprinting = sprinting;
+        return started;
+    }
 
     internal bool ObserveJump(bool jumping, float height, uint territory, long now)
     {
@@ -40,6 +62,17 @@ internal sealed class MovementActionSync
     }
 
     internal void ResetObservation()
+    {
+        ResetJumpObservation();
+        ResetSprintObservation();
+    }
+
+    internal void ResetSprintObservation()
+    {
+        sprintObservationReady = false;
+    }
+
+    internal void ResetJumpObservation()
     {
         jumpObservationReady = false;
         jumpObservationUntil = 0;

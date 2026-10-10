@@ -1775,6 +1775,7 @@ public sealed partial class MainWindow : Window
             plugin.CharacterLink.SettingsChanged();
         }
         ImGui.TextDisabled(Loc.L("同じエリアのフォロワーへ即時連携。使用できない場合は見送ります。", "Relays immediately to followers in the same area; skips actions that cannot be used."));
+        ImGui.TextWrapped($"{Loc.L("移動連携の状態", "Movement sync status")}：{plugin.CharacterLink.MovementSyncStatus}");
         var autoRide = plugin.Configuration.AutoRidePillionEnabled;
         if (ImGui.Checkbox(Loc.T("AutoRide"), ref autoRide))
         {
