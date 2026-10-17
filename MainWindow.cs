@@ -1131,6 +1131,47 @@ public sealed partial class MainWindow : Window
 
     private void DrawSubmarineStatus()
     {
+        var companies = plugin.Configuration.FreeCompanyGil.Values
+            .Where(fc => fc.Submarines.Count > 0)
+            .OrderBy(fc => fc.Name).ToArray();
+        if (companies.Length > 0)
+        {
+            var creditFlags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
+                              ImGuiTableFlags.SizingStretchProp;
+            if (ImGui.BeginTable("submarine-fc-credits", 3, creditFlags))
+            {
+                ImGui.TableSetupColumn("FC", ImGuiTableColumnFlags.WidthStretch, 1.5f);
+                ImGui.TableSetupColumn(Loc.L("FCクレジット", "Company Credits"),
+                    ImGuiTableColumnFlags.WidthFixed, 170 * ImGuiHelpers.GlobalScale);
+                ImGui.TableSetupColumn(Loc.L("最終更新", "Last Updated"),
+                    ImGuiTableColumnFlags.WidthFixed, 150 * ImGuiHelpers.GlobalScale);
+                ImGui.TableHeadersRow();
+                foreach (var fc in companies)
+                {
+                    ImGui.TableNextRow();
+                    ImGui.TableNextColumn();
+                    ImGui.TextUnformatted($"{DisplayFcName(fc.Name)}（{fc.WorldName}）");
+                    ImGui.TableNextColumn();
+                    if (fc.CompanyCreditsConfirmed)
+                        ImGui.TextColored(new Vector4(0.95f, 0.78f, 0.25f, 1f),
+                            $"{fc.CompanyCredits:N0} クレジット");
+                    else
+                        ImGui.TextDisabled(Loc.L("未取得", "Not captured"));
+                    ImGui.TableNextColumn();
+                    ImGui.TextDisabled(fc.CompanyCreditsConfirmed
+                        ? fc.CompanyCreditsUpdatedAt.ToString("yyyy/MM/dd HH:mm") : "—");
+                }
+                ImGui.EndTable();
+            }
+            if (companies.Any(fc => !fc.CompanyCreditsConfirmed))
+                ImGui.TextDisabled(Loc.L(
+                    "未取得のFCは、フリーカンパニー画面またはカンパニークレジット交換画面を開くと更新されます。",
+                    "Open the Free Company or Company Credit Exchange window to capture missing values."));
+            ImGui.Spacing();
+            ImGui.Separator();
+            ImGui.Spacing();
+        }
+
         var flags = ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
                     ImGuiTableFlags.SizingStretchProp | ImGuiTableFlags.Sortable;
         var submarines = plugin.Configuration.FreeCompanyGil.Values
