@@ -205,6 +205,9 @@ public sealed class FreeCompanyGilRecord
     public DateTime UpdatedAt { get; set; }
     public ulong LastCheckedByContentId { get; set; }
     public string LastCheckedByName { get; set; } = "不明";
+    public uint CompanyCredits { get; set; }
+    public bool CompanyCreditsConfirmed { get; set; }
+    public DateTime CompanyCreditsUpdatedAt { get; set; }
     public DateTime SubmarinesUpdatedAt { get; set; }
     public Dictionary<string, SubmarineRecord> Submarines { get; set; } = new();
     public DateTime TreasureVoyagesUpdatedAt { get; set; }
