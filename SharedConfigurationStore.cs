@@ -279,6 +279,13 @@ internal sealed class SharedConfigurationStore : IDisposable
                 current.SubmarinesUpdatedAt = pair.Value.SubmarinesUpdatedAt;
                 current.Submarines = pair.Value.Submarines;
             }
+            if (pair.Value.CompanyCreditsUpdatedAt >= current.CompanyCreditsUpdatedAt &&
+                pair.Value.CompanyCreditsConfirmed)
+            {
+                current.CompanyCredits = pair.Value.CompanyCredits;
+                current.CompanyCreditsConfirmed = true;
+                current.CompanyCreditsUpdatedAt = pair.Value.CompanyCreditsUpdatedAt;
+            }
             if (pair.Value.TreasureVoyagesUpdatedAt >= current.TreasureVoyagesUpdatedAt)
             {
                 current.TreasureVoyagesUpdatedAt = pair.Value.TreasureVoyagesUpdatedAt;
