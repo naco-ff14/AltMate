@@ -8,6 +8,7 @@ using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Linq;
 using System.Text;
+using System.Globalization;
 
 namespace AltMate;
 
@@ -120,6 +121,28 @@ public sealed unsafe class GilTracker : IDisposable
                     changed = true;
             }
 
+            if (workshopInfo != null && workshopInfo->Id != 0 &&
+                TryReadCompanyCredits(workshopInfo, out var companyCredits))
+            {
+                if (!plugin.Configuration.FreeCompanyGil.TryGetValue(workshopInfo->Id, out var creditFc))
+                {
+                    creditFc = new FreeCompanyGilRecord { FreeCompanyId = workshopInfo->Id };
+                    plugin.Configuration.FreeCompanyGil[workshopInfo->Id] = creditFc;
+                }
+                var fcName = workshopInfo->NameString;
+                if (!string.IsNullOrWhiteSpace(fcName))
+                    creditFc.Name = fcName;
+                creditFc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
+                if (!creditFc.CompanyCreditsConfirmed || creditFc.CompanyCredits != companyCredits ||
+                    now - creditFc.CompanyCreditsUpdatedAt.ToUniversalTime() > TimeSpan.FromMinutes(1))
+                {
+                    creditFc.CompanyCredits = companyCredits;
+                    creditFc.CompanyCreditsConfirmed = true;
+                    creditFc.CompanyCreditsUpdatedAt = DateTime.Now;
+                    changed = true;
+                }
+            }
+
             if (changed)
                 plugin.Configuration.Save();
         }
@@ -129,6 +152,51 @@ public sealed unsafe class GilTracker : IDisposable
             FreeCompanyChestStatus = Loc.L("ギル情報の取得に失敗しました。保存済みの金額を表示しています。",
                 "Could not read gil data. Displaying the last saved balances.");
             Plugin.Log.Verbose(exception, "ギル情報を更新できませんでした。");
+        }
+    }
+
+    private static bool TryReadCompanyCredits(InfoProxyFreeCompany* info, out uint credits)
+    {
+        credits = 0;
+        try
+        {
+            var shop = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("FreeCompanyCreditShop").Address;
+            if (shop != null && shop->IsVisible && shop->AtkValues != null && shop->AtkValuesCount > 3)
+            {
+                var value = shop->AtkValues[3];
+                if (value.Type is AtkValueType.UInt or AtkValueType.Int)
+                {
+                    credits = value.Type == AtkValueType.UInt ? value.UInt : (uint)Math.Max(0, value.Int);
+                    return true;
+                }
+            }
+
+            var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("FreeCompany").Address;
+            if (addon == null || !addon->IsVisible)
+                return false;
+            long best = -1;
+            for (var index = 0; index < addon->UldManager.NodeListCount; index++)
+            {
+                var node = addon->UldManager.NodeList[index];
+                if (node == null || node->Type != NodeType.Text)
+                    continue;
+                var text = ((AtkTextNode*)node)->NodeText.ToString();
+                var cleaned = text.Replace(",", "").Replace(".", "").Replace(" ", "").Trim();
+                if (!long.TryParse(cleaned, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ||
+                    value <= 0 || value == info->Rank || value == info->OnlineMembers || value == info->TotalMembers)
+                    continue;
+                if (value > best)
+                    best = value;
+            }
+            if (best is <= 0 or > uint.MaxValue)
+                return false;
+            credits = (uint)best;
+            return true;
+        }
+        catch (Exception exception)
+        {
+            Plugin.Log.Verbose(exception, "FCクレジットを取得できませんでした。");
+            return false;
         }
     }
 
