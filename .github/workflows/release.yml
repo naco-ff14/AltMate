@@ -56,7 +56,7 @@ jobs:
         if: env.RELEASE_EXISTS != 'true'
         uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: "9.0.x"
+          dotnet-version: "10.0.x"
 
       - name: Download Dalamud development files
         if: env.RELEASE_EXISTS != 'true'
@@ -78,6 +78,10 @@ jobs:
       - name: Build
         if: env.RELEASE_EXISTS != 'true'
         run: dotnet build AltMate.csproj -c Release --no-restore
+
+      - name: Run regression tests
+        if: env.RELEASE_EXISTS != 'true'
+        run: dotnet run --project tests/Regression/Regression.csproj -c Release
 
       - name: Verify manifest version
         if: env.RELEASE_EXISTS != 'true'
@@ -153,10 +157,18 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create $env:RELEASE_TAG latest.zip `
-            --target $env:GITHUB_SHA `
-            --generate-notes `
-            --title "AltMate $env:RELEASE_TAG"
+          $releaseArgs = @(
+            "release", "create", $env:RELEASE_TAG, "latest.zip",
+            "--target", $env:GITHUB_SHA,
+            "--generate-notes",
+            "--title", "AltMate $env:RELEASE_TAG"
+          )
+          $notesPath = Join-Path "docs/releases" "$env:RELEASE_TAG.md"
+          if (Test-Path $notesPath) {
+            $releaseArgs += @("--notes-file", $notesPath)
+          }
+          & gh @releaseArgs
+          if ($LASTEXITCODE -ne 0) { throw "Failed to publish the GitHub release." }
 
       - name: Notify Discord
         if: env.RELEASE_EXISTS != 'true' || inputs.test_discord == true

@@ -5,6 +5,7 @@ using System.Reflection;
 FollowRegression.Run();
 CombatRegression.Run();
 MovementActionRegression.Run();
+CompanyCreditRegression.Run();
 var pullGate = new DeepDungeonPullGate();
 Require(!pullGate.Update(false, true, 3, 1, 1, 0), "outside DD no delay");
 Require(pullGate.Update(true, true, 3, 1, 1, 100), "combat starts timer");

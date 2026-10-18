@@ -3,12 +3,12 @@ using Dalamud.Game.Addon.Lifecycle.AddonArgTypes;
 using Dalamud.Game.Inventory.InventoryEventArgTypes;
 using System.Collections.Generic;
 using FFXIVClientStructs.FFXIV.Client.Game;
+using FFXIVClientStructs.FFXIV.Client.UI.Agent;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
 using FFXIVClientStructs.FFXIV.Component.GUI;
 using System;
 using System.Linq;
 using System.Text;
-using System.Globalization;
 
 namespace AltMate;
 
@@ -17,6 +17,10 @@ public sealed unsafe class GilTracker : IDisposable
     private readonly Plugin plugin;
     private DateTime lastCheckUtc;
     private readonly FreeCompanyChestSession chestSession = new();
+    private readonly CompanyCreditObservation companyCreditObservation = new();
+    private readonly CompanyCreditObservation creditShopObservation = new();
+    private const string CompanyAddon = "FreeCompany";
+    private const string CreditShopAddon = "FreeCompanyCreditShop";
     private DateTime nextChestCheckUtc;
     internal string? FreeCompanyChestStatus { get; private set; }
 
@@ -27,6 +31,12 @@ public sealed unsafe class GilTracker : IDisposable
         Plugin.GameInventory.InventoryChangedRaw += OnInventoryChanged;
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "FreeCompanyChest", OnChestOpened);
         Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, "FreeCompanyChest", OnChestClosing);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, CompanyAddon, OnCreditWindowReset);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, CompanyAddon, OnCreditWindowReset);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PreFinalize, CreditShopAddon, OnCreditWindowReset);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, CompanyAddon, OnCompanyCreditsUpdated);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostSetup, CreditShopAddon, OnCreditShopUpdated);
+        Plugin.AddonLifecycle.RegisterListener(AddonEvent.PostRefresh, CreditShopAddon, OnCreditShopUpdated);
     }
 
     private void OnFrameworkUpdate(Dalamud.Plugin.Services.IFramework _)
@@ -35,6 +45,7 @@ public sealed unsafe class GilTracker : IDisposable
         if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0)
         {
             chestSession.Reset();
+            ResetCompanyCreditObservations();
             FreeCompanyChestStatus = null;
             return;
         }
@@ -42,6 +53,7 @@ public sealed unsafe class GilTracker : IDisposable
         {
             nextChestCheckUtc = now.AddMilliseconds(100);
             CheckChest(now);
+            CheckCompanyCredits();
         }
         if (now - lastCheckUtc < TimeSpan.FromSeconds(2))
             return;
@@ -121,28 +133,6 @@ public sealed unsafe class GilTracker : IDisposable
                     changed = true;
             }
 
-            if (workshopInfo != null && workshopInfo->Id != 0 &&
-                TryReadCompanyCredits(workshopInfo, out var companyCredits))
-            {
-                if (!plugin.Configuration.FreeCompanyGil.TryGetValue(workshopInfo->Id, out var creditFc))
-                {
-                    creditFc = new FreeCompanyGilRecord { FreeCompanyId = workshopInfo->Id };
-                    plugin.Configuration.FreeCompanyGil[workshopInfo->Id] = creditFc;
-                }
-                var fcName = workshopInfo->NameString;
-                if (!string.IsNullOrWhiteSpace(fcName))
-                    creditFc.Name = fcName;
-                creditFc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
-                if (!creditFc.CompanyCreditsConfirmed || creditFc.CompanyCredits != companyCredits ||
-                    now - creditFc.CompanyCreditsUpdatedAt.ToUniversalTime() > TimeSpan.FromMinutes(1))
-                {
-                    creditFc.CompanyCredits = companyCredits;
-                    creditFc.CompanyCreditsConfirmed = true;
-                    creditFc.CompanyCreditsUpdatedAt = DateTime.Now;
-                    changed = true;
-                }
-            }
-
             if (changed)
                 plugin.Configuration.Save();
         }
@@ -155,49 +145,165 @@ public sealed unsafe class GilTracker : IDisposable
         }
     }
 
-    private static bool TryReadCompanyCredits(InfoProxyFreeCompany* info, out uint credits)
+    private void OnCreditWindowReset(AddonEvent _, AddonArgs args) =>
+        (args.AddonName == CompanyAddon ? companyCreditObservation : creditShopObservation).Reset();
+
+    private void ResetCompanyCreditObservations()
     {
-        credits = 0;
+        companyCreditObservation.Reset();
+        creditShopObservation.Reset();
+    }
+
+    private void OnCompanyCreditsUpdated(AddonEvent type, AddonArgs args)
+    {
         try
         {
-            var shop = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("FreeCompanyCreditShop").Address;
-            if (shop != null && shop->IsVisible && shop->AtkValues != null && shop->AtkValuesCount > 3)
+            // RequestedUpdate follows array-data processing; Setup/Update polling
+            // is not evidence of new credit data. See docs/fc-credit-capture.md for
+            // the remaining native readiness limitations and validation steps.
+            if (args.PreventOriginalRequested ||
+                !TryGetCreditContext(CompanyAddon, args.Addon.Address, out var addon, out _, out var context) ||
+                !TryReadCompanyCreditText(addon, out var credits))
             {
-                var value = shop->AtkValues[3];
-                if (value.Type is AtkValueType.UInt or AtkValueType.Int)
-                {
-                    credits = value.Type == AtkValueType.UInt ? value.UInt : (uint)Math.Max(0, value.Int);
-                    return true;
-                }
+                companyCreditObservation.Reset();
+                return;
             }
-
-            var addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName("FreeCompany").Address;
-            if (addon == null || !addon->IsVisible)
-                return false;
-            long best = -1;
-            for (var index = 0; index < addon->UldManager.NodeListCount; index++)
-            {
-                var node = addon->UldManager.NodeList[index];
-                if (node == null || node->Type != NodeType.Text)
-                    continue;
-                var text = ((AtkTextNode*)node)->NodeText.ToString();
-                var cleaned = text.Replace(",", "").Replace(".", "").Replace(" ", "").Trim();
-                if (!long.TryParse(cleaned, NumberStyles.Integer, CultureInfo.InvariantCulture, out var value) ||
-                    value <= 0 || value == info->Rank || value == info->OnlineMembers || value == info->TotalMembers)
-                    continue;
-                if (value > best)
-                    best = value;
-            }
-            if (best is <= 0 or > uint.MaxValue)
-                return false;
-            credits = (uint)best;
-            return true;
+            companyCreditObservation.ObserveUpdate(context, credits, DateTime.UtcNow);
         }
         catch (Exception exception)
         {
-            Plugin.Log.Verbose(exception, "FCクレジットを取得できませんでした。");
-            return false;
+            companyCreditObservation.Reset();
+            Plugin.Log.Verbose(exception, "FCクレジットの更新を取得できませんでした。");
         }
+    }
+
+    private void OnCreditShopUpdated(AddonEvent type, AddonArgs args)
+    {
+        if (type == AddonEvent.PostSetup) creditShopObservation.Reset();
+        try
+        {
+            // Use the actual incoming value payload, not an unrelated update's
+            // retained AtkValues. A negative signed value is unavailable, not zero.
+            var values = args switch
+            {
+                AddonSetupArgs setup => (AtkValue*)setup.AtkValues,
+                AddonRefreshArgs refresh => (AtkValue*)refresh.AtkValues,
+                _ => null,
+            };
+            var count = args switch
+            {
+                AddonSetupArgs setup => setup.AtkValueCount,
+                AddonRefreshArgs refresh => refresh.AtkValueCount,
+                _ => 0u,
+            };
+            if (args.PreventOriginalRequested ||
+                !TryGetCreditContext(CreditShopAddon, args.Addon.Address, out _, out _, out var context,
+                    requireVisible: type != AddonEvent.PostSetup) ||
+                !TryReadCreditShopValue(values, count, out var credits))
+            {
+                creditShopObservation.Reset();
+                return;
+            }
+            creditShopObservation.ObserveUpdate(context, credits, DateTime.UtcNow);
+        }
+        catch (Exception exception)
+        {
+            creditShopObservation.Reset();
+            Plugin.Log.Verbose(exception, "FCクレジット交換の更新を取得できませんでした。");
+        }
+    }
+
+    private static bool TryGetCreditContext(string addonName, nint expectedAddon,
+        out AtkUnitBase* addon, out InfoProxyFreeCompany* info, out CompanyCreditContext context,
+        bool requireVisible = true)
+    {
+        addon = null;
+        info = null;
+        context = default;
+        if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0) return false;
+        var module = InfoModule.Instance();
+        if (module == null || module->LocalContentId != Plugin.PlayerState.ContentId) return false;
+        info = module->GetInfoProxyFreeCompany();
+        if (info == null || info->Id == 0 || info->HomeWorldId == 0 ||
+            info->HomeWorldId != Plugin.PlayerState.HomeWorld.RowId ||
+            string.IsNullOrWhiteSpace(info->NameString)) return false;
+        addon = (AtkUnitBase*)Plugin.GameGui.GetAddonByName(addonName).Address;
+        if (addon == null || (expectedAddon != 0 && (nint)addon != expectedAddon) ||
+            !addon->IsReady || (requireVisible && !addon->IsVisible)) return false;
+        var agent = AgentFreeCompany.Instance();
+        if (agent == null || agent->InfoProxyFreeCompany != info) return false;
+        if (addonName == CompanyAddon && agent->AddonId != addon->Id) return false;
+        if (addonName == CreditShopAddon)
+        {
+            var agents = AgentModule.Instance();
+            var shopAgent = agents == null ? null : agents->GetAgentByInternalId(AgentId.FreeCompanyCreditShop);
+            if (shopAgent == null || shopAgent->AddonId != addon->Id) return false;
+        }
+        // A populated member proxy disagreeing with the FC proxy indicates an
+        // identity transition/inspection. Do not attach that balance to this FC.
+        var members = agent->InfoProxyFreeCompanyMember;
+        if (members != null && members->FreeCompanyId != 0 && members->FreeCompanyId != info->Id)
+            return false;
+        context = new CompanyCreditContext(Plugin.PlayerState.ContentId, info->Id,
+            Plugin.ClientState.TerritoryType, (nint)addon, (nint)info);
+        return true;
+    }
+
+    private static bool TryReadCompanyCreditText(AtkUnitBase* addon, out uint credits)
+    {
+        credits = 0;
+        // Node ID, not a NodeList index. Never infer credits from rank/member
+        // counts or by choosing the largest number elsewhere in the window.
+        var node = addon->GetNodeById(17);
+        return node != null && node->Type == NodeType.Text && node->IsVisible() &&
+            CompanyCreditParser.TryParse(((AtkTextNode*)node)->NodeText.ToString(), out credits);
+    }
+
+    private static bool TryReadCreditShopValue(AtkValue* values, uint count, out uint credits)
+    {
+        credits = 0;
+        if (values == null || count <= 3) return false;
+        var value = values[3];
+        if (value.Type == AtkValueType.UInt)
+        {
+            credits = value.UInt;
+            return true;
+        }
+        return value.Type == AtkValueType.Int && CompanyCreditParser.TryParseSigned(value.Int, out credits);
+    }
+
+    private void CheckCompanyCredits()
+    {
+        try
+        {
+            ConfirmCompanyCredits(CompanyAddon, companyCreditObservation);
+            ConfirmCompanyCredits(CreditShopAddon, creditShopObservation);
+        }
+        catch (Exception exception)
+        {
+            ResetCompanyCreditObservations();
+            Plugin.Log.Verbose(exception, "FCクレジットを取得できませんでした。");
+        }
+    }
+
+    private void ConfirmCompanyCredits(string addonName, CompanyCreditObservation observation)
+    {
+        if (!TryGetCreditContext(addonName, 0, out var addon, out var info, out var context))
+        {
+            observation.Reset();
+            return;
+        }
+        uint credits;
+        var valid = addonName == CompanyAddon ? TryReadCompanyCreditText(addon, out credits) :
+            TryReadCreditShopValue(addon->AtkValues, addon->AtkValuesCount, out credits);
+        if (!observation.TryConfirm(context, valid ? credits : null, out var sample)) return;
+        var exists = plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var fc);
+        fc ??= new FreeCompanyGilRecord { FreeCompanyId = info->Id };
+        if (!sample.TryApply(fc)) return;
+        fc.Name = info->NameString;
+        fc.WorldName = Plugin.PlayerState.HomeWorld.Value.Name.ToString();
+        if (!exists) plugin.Configuration.FreeCompanyGil[info->Id] = fc;
+        plugin.Configuration.Save();
     }
 
     private void OnChestOpened(AddonEvent _, AddonArgs __)
@@ -451,5 +557,11 @@ public sealed unsafe class GilTracker : IDisposable
         Plugin.GameInventory.InventoryChangedRaw -= OnInventoryChanged;
         Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, "FreeCompanyChest", OnChestOpened);
         Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, "FreeCompanyChest", OnChestClosing);
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, CompanyAddon, OnCreditWindowReset);
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, CompanyAddon, OnCreditWindowReset);
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PreFinalize, CreditShopAddon, OnCreditWindowReset);
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostRequestedUpdate, CompanyAddon, OnCompanyCreditsUpdated);
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostSetup, CreditShopAddon, OnCreditShopUpdated);
+        Plugin.AddonLifecycle.UnregisterListener(AddonEvent.PostRefresh, CreditShopAddon, OnCreditShopUpdated);
     }
 }

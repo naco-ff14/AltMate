@@ -15,6 +15,7 @@
     <Compile Include="../../LotteryPayment.cs" Link="LotteryPayment.cs" />
     <Compile Include="../../FollowController.cs" Link="FollowController.cs" />
     <Compile Include="../../StableGilObservation.cs" Link="StableGilObservation.cs" />
+    <Compile Include="../../CompanyCreditObservation.cs" Link="CompanyCreditObservation.cs" />
     <Compile Include="../../FreeCompanyChestSession.cs" Link="FreeCompanyChestSession.cs" />
     <Compile Include="../../SharedConfigurationStore.cs" Link="SharedConfigurationStore.cs" />
     <Compile Include="../../Configuration.cs" Link="Configuration.cs" />
