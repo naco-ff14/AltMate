@@ -7,3 +7,11 @@ obj/
 *.zip
 shared-config.json
 shared-config.json.*
+node_modules/
+web/dist/
+web/*.tsbuildinfo
+.env
+.env.*
+!.env.example
+playwright-report/
+test-results/
