@@ -1119,3 +1119,11 @@ footer {
     font-size: 11px;
   }
 }
+
+.unknown-fold { margin: 12px; border: 1px solid var(--border, #344653); border-radius: 8px; }
+.unknown-fold > summary { cursor: pointer; padding: 14px; color: #b7cbd5; }
+.unknown-fold > summary b { margin-left: 12px; }
+.unknown-fold > summary span { margin-left: 12px; font-size: .8rem; }
+.unknown-fold[open] > summary span { display: none; }
+.filter-active { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 16px; margin-bottom: 16px; border: 1px solid #77bcad; border-radius: 8px; background: #19382f; color: #d5f4e9; }
+.filter-active button { margin-left: auto; }

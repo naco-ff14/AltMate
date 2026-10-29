@@ -293,6 +293,7 @@ function Dashboard({ session, linkCode, onCodeUsed }: { session: Session; linkCo
             ) : snapshot && (
               <Operations
                 section={section}
+                userId={session.user.id}
                 entities={entities}
                 navigate={(view) => setSection(view)}
               />

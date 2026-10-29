@@ -286,6 +286,7 @@ test("renders observations, preserves unknown credit balances, filters and handl
   ]);
   await login(page);
   await page.getByRole("button", { name: "ギル・FC", exact: true }).click();
+  await page.locator(".unknown-fold > summary").click();
   await expect(page.getByRole("row", { name: /Test FC/ })).toContainText(
     "未確認",
   );
@@ -476,6 +477,7 @@ test("operations show total assets, sortable personal balances, housing, FC read
     fullPage: true,
   });
   await page.getByRole("button", { name: "ハウジング", exact: true }).click();
+  await page.locator(".unknown-fold > summary").click();
   await expect(page.getByRole("row", { name: /Alpha/ })).toContainText(
     "結果未確認",
   );
@@ -514,6 +516,7 @@ test("operations show total assets, sortable personal balances, housing, FC read
     "未消化",
   );
   await expect(page.getByRole("row", { name: /Alpha/ })).toContainText("123");
+  await page.locator(".unknown-fold > summary").click();
   await expect(page.getByRole("row", { name: /Beta/ })).toContainText(
     "今週未確認",
   );
@@ -564,4 +567,41 @@ test("return countdown progresses without requesting another cloud snapshot", as
     "帰港予定経過",
   );
   expect(reads).toBe(before);
+});
+
+test("plot filters persist visibly across navigation and reload", async ({ page }) => {
+  await mockApi(page, [
+    record("open_plot", { WorldName: "Chocobo", Size: "S", DistrictName: "ミスト", WardNumber: 1, PlotNumber: 1 }, "s"),
+    record("open_plot", { WorldName: "Chocobo", Size: "M", DistrictName: "ゴブレット", WardNumber: 2, PlotNumber: 2 }, "m"),
+    record("open_plot", { WorldName: "Bahamut", Size: "L", DistrictName: "ラベンダー", WardNumber: 3, PlotNumber: 3 }, "l"),
+  ]);
+  await login(page);
+  await page.getByRole("button", { name: "ハウジング", exact: true }).click();
+  await page.getByRole("tab", { name: "空き土地" }).click();
+  await page.getByLabel("ワールド", { exact: true }).selectOption("Chocobo");
+  await page.getByLabel("サイズ", { exact: true }).selectOption("S-M");
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await expect(page.getByRole("status").filter({ hasText: "絞り込み中" })).toContainText("S-M");
+  await page.reload();
+  await page.getByRole("button", { name: "ハウジング", exact: true }).click();
+  await expect(page.getByRole("tab", { name: "空き土地" })).toHaveAttribute("aria-selected", "true");
+  await expect(page.getByLabel("ワールド", { exact: true })).toHaveValue("Chocobo");
+  await expect(page.getByLabel("サイズ", { exact: true })).toHaveValue("S-M");
+  await expect(page.locator("tbody tr")).toHaveCount(2);
+  await page.getByRole("button", { name: "絞り込みを解除" }).click();
+  await expect(page.locator("tbody tr")).toHaveCount(3);
+  await expect(page.locator(".filter-active")).toHaveCount(0);
+});
+
+test("unverified characters are grouped and fold choice survives navigation", async ({ page }) => {
+  await mockApi(page, [record("character_profile", { CharacterName: "Unknown Person", WorldName: "Chocobo" }, "unknown")]);
+  await login(page);
+  await page.getByRole("button", { name: "お得意様取引", exact: true }).click();
+  await expect(page.getByText("Unknown Person", { exact: true })).toHaveCount(0);
+  await page.locator(".unknown-fold > summary").click();
+  await expect(page.getByText("Unknown Person", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "ギル・FC", exact: true }).click();
+  await expect(page.getByText("Unknown Person", { exact: true })).toHaveCount(0);
+  await page.getByRole("button", { name: "お得意様取引", exact: true }).click();
+  await expect(page.getByText("Unknown Person", { exact: true })).toBeVisible();
 });

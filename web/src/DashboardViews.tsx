@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Children, createContext, isValidElement, useContext, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import type { Entity } from "./data";
 import {
@@ -56,32 +56,44 @@ function Panel({
 function Empty({ children }: { children: ReactNode }) {
   return <div className="op-empty">{children}</div>;
 }
-function Table({
-  columns,
-  children,
-  empty,
-}: {
-  columns: string[];
-  children: ReactNode;
-  empty?: boolean;
+const PreferenceScope = createContext("");
+function usePreference(key: string, initial: string): [string, (value: string) => void] {
+  const scope = useContext(PreferenceScope);
+  const storageKey = `altmate:view:v1:${scope}:${key}`;
+  const [value, setValue] = useState(() => {
+    try { return localStorage.getItem(storageKey) ?? initial; } catch { return initial; }
+  });
+  return [value, next => {
+    setValue(next);
+    try { localStorage.setItem(storageKey, next); } catch { /* Storage may be disabled. */ }
+  }];
+}
+function Fold({ id, count, children, label = "未確認・記録なし" }: {
+  id: string; count: number; children: ReactNode; label?: string;
 }) {
-  return empty ? (
-    <Empty>表示する記録がありません。</Empty>
-  ) : (
-    <div className="table-scroll">
-      <p className="table-hint">表は左右にスクロールできます →</p>
-      <table>
-        <thead>
-          <tr>
-            {columns.map((column) => (
-              <th key={column}>{column}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-    </div>
-  );
+  const [open, setOpen] = usePreference(`fold:${id}`, "false");
+  if (!count) return null;
+  return <details className="unknown-fold" open={open === "true"}
+    onToggle={e => { const next = String(e.currentTarget.open); if (next !== open) setOpen(next); }}>
+    <summary>{label} <b>{count}件</b><span>開いて確認</span></summary>
+    {open === "true" && children}
+  </details>;
+}
+function Table({ columns, children, empty, foldId }: {
+  columns: string[]; children: ReactNode; empty?: boolean; foldId?: string;
+}) {
+  const rows = Children.toArray(children);
+  const unknown = (row: ReactNode) => isValidElement<{ "data-unverified"?: boolean }>(row) && row.props["data-unverified"] === true;
+  const hidden = foldId ? rows.filter(unknown) : [];
+  const shown = foldId ? rows.filter(row => !unknown(row)) : rows;
+  const render = (items: ReactNode[]) => <div className="table-scroll">
+    <p className="table-hint">表は左右にスクロールできます →</p>
+    <table><thead><tr>{columns.map(column => <th key={column}>{column}</th>)}</tr></thead>
+      <tbody>{items}</tbody></table></div>;
+  return empty ? <Empty>表示する記録がありません。</Empty> : <>
+    {shown.length ? render(shown) : <Empty>確認済みの記録はありません。</Empty>}
+    {foldId && <Fold id={foldId} count={hidden.length}>{render(hidden)}</Fold>}
+  </>;
 }
 function Badge({
   children,
@@ -141,7 +153,7 @@ function AssetCards({ assets }: { assets: ReturnType<typeof assetSummary> }) {
     </div>
   );
 }
-export default function Operations({
+function Operations({
   section,
   entities: raw,
   navigate,
@@ -151,10 +163,12 @@ export default function Operations({
   navigate: (view: View) => void;
 }) {
   const [now, setNow] = useState(Date.now());
-  const [query, setQuery] = useState("");
-  const [tab, setTab] = useState("lottery");
-  const [filter, setFilter] = useState("all");
-  const [sort, setSort] = useState("desc");
+  const [query, setQuery] = usePreference("query", "");
+  const [tab, setTab] = usePreference("tab", "lottery");
+  const [filter, setFilter] = usePreference("filter", "all");
+  const [sort, setSort] = usePreference("sort", "desc");
+  const [world, setWorld] = usePreference("world", "all");
+  const [size, setSize] = usePreference("size", "all");
   useEffect(() => {
     const tick = () => setNow(Date.now());
     const timer = window.setInterval(tick, 30000);
@@ -166,12 +180,6 @@ export default function Operations({
       document.removeEventListener("visibilitychange", tick);
     };
   }, []);
-  useEffect(() => {
-    setQuery("");
-    setFilter("all");
-    setSort("desc");
-    setTab("lottery");
-  }, [section]);
   const entities = activeEntities(raw);
   const roster = characters(entities);
   const cycle = lotteryCycle(entities, now);
@@ -200,6 +208,15 @@ export default function Operations({
       リテイナー・空き土地・未確認キャラの情報は、追加データ対応版からの同期後にそろいます。未同期の残高は合計に含めていません。
     </p>
   ) : null;
+  const filterNotice = <>
+        {(query.trim() || (section === "housing" ? tab === "lottery" && filter !== "all" : filter !== "all") || (section === "housing" && tab === "plots" && (world !== "all" || size !== "all"))) &&
+          <div className="filter-active" role="status"><strong>絞り込み中</strong>
+            {query.trim() && <span>検索：{query}</span>}
+            {(section !== "housing" || tab === "lottery") && filter !== "all" && <span>状態：{filter === "pending" ? "未出航・帰港予定経過あり" : filter === "voyaging" ? "航海中あり" : filter}</span>}
+            {section === "housing" && tab === "plots" && <><span>ワールド：{world === "all" ? "すべて" : world}</span><span>サイズ：{size === "all" ? "すべて" : size}</span></>}
+            <button onClick={() => { setQuery(""); setFilter("all"); setWorld("all"); setSize("all"); }}>絞り込みを解除</button>
+          </div>}
+  </>;
   if (section === "overview")
     return (
       <div className="operations">
@@ -283,11 +300,13 @@ export default function Operations({
             </select>
           </label>
         </Search>
+        {filterNotice}
+
         <Panel
           title="キャラクター別の資産"
           aside={<small>{rows.length}人</small>}
         >
-          <Table
+          <Table foldId="gil-characters"
             columns={[
               "キャラクター",
               "所持金",
@@ -299,7 +318,7 @@ export default function Operations({
             empty={!rows.length}
           >
             {rows.map((c) => (
-              <tr key={c.key}>
+              <tr key={c.key} data-unverified={personalGil(c, assets.complete) === null}>
                 <td>
                   <Person name={c.name} world={c.world} />
                   {c.retainers.length > 0 && (
@@ -333,7 +352,7 @@ export default function Operations({
           </Table>
         </Panel>
         <Panel title="FC別の資金・クレジット">
-          <Table
+          <Table foldId="gil-companies"
             columns={[
               "フリーカンパニー",
               "FC資金",
@@ -343,7 +362,7 @@ export default function Operations({
             empty={!companies.length}
           >
             {companies.map((e) => (
-              <tr key={e.entity_key}>
+              <tr key={e.entity_key} data-unverified={e.payload.GilConfirmed !== true && e.payload.CompanyCreditsConfirmed !== true}>
                 <td>
                   <Person
                     name={str(e.payload, "Name")}
@@ -402,6 +421,8 @@ export default function Operations({
       .filter(
         (e) =>
           e.entity_type === "open_plot" &&
+          (world === "all" || str(e.payload, "WorldName") === world) &&
+          (size === "all" || size.split("-").includes(str(e.payload, "Size"))) &&
           matches(Object.values(e.payload), query),
       )
       .sort(
@@ -425,8 +446,7 @@ export default function Operations({
               aria-selected={tab === id}
               onClick={() => {
                 setTab(id);
-                setQuery("");
-                setFilter("all");
+
               }}
             >
               {label}
@@ -456,6 +476,16 @@ export default function Operations({
           </div>
         )}
         <Search query={query} setQuery={setQuery}>
+          {tab === "plots" && <>
+            <label><span>ワールド</span><select aria-label="ワールド" value={world} onChange={e => setWorld(e.target.value)}>
+              <option value="all">すべてのワールド</option>
+              {[...new Set([...entities.filter(e => e.entity_type === "open_plot").map(e => str(e.payload, "WorldName")), ...(world !== "all" ? [world] : [])])].sort().map(w => <option key={w}>{w}</option>)}
+            </select></label>
+            <label><span>サイズ</span><select aria-label="サイズ" value={size} onChange={e => setSize(e.target.value)}>
+              <option value="all">すべてのサイズ</option>
+              {["S", "S-M", "M", "M-L", "L"].map(v => <option key={v}>{v}</option>)}
+            </select></label>
+          </>}
           {tab === "lottery" && (
             <label>
               <span>抽選状態</span>
@@ -471,6 +501,8 @@ export default function Operations({
             </label>
           )}
         </Search>
+        {filterNotice}
+
         {tab === "lottery" && (
           <>
             <div className="count-line">
@@ -489,7 +521,7 @@ export default function Operations({
                 ))}
             </div>
             <Panel title="キャラクター別の抽選状況">
-              <Table
+              <Table foldId="lottery"
                 columns={[
                   "キャラクター",
                   "今期の状態",
@@ -503,7 +535,7 @@ export default function Operations({
                 {rows.map((c) => {
                   const status = lotteryStatus(c, cycle);
                   return (
-                    <tr key={c.key}>
+                    <tr key={c.key} data-unverified={["今期未確認", "結果未確認", "周期未確認"].includes(status)}>
                       <td>
                         <Person name={c.name} world={c.world} />
                       </td>
@@ -561,12 +593,12 @@ export default function Operations({
                   "最終入室",
                   "記録日時",
                 ]}
-                empty={!estates.length}
+                foldId="estates" empty={!estates.length}
               >
                 {estates.map((e) => {
                   const deadline = houseDeadline(e);
                   return (
-                    <tr key={e.entity_key}>
+                    <tr key={e.entity_key} data-unverified={deadline === null}>
                       <td>
                         <Person
                           name={str(e.payload, "CharacterName")}
@@ -763,6 +795,8 @@ export default function Operations({
             </select>
           </label>
         </Search>
+        {filterNotice}
+
         <div className="count-line">
           <span>
             未出航・待機{" "}
@@ -792,8 +826,8 @@ export default function Operations({
             隻
           </span>
         </div>
-        {rows.length ? (
-          rows.map(([key, g]) => (
+        {rows.length ? (() => {
+          const renderGroup = ([key, g]: (typeof rows)[number]) => (
             <Panel
               key={key}
               title={g.name}
@@ -857,8 +891,12 @@ export default function Operations({
                   })}
               </Table>
             </Panel>
-          ))
-        ) : (
+          );
+          const hasRecords = (g: (typeof rows)[number][1]) => g.ships.length > 0;
+          const unknown = rows.filter(([, g]) => !hasRecords(g));
+          return <>{rows.filter(([, g]) => hasRecords(g)).map(renderGroup)}
+            <Fold id="fleets" count={unknown.length} label="潜水艦の記録なしのFC">{unknown.map(renderGroup)}</Fold></>;
+        })() : (
           <Empty>該当するFC・潜水艦の記録がありません。</Empty>
         )}
         <p className="op-note">
@@ -899,6 +937,8 @@ export default function Operations({
           </select>
         </label>
       </Search>
+        {filterNotice}
+
       <div className="count-line">
         {Object.keys(rank).map((status) => (
           <span key={status}>
@@ -911,7 +951,7 @@ export default function Operations({
         ))}
       </div>
       <Panel title="キャラクター別のお得意様取引">
-        <Table
+        <Table foldId="delivery"
           columns={[
             "キャラクター",
             "今週の状態",
@@ -926,7 +966,7 @@ export default function Operations({
             const status = deliveryStatus(c, now);
             const p = c.delivery?.payload ?? {};
             return (
-              <tr key={c.key}>
+              <tr key={c.key} data-unverified={["今週未確認", "記録なし"].includes(status)}>
                 <td>
                   <Person name={c.name} world={c.world} />
                 </td>
@@ -969,4 +1009,10 @@ export default function Operations({
       </p>
     </div>
   );
+}
+
+export default function DashboardViews(props: Parameters<typeof Operations>[0] & { userId: string }) {
+  return <PreferenceScope.Provider value={`${props.userId}:${props.section}`}>
+    <Operations key={`${props.userId}:${props.section}`} {...props} />
+  </PreferenceScope.Provider>;
 }
