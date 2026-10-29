@@ -83,6 +83,10 @@ jobs:
         if: env.RELEASE_EXISTS != 'true'
         run: dotnet run --project tests/Regression/Regression.csproj -c Release
 
+      - name: Validate plugin web sync controller and encrypted queue
+        if: env.RELEASE_EXISTS != 'true'
+        run: dotnet run --project tests/SyncAgent/AltMate.SyncAgent.Tests.csproj -c Release
+
       - name: Verify manifest version
         if: env.RELEASE_EXISTS != 'true'
         shell: pwsh
@@ -115,6 +119,8 @@ jobs:
           # NuGet依存を含め、ビルド出力に配置されたプラグインDLLをすべて同梱する。
           # Dalamud本体の参照DLLはCopyLocalされないため、ここには含まれない。
           Get-ChildItem $dll.DirectoryName -Filter *.dll | Copy-Item -Destination $package
+          $runtimes = Join-Path $dll.DirectoryName "runtimes"
+          if (Test-Path $runtimes) { Copy-Item $runtimes $package -Recurse -Force }
           $deps = [IO.Path]::ChangeExtension($dll.FullName, ".deps.json")
           if (Test-Path $deps) { Copy-Item $deps $package }
           $manifest = [IO.Path]::ChangeExtension($dll.FullName, ".json")
@@ -138,6 +144,8 @@ jobs:
               "AltMate.dll",
               "NoireLib.dll",
               "Penumbra.Api.dll",
+              "System.Security.Cryptography.ProtectedData.dll",
+              "AltMate.deps.json",
               "AltMate.json",
               "images/icon.png"
             )) {
@@ -148,6 +156,10 @@ jobs:
             try { $manifest = $reader.ReadToEnd() | ConvertFrom-Json } finally { $reader.Dispose() }
             if (-not $manifest.AssemblyVersion) {
               throw "AltMate.json is missing AssemblyVersion."
+            }
+            $repo = Get-Content repo.json -Raw | ConvertFrom-Json
+            if ($manifest.AssemblyVersion -ne $repo[0].AssemblyVersion) {
+              throw "Packaged manifest and update feed versions do not match."
             }
           } finally { $zip.Dispose() }
 
