@@ -52,7 +52,9 @@ try
                 catch (SyncHttpException ex) when (ex.Retryable)
                 {
                     delay = ex.Status == HttpStatusCode.TooManyRequests ? TimeSpan.FromMinutes(5) : Retry(++failures);
-                    Console.WriteLine("Server temporarily unavailable; encrypted queued event retained. Retrying with backoff.");
+                    Console.WriteLine(ex.Status == HttpStatusCode.TooManyRequests
+                        ? "Upload interval limit (HTTP 429). Retrying in five minutes; encrypted queued event retained."
+                        : $"Server temporarily unavailable (HTTP {(int)ex.Status}); encrypted queued event retained. Retrying with backoff.");
                 }
                 catch (Exception ex) when (ex is HttpRequestException or IOException or JsonException || ex is TaskCanceledException && !cancel.IsCancellationRequested)
                 {
@@ -77,7 +79,7 @@ try
             Console.WriteLine(store.Exists("pending") ? "An encrypted upload is pending." : "No queued upload.");
             return 0;
         case "forget":
-            foreach (var file in new[] { "identity", "pending", "ack", "preview" }) store.Remove(file);
+            foreach (var file in new[] { "identity", "pending", "ack", "preview", "last-upload" }) store.Remove(file);
             Console.WriteLine("Local credentials and queued data removed. Revoke the device separately in the web dashboard.");
             return 0;
         default:

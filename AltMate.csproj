@@ -11,6 +11,8 @@
   <ItemGroup>
     <Compile Remove="tests/**/*.cs" />
     <Compile Remove="AltMate.SyncAgent/**/*.cs;AltMate.SyncContracts/**/*.cs" />
+    <!-- Share the tested transport/exporter without embedding the console entry point. -->
+    <Compile Include="AltMate.SyncAgent/Exporter.cs;AltMate.SyncAgent/SecureStore.cs;AltMate.SyncAgent/SyncTransport.cs;AltMate.SyncContracts/SyncEnvelope.cs" />
     <Content Include="images\icon.png">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
@@ -18,5 +20,6 @@
   <ItemGroup>
     <PackageReference Include="NoireLib" Version="2.0.0.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.14" />
   </ItemGroup>
 </Project>

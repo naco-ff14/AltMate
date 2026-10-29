@@ -1,3 +1,4 @@
+#pragma warning disable NoireLib_002 // Explicit wire/DPAPI JSON contract, not Dalamud configuration serialization.
 using System;
 using System.Collections.Generic;
 using System.Text.Json;

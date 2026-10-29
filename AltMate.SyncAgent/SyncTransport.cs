@@ -1,4 +1,10 @@
+#pragma warning disable NoireLib_002 // Explicit wire/DPAPI JSON contract, not Dalamud configuration serialization.
 using System.Net;
+using System;
+using System.IO;
+using System.Net.Http;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
@@ -49,6 +55,7 @@ internal sealed class SyncTransport(HttpClient client, SecureStore store)
             !receipt.RootElement.TryGetProperty("duplicate", out var duplicate) || duplicate.ValueKind is not (JsonValueKind.True or JsonValueKind.False))
             throw new InvalidDataException("Invalid upload receipt; queued event retained.");
         store.Save("ack", Fingerprint(envelope));
+        store.Save("last-upload", DateTimeOffset.UtcNow);
         store.Remove("pending");
         return true;
     }

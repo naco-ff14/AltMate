@@ -1,6 +1,6 @@
 # AltMate Web Dashboard — implementation plan
 
-Status: Web dashboard deployed. Authenticated sync backend and Windows companion implemented and locally tested; server migration/function deployment, daily retention scheduling and first live upload still pending. See `docs/sync-setup-ja.txt` and `AltMate.SyncAgent/README.md`.
+Status: Web dashboard/server deployed; standalone sync acknowledged during setup. In-plugin opt-in synchronization implemented and locally tested. In-game UI and plugin-originated live uploads remain unverified; daily retention scheduling still needs operational confirmation. See `docs/plugin-web-sync-ja.txt`, `docs/sync-setup-ja.txt` and `AltMate.SyncAgent/README.md`.
 
 ## Architecture
 AltMate shared-config.json -> Windows SyncAgent -> authenticated Supabase Edge Function -> PostgreSQL RLS -> Cloudflare Pages PWA. Future SwiftUI uses the same read API.

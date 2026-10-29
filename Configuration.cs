@@ -58,6 +58,8 @@ public sealed class Configuration : IPluginConfiguration
     public int FollowerFpsLimit { get; set; } = 30;
     public string Language { get; set; } = "ja";
     public bool ShowChatMessages { get; set; }
+    // Local installation opt-in. Deliberately not copied by SharedConfigurationStore settings merges.
+    public bool WebSyncEnabled { get; set; }
     public string LocalLinkKey { get; set; } = string.Empty;
     public bool WindowCompactMode { get; set; }
     public float WindowBackgroundOpacity { get; set; } = 0.96f;

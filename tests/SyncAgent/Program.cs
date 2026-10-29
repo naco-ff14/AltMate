@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using AltMate.SyncContracts;
+using AltMate;
 
 if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("DPAPI tests require Windows.");
 if (args.Length == 3 && args[0] == "--validate-export")
@@ -100,12 +101,100 @@ Check(store.Exists("pending"), "Rejected queue must not disappear.");
 handler.Handle = _ => Task.FromResult(Json(new { unexpected = true }));
 try { await transport.Sync(input, CancellationToken.None); throw new Exception("Invalid receipt accepted."); } catch (InvalidDataException) { checks++; }
 Check(store.Exists("pending"), "Invalid receipt discarded queue.");
-Console.WriteLine($"Sync agent: {checks} checks passed (synthetic data only; DPAPI, allowlist, clocks, pairing and durable retries).");
+// The production plugin controller runs here without Dalamud or a live game.
+static async Task WaitFor(Func<bool> condition)
+{
+    var deadline = DateTime.UtcNow.AddSeconds(8);
+    while (!condition()) { if (DateTime.UtcNow >= deadline) throw new Exception("Controller timed out."); await Task.Delay(10); }
+}
+SecureStore NewPairedStore(string name)
+{
+    var value = new SecureStore(Path.Combine(root, name));
+    value.Save("identity", new DeviceIdentity("https://test.supabase.co", id, token, hmac));
+    return value;
+}
+await File.WriteAllTextAsync(input, Source(500));
+{
+    var saved = NewPairedStore("controller-off"); var calls = 0;
+    var fake = new FakeHandler { Handle = _ => { Interlocked.Increment(ref calls); return Task.FromResult(Json(new { duplicate = false, applied = 5 })); } };
+    using var controller = new WebSyncController(false, saved.DirectoryPath, input, new HttpClient(fake));
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.Disabled && controller.Status.Paired);
+    controller.SyncNow(); await Task.Delay(50);
+    Check(calls == 0, "Disabled plugin must not upload, including manual requests.");
+    controller.SetEnabled(true);
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.Synced);
+    Check(calls == 1 && controller.Status.LastSuccess.HasValue, "Enable did not upload/record success.");
+    controller.SyncNow(); await Task.Delay(50);
+    Check(calls == 1, "Manual request bypassed five-minute interval.");
+    controller.SetEnabled(false);
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.Disabled);
+    // OFF releases the file lock without blocking the UI.
+    using var lease = new FileStream(Path.Combine(saved.DirectoryPath, "agent.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    Check(lease.CanWrite, "Disabling did not release the owner lease.");
+    controller.Dispose(); await controller.Completion;
+}
+{
+    var saved = NewPairedStore("controller-contention"); var calls = 0;
+    using var blocker = new FileStream(Path.Combine(saved.DirectoryPath, "agent.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    var fake = new FakeHandler { Handle = _ => { Interlocked.Increment(ref calls); return Task.FromResult(Json(new { duplicate = false, applied = 5 })); } };
+    using var controller = new WebSyncController(true, saved.DirectoryPath, input, new HttpClient(fake));
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.WaitingOwner);
+    Check(calls == 0, "A second client uploaded while another owner held the lease.");
+    blocker.Dispose(); controller.SyncNow();
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.Synced);
+    Check(calls == 1, "Waiting client failed to take ownership after release.");
+    controller.Dispose(); await controller.Completion;
+}
+{
+    var saved = NewPairedStore("controller-rate-limit"); var calls = 0; var clock = new AdjustableClock();
+    var fake = new FakeHandler { Handle = _ => Task.FromResult(Interlocked.Increment(ref calls) == 1 ? new HttpResponseMessage(HttpStatusCode.TooManyRequests) : Json(new { duplicate = false, applied = 5 })) };
+    using var controller = new WebSyncController(true, saved.DirectoryPath, input, new HttpClient(fake), clock);
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.RateLimited);
+    Check(controller.Status.HasPending && controller.Status.NextAttempt == clock.GetUtcNow().AddMinutes(5), "429 must retain queue and show its own retry state.");
+    controller.SyncNow(); await Task.Delay(50); Check(calls == 1, "Rate limit was bypassed.");
+    clock.Advance(TimeSpan.FromMinutes(6)); controller.SyncNow();
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.Synced);
+    Check(calls == 2 && !controller.Status.HasPending, "Queued upload was not retried after cooldown.");
+    controller.Dispose(); await controller.Completion;
+}
+{
+    var saved = NewPairedStore("controller-cancel");
+    var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var fake = new FakeHandler { HandleCancelable = async (_, ct) => { started.TrySetResult(); await Task.Delay(Timeout.Infinite, ct); return Json(new { duplicate = false, applied = 5 }); } };
+    using var controller = new WebSyncController(true, saved.DirectoryPath, input, new HttpClient(fake));
+    await started.Task.WaitAsync(TimeSpan.FromSeconds(8));
+    var timer = Stopwatch.StartNew(); controller.Dispose();
+    Check(timer.Elapsed < TimeSpan.FromSeconds(1), "Dispose blocked the game/UI thread on network activity.");
+    await controller.Completion.WaitAsync(TimeSpan.FromSeconds(8));
+    Check(saved.Exists("pending"), "Unloading discarded an in-flight queued event.");
+    using var lease = new FileStream(Path.Combine(saved.DirectoryPath, "agent.lock"), FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+    Check(lease.CanWrite, "Unloading failed to release the lease.");
+}
+{
+    var saved = new SecureStore(Path.Combine(root, "controller-pair"));
+    var fake = new FakeHandler { Handle = _ => Task.FromResult(Json(new { DeviceId = id, Token = token, HmacKey = hmac })) };
+    using var controller = new WebSyncController(false, saved.DirectoryPath, input, new HttpClient(fake));
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.Disabled);
+    Check(controller.Pair("https://test.supabase.co", new string('c', 64)), "Pair command rejected while OFF.");
+    await WaitFor(() => controller.Status.Phase == WebSyncPhase.Paired);
+    Check(saved.Exists("identity") && !saved.Exists("pending"), "Pairing should not enable uploads.");
+    Check(controller.Forget(), "Forget command rejected while OFF.");
+    await WaitFor(() => !controller.Status.Paired && !saved.Exists("identity"));
+    controller.Dispose(); await controller.Completion;
+}
+Console.WriteLine($"Sync agent/plugin: {checks} checks passed (synthetic data; privacy, DPAPI, retries, opt-in, ownership, cooldown and unload cancellation).");
 return 0;
 
 static HttpResponseMessage Json(object value) => new(HttpStatusCode.OK) { Content = new StringContent(JsonSerializer.Serialize(value), Encoding.UTF8, "application/json") };
 internal sealed class FakeHandler : HttpMessageHandler
 {
     internal Func<HttpRequestMessage, Task<HttpResponseMessage>> Handle { get; set; } = _ => throw new NotImplementedException();
-    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Handle(request);
+    internal Func<HttpRequestMessage, CancellationToken, Task<HttpResponseMessage>>? HandleCancelable { get; set; }
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => HandleCancelable is { } action ? action(request, cancellationToken) : Handle(request);
+}
+internal sealed class AdjustableClock : TimeProvider
+{
+    private long ticks = DateTimeOffset.UtcNow.UtcTicks;
+    public override DateTimeOffset GetUtcNow() => new(Interlocked.Read(ref ticks), TimeSpan.Zero);
+    internal void Advance(TimeSpan amount) => Interlocked.Add(ref ticks, amount.Ticks);
 }

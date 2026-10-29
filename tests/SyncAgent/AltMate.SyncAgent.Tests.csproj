@@ -6,5 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>AltMate.SyncAgent.Tests</AssemblyName>
   </PropertyGroup>
-  <ItemGroup><ProjectReference Include="../../AltMate.SyncAgent/AltMate.SyncAgent.csproj" /></ItemGroup>
+  <ItemGroup><ProjectReference Include="../../AltMate.SyncAgent/AltMate.SyncAgent.csproj" />
+    <Compile Include="../../WebSyncController.cs" Link="WebSyncController.cs" />
+  </ItemGroup>
 </Project>

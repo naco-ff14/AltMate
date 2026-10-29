@@ -68,6 +68,7 @@ try
     Require(second.TrySaveMerged(b, true, out revision), "stale-baseline save");
     Require(b.FollowStartDistance == 12 && b.Language == "en", "independent settings merge");
     Require(b.SyncJumpEnabled && b.SyncSprintEnabled, "independent movement sync settings merge");
+
     Require(b.BossModRole == BossModCombatRole.MovementAndActions, "BMR role survives another client's save");
     Require(first.ReloadIfNewer(a, revision, out _), "revision notification reload");
     Require(a.Language == "en" && a.FollowStartDistance == 12, "reload contents");
@@ -153,6 +154,11 @@ try
         "stale nonzero balance cannot resurrect");
     Require(first.ReloadIfNewer(a, revision, out _), "reload merged empty chest");
     Require(a.FreeCompanyGil[fcId].Gil == 0, "zero FC balance survives reload");
+    Require(!a.WebSyncEnabled && !b.WebSyncEnabled, "web uploads default to OFF");
+    a.WebSyncEnabled = true;
+    Require(first.TrySaveMerged(a, true, out revision), "save with local web sync opt-in");
+    Require(second.ReloadIfNewer(b, revision, out _), "reload after local web sync opt-in");
+    Require(a.WebSyncEnabled && !b.WebSyncEnabled, "web upload consent must not enable another installation");
     Console.WriteLine("PASS: settings merge, lock contention/retry, quantities, unchanged polling, external reload, confirmed zero FC balance.");
 }
 finally

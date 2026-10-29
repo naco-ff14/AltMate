@@ -115,6 +115,7 @@ public sealed class Plugin : IDalamudPlugin
     internal CrafterRetainerScanner CrafterRetainers { get; }
     internal CrafterLevelingAutomation CrafterLeveling { get; }
     internal string IconPath { get; }
+    internal WebSyncController WebSync { get; }
 
     internal Configuration Configuration { get; }
     internal static Configuration? CurrentConfiguration => current?.Configuration;
@@ -217,6 +218,7 @@ public sealed class Plugin : IDalamudPlugin
         wardObserver = HousingWardObserver.TryCreate(this);
         gilTracker = new GilTracker(this);
         HousingDemolition = new HousingDemolitionTracker(this);
+        WebSync = new WebSyncController(Configuration.WebSyncEnabled);
         mainWindow = new MainWindow(this);
         windowSystem.AddWindow(mainWindow);
 
@@ -1036,6 +1038,7 @@ public sealed class Plugin : IDalamudPlugin
 
     public void Dispose()
     {
+        WebSync.Dispose();
         Framework.Update -= FlushPendingConfiguration;
         Framework.Update -= CheckPendingBid;
         FlushPendingConfiguration(wait: true);

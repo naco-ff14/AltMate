@@ -1,7 +1,11 @@
 # AltMate Sync Agent
 
 An opt-in Windows companion that reads AltMate's existing shared-config.json. It never controls the game.
-The web dashboard is deployed; the new server migration and Edge Function still need deployment.
+The plugin now uses the same exporter/transport directly from Settings → Web dashboard sync.
+It adopts this agent's existing protected device identity and queue. Close the standalone watch
+window before enabling the plugin; only one process can own sync on this Windows account.
+The web dashboard/server have been deployed and a standalone upload was acknowledged in the setup session.
+Plugin UI and plugin-originated live uploads still require in-game verification.
 See [the setup guide](../docs/sync-setup-ja.txt).
 
 ## Commands
