@@ -19,6 +19,31 @@ internal sealed class SyncTransport(HttpClient client, SecureStore store)
         uri.Scheme == "https" && uri.Host.EndsWith(".supabase.co", StringComparison.OrdinalIgnoreCase) &&
         uri.AbsolutePath == "/" && uri.Query == "" && uri.Fragment == "" && uri.UserInfo == "" && uri.IsDefaultPort;
     internal static bool IsSecret(string value) => Regex.IsMatch(value, "\\A[a-f0-9]{64}\\z");
+    internal async Task<PluginPairingCode> BeginPluginPairing(string url, string secret, CancellationToken cancel)
+    {
+        if (!IsProjectUrl(url) || !IsSecret(secret)) throw new InvalidDataException("Invalid pairing request.");
+        using var request = Request(url, secret, "{\"Action\":\"begin_plugin_pairing\"}");
+        using var response = await client.SendAsync(request, cancel);
+        if (!response.IsSuccessStatusCode) throw new SyncHttpException(response.StatusCode);
+        var result = JsonSerializer.Deserialize<PluginPairingCode>(await response.Content.ReadAsStringAsync(cancel));
+        if (result is null || !Regex.IsMatch(result.Code, "\\A[A-F0-9]{12}\\z") || result.ExpiresAt <= DateTimeOffset.UtcNow || result.ExpiresAt > DateTimeOffset.UtcNow.AddMinutes(11))
+            throw new InvalidDataException("Invalid pairing code response.");
+        return result;
+    }
+    internal async Task<bool> PollPluginPairing(string url, string secret, CancellationToken cancel)
+    {
+        if (!IsProjectUrl(url) || !IsSecret(secret)) throw new InvalidDataException("Invalid pairing request.");
+        using var request = Request(url, secret, "{\"Action\":\"poll_plugin_pairing\"}");
+        using var response = await client.SendAsync(request, cancel);
+        if (!response.IsSuccessStatusCode) throw new SyncHttpException(response.StatusCode);
+        var json = await response.Content.ReadAsStringAsync(cancel);
+        using var doc = JsonDocument.Parse(json);
+        if (doc.RootElement.TryGetProperty("Pending", out var pending) && pending.ValueKind == JsonValueKind.True) return false;
+        var pair = JsonSerializer.Deserialize<PairingResponse>(json);
+        if (pair is null || pair.DeviceId == Guid.Empty || !IsSecret(pair.Token) || !IsSecret(pair.HmacKey)) throw new InvalidDataException("Invalid pairing response.");
+        store.Save("identity", new DeviceIdentity(url.TrimEnd('/'), pair.DeviceId, pair.Token, pair.HmacKey));
+        return true;
+    }
     internal async Task Pair(string projectUrl, string code, CancellationToken cancel)
     {
         if (!IsProjectUrl(projectUrl) || !IsSecret(code)) throw new InvalidDataException("Invalid project URL or pairing code.");
@@ -70,6 +95,7 @@ internal sealed class SyncTransport(HttpClient client, SecureStore store)
         return request;
     }
 }
+internal sealed record PluginPairingCode(string Code, DateTimeOffset ExpiresAt);
 internal sealed class SyncHttpException(HttpStatusCode status) : Exception("Sync server rejected the request.")
 {
     internal HttpStatusCode Status => status;

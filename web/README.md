@@ -2,6 +2,13 @@
 
 Private, read-only React + TypeScript + Vite application for the existing Supabase schema.
 
+Plugin linking: apply `202610290003_plugin_pairing.sql` after dashboard-v2 and update the
+`sync` Edge Function. The plugin generates a 12-character code; sign in with email,
+password and the optional code to approve in one submission. Existing sessions approve
+under Settings → Plugin linking. Browser approval uses the authenticated RPC only;
+credential polling requires a separate 256-bit plugin secret. Codes are never stored
+in browser storage or URLs. Existing device registrations continue to work.
+
 ## Local development
 
 Use Node.js 24 LTS (minimum 22.12). Inside `web`:

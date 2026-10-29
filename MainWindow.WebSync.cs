@@ -6,8 +6,7 @@ namespace AltMate;
 
 public sealed partial class MainWindow
 {
-    private string webSyncProjectUrl = "";
-    private string webSyncPairingCode = "";
+    private string webSyncProjectUrl = "https://pdupjpgszabdtrirftvt.supabase.co";
     private string webSyncInputError = "";
 
     private void DrawWebSyncSettings()
@@ -18,12 +17,14 @@ public sealed partial class MainWindow
             "キャラクター・住宅・資産などの記録を、自分のWebダッシュボードに送信します。",
             "Upload character, housing and asset observations to your private dashboard."));
         var enabled = plugin.Configuration.WebSyncEnabled;
+        ImGui.BeginDisabled(!plugin.WebSync.Status.Paired);
         if (ImGui.Checkbox(Loc.L("Web同期を有効にする（このクライアント）", "Enable web sync (this client)"), ref enabled))
         {
             plugin.Configuration.WebSyncEnabled = enabled;
             plugin.Configuration.Save();
             plugin.WebSync.SetEnabled(enabled);
         }
+        ImGui.EndDisabled();
         var state = plugin.WebSync.Status;
         ImGui.TextWrapped(WebSyncPhaseLabel(state.Phase));
         ImGui.TextDisabled(Loc.L("最終送信: ", "Last upload: ") + FormatWebSyncTime(state.LastSuccess));
@@ -40,23 +41,37 @@ public sealed partial class MainWindow
 
         if (!state.Paired)
         {
-            ImGui.BeginDisabled(enabled || state.Busy);
-            ImGui.SetNextItemWidth(440 * ImGuiHelpers.GlobalScale);
-            ImGui.InputText(Loc.L("SupabaseのProject URL", "Supabase project URL"), ref webSyncProjectUrl, 256);
-            ImGui.SetNextItemWidth(440 * ImGuiHelpers.GlobalScale);
-            ImGui.InputText(Loc.L("Webで発行した連携コード", "One-time dashboard pairing code"), ref webSyncPairingCode, 128, ImGuiInputTextFlags.Password);
-            if (ImGui.Button(Loc.L("このPCを連携", "Pair this PC")))
+            ImGui.TextWrapped(Loc.L("コードをWebでログイン時に登録してください。承認後に同期が自動でONになります。", "Register this code when signing in on the web. Approval enables sync automatically."));
+            if (state.PairingCode.Length > 0)
             {
-                if (plugin.WebSync.Pair(webSyncProjectUrl.Trim(), webSyncPairingCode.Trim()))
+                var code = state.PairingCode.Insert(6, "-");
+                ImGui.TextUnformatted(Loc.L("連携コード: ", "Pairing code: ") + code);
+                ImGui.TextDisabled(Loc.L("有効期限: ", "Expires: ") + FormatWebSyncTime(state.PairingExpiresAt));
+                if (ImGui.Button(Loc.L("コードをコピー", "Copy code"))) ImGui.SetClipboardText(code);
+                ImGui.SameLine();
+                if (ImGui.Button(Loc.L("Webでログイン・連携", "Sign in and link on web")))
                 {
-                    webSyncPairingCode = "";
-                    webSyncInputError = "";
+                    try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("https://altmate-web.pages.dev/#link") { UseShellExecute = true }); }
+                    catch { webSyncInputError = Loc.L("ブラウザーで altmate-web.pages.dev を開いてください。", "Open altmate-web.pages.dev in your browser."); }
                 }
-                else webSyncInputError = Loc.L("URLと連携コードを確認し、同期をOFFにしてから再試行してください。", "Check the URL/code and turn sync off before retrying.");
+                ImGui.BeginDisabled(state.Busy);
+                if (ImGui.Button(Loc.L("連携をキャンセル", "Cancel pairing"))) plugin.WebSync.Forget();
+                ImGui.EndDisabled();
+                ImGui.TextWrapped(Loc.L("自分で発行したコードだけを登録してください。他の人に共有しないでください。", "Register only a code you generated yourself. Do not share it."));
             }
-            ImGui.EndDisabled();
+            else
+            {
+                if (ImGui.CollapsingHeader(Loc.L("接続先の詳細設定", "Advanced connection settings")))
+                {
+                    ImGui.SetNextItemWidth(440 * ImGuiHelpers.GlobalScale);
+                    ImGui.InputText(Loc.L("SupabaseのProject URL", "Supabase project URL"), ref webSyncProjectUrl, 256);
+                }
+                ImGui.BeginDisabled(enabled || state.Busy);
+                if (ImGui.Button(Loc.L("Webと連携する（コード発行）", "Link web (generate code)")))
+                    webSyncInputError = plugin.WebSync.BeginPluginPairing(webSyncProjectUrl.Trim()) ? "" : Loc.L("同期をOFFにし、接続先を確認してください。", "Turn sync off and check the project URL.");
+                ImGui.EndDisabled();
+            }
             if (webSyncInputError.Length > 0) ImGui.TextWrapped(webSyncInputError);
-            ImGui.TextWrapped(Loc.L("初回のみWebの「同期端末」でコードを発行してください。アカウントのパスワードやAPIキーは入力しません。", "Generate a code under Sync devices in your dashboard. No account password or API key is needed."));
         }
         else
         {
@@ -82,10 +97,10 @@ public sealed partial class MainWindow
     {
         WebSyncPhase.Initializing => Loc.L("連携情報を確認中…", "Checking registration…"),
         WebSyncPhase.Disabled => Loc.L("Web同期はOFFです。", "Web sync is off."),
-        WebSyncPhase.Unpaired => Loc.L("このPCは未連携です。同期をOFFにして連携コードを入力してください。", "This PC is not paired. Turn sync off and enter a pairing code."),
+        WebSyncPhase.Unpaired => Loc.L("未連携です。「Webと連携する」でコードを発行してください。", "Not linked. Generate a code with Link web."),
         WebSyncPhase.WaitingOwner => Loc.L("別のクライアントまたは同期アプリが送信を担当しています。待機中です。", "Another client or the standalone agent owns sync. Waiting."),
         WebSyncPhase.WaitingInterval => Loc.L("次の送信可能時刻まで待機しています。", "Waiting for the next permitted upload time."),
-        WebSyncPhase.Pairing => Loc.L("PCを連携中…", "Pairing this PC…"),
+        WebSyncPhase.Pairing => Loc.L("Webでの承認を待っています…", "Waiting for web approval…"),
         WebSyncPhase.Paired => Loc.L("PC連携が完了しました。同期をONにすると送信を開始します。", "PC paired. Enable sync to start uploading."),
         WebSyncPhase.Uploading => Loc.L("同期中…", "Uploading…"),
         WebSyncPhase.Synced => Loc.L("同期が完了しました。", "Sync acknowledged."),

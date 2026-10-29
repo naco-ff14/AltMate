@@ -15,8 +15,10 @@ $entry = $entry.Replace('import { handleSync } from "../_shared/sync.ts";', '')
 [System.IO.File]::WriteAllText((Join-Path $outputRoot 'sync-function.ts'), $shared + [Environment]::NewLine + $entry, [System.Text.UTF8Encoding]::new($false))
 $initialSql = Get-Content (Join-Path $repoRoot 'supabase/migrations/202610290001_authenticated_sync.sql') -Raw
 $upgradeSql = Get-Content (Join-Path $repoRoot 'supabase/migrations/202610290002_dashboard_views.sql') -Raw
-[System.IO.File]::WriteAllText((Join-Path $outputRoot 'supabase-sync.sql'), $initialSql + [Environment]::NewLine + $upgradeSql, [System.Text.UTF8Encoding]::new($false))
+$pairingSql = Get-Content (Join-Path $repoRoot 'supabase/migrations/202610290003_plugin_pairing.sql') -Raw
+[System.IO.File]::WriteAllText((Join-Path $outputRoot 'supabase-sync.sql'), $initialSql + [Environment]::NewLine + $upgradeSql + [Environment]::NewLine + $pairingSql, [System.Text.UTF8Encoding]::new($false))
 [System.IO.File]::WriteAllText((Join-Path $outputRoot 'dashboard-v2.sql'), $upgradeSql, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText((Join-Path $outputRoot 'plugin-pairing.sql'), $pairingSql, [System.Text.UTF8Encoding]::new($false))
 Copy-Item -LiteralPath (Join-Path $repoRoot 'LICENSE') -Destination (Join-Path $outputRoot 'LICENSE.txt')
 Copy-Item -LiteralPath (Join-Path $repoRoot 'docs/sync-setup-ja.txt') -Destination (Join-Path $outputRoot 'README.txt')
 $commands = [ordered]@{

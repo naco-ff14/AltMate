@@ -28,6 +28,7 @@ beforeAll(async () => {
     "202610280001_web_dashboard.sql",
     "202610290001_authenticated_sync.sql",
     "202610290002_dashboard_views.sql",
+    "202610290003_plugin_pairing.sql",
   ])
     await db.exec(
       readFileSync(
@@ -384,6 +385,46 @@ describe("PostgreSQL migrations: pairing, ownership and transactional ingestion"
   });
 });
 
+describe("plugin-initiated pairing", () => {
+  const secret = "d".repeat(64);
+  const begin = () => scalar<{Code:string;ExpiresAt:string}>("select public.begin_plugin_pairing($1) as result",[secret]);
+  const poll = () => scalar<{Pending?:boolean;DeviceId?:string;Token?:string;HmacKey?:string}>("select public.poll_plugin_pairing($1) as result",[secret]);
+  const approve = (code:string) => scalar<{approved?:boolean;error?:string}>("select public.approve_plugin_pairing($1,'My PC') as result",[code]);
+  it("requires browser authentication, keeps polling private, approves once and retries credentials safely",async()=>{
+    await as("service_role"); const issued=await begin();
+    expect(issued.Code).toMatch(/^[A-F0-9]{12}$/);
+    expect(await begin()).toEqual(issued);
+    expect(await poll()).toEqual({Pending:true});
+    await as("anon"); await failure(()=>approve(issued.Code),/permission denied/);
+    await as("authenticated",a);
+    await failure(()=>poll(),/permission denied/);
+    expect(await approve(issued.Code)).toEqual({approved:true});
+    await as("authenticated",b); expect((await approve(issued.Code)).error).toBe("invalid_code");
+    await as("service_role"); const paired=await poll();
+    expect(paired.DeviceId).toBeTruthy(); expect(paired.Token).toMatch(/^[a-f0-9]{64}$/);
+    expect(await poll()).toEqual(paired);
+    expect(await scalar("select count(*)::int as result from public.devices")).toBe(1);
+    await as("authenticated",b);
+    expect(await scalar("select count(*)::int as result from public.devices")).toBe(0);
+    await as("authenticated",a);
+    await db.query("select public.revoke_sync_device($1)",[paired.DeviceId]);
+    await as("service_role"); await failure(()=>poll(),/invalid_pairing/);
+  });
+  it("does not exchange the short display code for credentials or poll another secret",async()=>{
+    await as("service_role"); const issued=await begin();
+    await failure(()=>scalar("select public.poll_plugin_pairing($1) as result",[issued.Code]),/invalid_pairing/);
+    await failure(()=>scalar("select public.poll_plugin_pairing($1) as result",["e".repeat(64)]),/invalid_pairing/);
+  });
+  it("expires approval and credential retrieval, and rate limits failed approvals",async()=>{
+    await as("service_role"); const issued=await begin();
+    await db.exec("reset role; update altmate_private.plugin_pairings set expires_at=now()-interval '1 second'");
+    await as("authenticated",a); expect((await approve(issued.Code)).error).toBe("invalid_code");
+    for(let i=1;i<20;i++) expect((await approve("000000000000")).error).toBe("invalid_code");
+    expect((await approve(issued.Code)).error).toBe("rate_limited");
+    await as("service_role"); await failure(()=>poll(),/invalid_pairing/);
+  });
+});
+
 describe("device endpoint validation", () => {
   const request = (body: unknown, token = "a".repeat(64)) =>
     new Request("https://example.test/sync", {
@@ -394,6 +435,16 @@ describe("device endpoint validation", () => {
       },
       body: JSON.stringify(body),
     });
+  it("routes plugin pairing actions using the private bearer secret only",async()=>{
+    for(const action of ["begin_plugin_pairing","poll_plugin_pairing"]){
+      const response=await handleSync(request({Action:action}),async(name,args)=>{
+        expect(name).toBe(action); expect(args).toEqual({p_secret:"a".repeat(64)});
+        return {data:{Pending:true},error:null};
+      });
+      expect(response.status).toBe(200);
+    }
+    expect((await handleSync(request({Action:"poll_plugin_pairing",UserId:a}),async()=>{throw Error("unexpected");})).status).toBe(400);
+  });
   it("rejects private fields, raw keys, unknown types, malformed times and unbounded bodies", async () => {
     const valid = envelope(randomUUID());
     expect(validateEnvelope(valid)).toBe(true);

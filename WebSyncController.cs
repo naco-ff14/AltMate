@@ -12,7 +12,9 @@ namespace AltMate;
 
 internal enum WebSyncPhase { Initializing, Disabled, Unpaired, WaitingOwner, WaitingInterval, Pairing, Paired, Uploading, Synced, NoChanges, RateLimited, Retrying, Rejected, Failed, Stopped }
 internal sealed record WebSyncStatus(WebSyncPhase Phase, bool Paired = false, bool Busy = false,
-    string ProjectUrl = "", DateTimeOffset? LastSuccess = null, DateTimeOffset? NextAttempt = null, bool HasPending = false);
+    string ProjectUrl = "", DateTimeOffset? LastSuccess = null, DateTimeOffset? NextAttempt = null, bool HasPending = false,
+    string PairingCode = "", DateTimeOffset? PairingExpiresAt = null);
+internal sealed record PluginPairingSession(string Url, string Secret, string Code, DateTimeOffset ExpiresAt);
 
 /// <summary>Worker owns all disk/network activity. UI only posts intent and reads immutable snapshots.</summary>
 internal sealed class WebSyncController : IDisposable
@@ -28,6 +30,9 @@ internal sealed class WebSyncController : IDisposable
     private CancellationTokenSource? uploadCancel;
     private FileStream? lease;
     private (string Url, string Code)? pairing;
+    private string? beginPairingUrl;
+    private PluginPairingSession? pluginPairing;
+    private DateTimeOffset pollAt;
     private bool forget;
     private bool blocked;
     private bool disposed;
@@ -81,6 +86,16 @@ internal sealed class WebSyncController : IDisposable
         }
         Signal(); return true;
     }
+    internal bool BeginPluginPairing(string url)
+    {
+        if (!SyncTransport.IsProjectUrl(url)) return false;
+        lock (gate)
+        {
+            if (disposed || Enabled || Status.Paired || Status.Busy || pairing.HasValue || beginPairingUrl is not null || Status.PairingCode.Length > 0) return false;
+            beginPairingUrl = url;
+        }
+        Signal(); return true;
+    }
     internal bool Forget()
     {
         lock (gate)
@@ -95,7 +110,8 @@ internal sealed class WebSyncController : IDisposable
         try { wake.Release(); } catch (SemaphoreFullException) { } catch (ObjectDisposedException) { }
     }
     private void Publish(WebSyncPhase phase, bool busy = false) => Volatile.Write(ref status,
-        new WebSyncStatus(phase, paired, busy, projectUrl, lastSuccess, nextAttempt, store.Exists("pending")));
+        new WebSyncStatus(phase, paired, busy, projectUrl, lastSuccess, nextAttempt, store.Exists("pending"),
+            pluginPairing?.Code ?? "", pluginPairing?.ExpiresAt));
 
     private void ReadIdentity()
     {
@@ -126,12 +142,13 @@ internal sealed class WebSyncController : IDisposable
                 {
                     nextAttempt = clock.GetUtcNow().Add(ex.Status == HttpStatusCode.TooManyRequests
                         ? TimeSpan.FromMinutes(5) : Backoff());
+                    if (pluginPairing is not null) pollAt = nextAttempt.Value;
                     Publish(ex.Status == HttpStatusCode.TooManyRequests ? WebSyncPhase.RateLimited : WebSyncPhase.Retrying);
                 }
                 catch (SyncHttpException) { lock (gate) blocked = true; nextAttempt = null; Publish(WebSyncPhase.Rejected); }
                 catch (Exception ex) when (ex is IOException or HttpRequestException or JsonException or OperationCanceledException)
                 {
-                    nextAttempt = clock.GetUtcNow().Add(Backoff()); Publish(WebSyncPhase.Retrying);
+                    nextAttempt = clock.GetUtcNow().Add(Backoff()); if (pluginPairing is not null) pollAt = nextAttempt.Value; Publish(WebSyncPhase.Retrying);
                 }
                 catch (Exception) { lock (gate) blocked = true; nextAttempt = null; Publish(WebSyncPhase.Failed); }
                 // Do not retain the lease for disabled setup operations.
@@ -152,22 +169,67 @@ internal sealed class WebSyncController : IDisposable
     {
         (string Url, string Code)? pair;
         bool clear;
-        lock (gate) { pair = pairing; pairing = null; clear = forget; forget = false; }
-        if (!Enabled && pair is null && !clear)
+        string? beginUrl;
+        lock (gate) { pair = pairing; pairing = null; clear = forget; forget = false; beginUrl = beginPairingUrl; beginPairingUrl = null; }
+        if (!Enabled && pair is null && !clear && beginUrl is null && pluginPairing is null)
         {
             Release(); ReadIdentity(); nextAttempt = null;
             // Preserve the outcome of a pairing/setup operation while disabled.
             if (Status.Phase is not (WebSyncPhase.Paired or WebSyncPhase.Rejected or WebSyncPhase.Failed or WebSyncPhase.WaitingOwner)) Publish(WebSyncPhase.Disabled);
             return;
         }
-        if (!Acquire()) { Publish(WebSyncPhase.WaitingOwner); return; }
+        if (!Acquire())
+        {
+            lock (gate) { beginPairingUrl ??= beginUrl; pairing ??= pair; forget |= clear; }
+            Publish(WebSyncPhase.WaitingOwner); return;
+        }
         if (clear)
         {
-            foreach (var file in new[] { "identity", "pending", "ack", "last-upload", "preview" }) store.Remove(file);
+            foreach (var file in new[] { "identity", "pending", "ack", "last-upload", "preview", "pair-request" }) store.Remove(file);
+            pluginPairing = null;
             paired = false; projectUrl = ""; lastSuccess = null; nextAttempt = null;
             Publish(WebSyncPhase.Unpaired); return;
         }
         ReadIdentity();
+        if (beginUrl is not null && !paired)
+        {
+            // Persist before the request so an uncertain response can be retried with the same secret.
+            var savedPair = store.Exists("pair-request") ? store.Load<PluginPairingSession>("pair-request") : null;
+            pluginPairing = savedPair is not null && savedPair.Url == beginUrl && savedPair.ExpiresAt > clock.GetUtcNow() ? savedPair
+                : new(beginUrl, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)).ToLowerInvariant(), "", clock.GetUtcNow().AddMinutes(10));
+            store.Save("pair-request", pluginPairing); pollAt = default;
+        }
+        if (!paired && pluginPairing is not null && store.Exists("pair-request"))
+        {
+            pluginPairing = store.Load<PluginPairingSession>("pair-request");
+            if (clock.GetUtcNow() >= pluginPairing.ExpiresAt)
+            {
+                store.Remove("pair-request"); pluginPairing = null; Publish(WebSyncPhase.Unpaired); return;
+            }
+            if (clock.GetUtcNow() < pollAt) return;
+            Publish(WebSyncPhase.Pairing, busy: true);
+            pollAt = clock.GetUtcNow().AddSeconds(5);
+            try
+            {
+                if (pluginPairing.Code.Length == 0)
+                {
+                    var issued = await transport.BeginPluginPairing(pluginPairing.Url, pluginPairing.Secret, lifetime.Token);
+                    pluginPairing = pluginPairing with { Code = issued.Code, ExpiresAt = issued.ExpiresAt };
+                    store.Save("pair-request", pluginPairing);
+                }
+                else if (await transport.PollPluginPairing(pluginPairing.Url, pluginPairing.Secret, lifetime.Token))
+                {
+                    store.Remove("pair-request"); pluginPairing = null;
+                    ReadIdentity(); Volatile.Write(ref enabled, 1); blocked = false; nextAttempt = null;
+                    Publish(WebSyncPhase.Paired); return;
+                }
+                Publish(WebSyncPhase.Pairing); return;
+            }
+            catch (SyncHttpException ex) when (!ex.Retryable)
+            {
+                store.Remove("pair-request"); pluginPairing = null; Publish(WebSyncPhase.Rejected); return;
+            }
+        }
         if (lastSuccess is { } last && last.AddMinutes(5) > clock.GetUtcNow() &&
             (nextAttempt is null || last.AddMinutes(5) > nextAttempt)) nextAttempt = last.AddMinutes(5);
         if (pair is { } request)
@@ -212,7 +274,7 @@ internal sealed class WebSyncController : IDisposable
         lock (gate)
         {
             if (disposed) return;
-            disposed = true; pairing = null; Volatile.Write(ref enabled, 0);
+            disposed = true; pairing = null; beginPairingUrl = null; Volatile.Write(ref enabled, 0);
             lifetime.Cancel(); uploadCancel?.Cancel();
         }
         Signal(); // Cancellation/lease cleanup happens on the worker, never a blocking UI wait.

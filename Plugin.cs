@@ -335,7 +335,16 @@ public sealed class Plugin : IDalamudPlugin
             configurationSaveStartedUtc.AddSeconds(1).Ticks), DateTimeKind.Utc);
     }
 
-    private void FlushPendingConfiguration(IFramework _) => FlushPendingConfiguration(wait: false);
+    private void FlushPendingConfiguration(IFramework _)
+    {
+        // Web approval opts this installation in. Persist on the game thread, even with settings closed.
+        if (WebSync.Enabled && !Configuration.WebSyncEnabled)
+        {
+            Configuration.WebSyncEnabled = true;
+            Configuration.Save();
+        }
+        FlushPendingConfiguration(wait: false);
+    }
 
     private void FlushPendingConfiguration(bool wait)
     {

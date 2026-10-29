@@ -286,10 +286,14 @@ export async function handleSync(
     }
     const pairing =
       object(body) && body.Action === "pair" && Object.keys(body).length === 1;
-    if (!pairing && !validateEnvelope(body))
+    const beginPairing = object(body) && body.Action === "begin_plugin_pairing" && Object.keys(body).length === 1;
+    const pollPairing = object(body) && body.Action === "poll_plugin_pairing" && Object.keys(body).length === 1;
+    if (!pairing && !beginPairing && !pollPairing && !validateEnvelope(body))
       return reply(400, { error: "invalid_envelope" });
     const result = pairing
       ? await rpc("claim_sync_pairing", { p_code: token })
+      : beginPairing ? await rpc("begin_plugin_pairing", { p_secret: token })
+      : pollPairing ? await rpc("poll_plugin_pairing", { p_secret: token })
       : await rpc("ingest_sync", { p_token: token, p_envelope: body });
     if (result.error) {
       const message = result.error.message;

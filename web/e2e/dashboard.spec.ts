@@ -63,22 +63,21 @@ test("pairing code and device revocation are available only in the authenticated
   page,
 }) => {
   await mockApi(page);
-  await page.route("**/rest/v1/rpc/create_sync_pairing", async (route) => {
+  await page.route("**/rest/v1/rpc/approve_plugin_pairing", async (route) => {
     expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
-    expect(route.request().postDataJSON()).toEqual({ p_name: "Windows PC" });
+    expect(route.request().postDataJSON()).toEqual({ p_name: "Windows PC", p_code: "ABCDEF123456" });
     await route.fulfill({
       json: {
-        code: "a".repeat(64),
-        expires_at: new Date(Date.now() + 600000).toISOString(),
+        approved: true,
       },
     });
   });
   await login(page);
-  await page.getByRole("button", { name: "同期端末" }).click();
-  await page.getByRole("button", { name: "連携コードを発行" }).click();
-  await expect(page.getByLabel("PC登録用コード")).toHaveValue("a".repeat(64));
-  await page.getByRole("button", { name: "コードを隠す" }).click();
-  await expect(page.getByLabel("PC登録用コード")).toHaveCount(0);
+  await page.getByRole("button", { name: "設定", exact: true }).click();
+  await page.getByLabel("プラグインの連携コード").fill("abcdef-123456");
+  await page.getByRole("button", { name: "このアカウントに連携する" }).click();
+  await expect(page.getByRole("status").filter({hasText:"連携を承認しました"})).toBeVisible();
+  await expect(page.getByLabel("プラグインの連携コード")).toHaveValue("");
   await page.route("**/rest/v1/devices?**", (route) =>
     route.fulfill({
       json: [
@@ -94,8 +93,38 @@ test("pairing code and device revocation are available only in the authenticated
     await route.fulfill({ status: 204 });
   });
   page.once("dialog", (dialog) => dialog.accept());
-  await page.getByRole("button", { name: "この端末を無効にする" }).click();
+  await page.getByRole("button", { name: "このPCの連携を解除" }).click();
   await expect.poll(() => revoked).toBe(true);
+});
+
+test("login with pairing code approves once after authentication without persisting it", async ({page}) => {
+  await mockApi(page); let approved=0;
+  await page.route("**/rest/v1/rpc/approve_plugin_pairing",async route=>{
+    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
+    expect(route.request().postDataJSON()).toEqual({p_code:"ABCDEF123456",p_name:"Windows PC"});
+    approved++; await route.fulfill({json:{approved:true}});
+  });
+  await page.goto("/#link");
+  await page.getByLabel("メールアドレス").fill("test@example.com");
+  await page.getByLabel("パスワード",{exact:true}).fill("test-password");
+  await page.getByLabel("プラグイン連携コード（初回のみ・任意）").fill("abcdef-123456");
+  await page.getByRole("button",{name:"ログインして連携 →"}).click();
+  await expect(page.getByRole("status").filter({hasText:"連携を承認しました"})).toBeVisible();
+  expect(approved).toBe(1);
+  expect(await page.evaluate(()=>JSON.stringify({...localStorage,...sessionStorage}))).not.toContain("ABCDEF");
+  await page.reload();
+  await expect(page.getByRole("heading",{name:"プラグイン連携",exact:true})).toBeVisible();
+  expect(approved).toBe(1);
+});
+
+test("invalid or expired pairing stays on settings with a retry field",async({page})=>{
+  await mockApi(page);
+  await page.route("**/rest/v1/rpc/approve_plugin_pairing",route=>route.fulfill({json:{error:"invalid_code"}}));
+  await login(page); await page.getByRole("button",{name:"設定",exact:true}).click();
+  await page.getByLabel("プラグインの連携コード").fill("ABCDEF-123456");
+  await page.getByRole("button",{name:"このアカウントに連携する"}).click();
+  await expect(page.getByRole("alert")).toContainText("有効期限");
+  await expect(page.getByLabel("プラグインの連携コード")).toHaveValue("ABCDEF-123456");
 });
 
 test("request recovery email without exposing account existence", async ({
@@ -212,9 +241,9 @@ test("private empty dashboard, navigation, reload and logout", async ({
   await expect(
     page.getByRole("heading", { name: "冒険のダッシュボード" }),
   ).toBeVisible();
-  await page.getByRole("button", { name: "同期端末" }).click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
   await expect(
-    page.getByRole("heading", { name: "同期端末は未登録です" }),
+    page.getByRole("heading", { name: "連携済みのPC" }),
   ).toBeVisible();
   await page.getByRole("button", { name: "ログアウト ↗" }).click();
   await expect(

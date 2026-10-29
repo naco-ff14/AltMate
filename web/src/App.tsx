@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { configurationError, recoveryRequested, supabase } from "./supabase";
 import PasswordRecovery from "./PasswordRecovery";
-import SyncDevices from "./SyncDevices";
+import SyncDevices, { normalizePairingCode } from "./SyncDevices";
 import { dateLabel, loadSnapshot } from "./data";
 import type { Snapshot } from "./data";
 import Operations from "./DashboardViews";
@@ -13,7 +13,7 @@ const sections = [
   ["gil", "◎", "ギル・FC"],
   ["submarines", "≋", "潜水艦"],
   ["delivery", "◇", "お得意様取引"],
-  ["devices", "▣", "同期端末"],
+  ["devices", "⚙", "設定"],
 ] as const;
 type Section = (typeof sections)[number][0];
 function Brand() {
@@ -45,9 +45,10 @@ function Notice({
   );
 }
 
-function Login({ onRecovery }: { onRecovery: () => void }) {
+function Login({ onRecovery, onLink }: { onRecovery: () => void; onLink: (code: string) => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [code, setCode] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!supabase || busy) return;
@@ -55,6 +56,11 @@ function Login({ onRecovery }: { onRecovery: () => void }) {
     setError("");
     const form = event.currentTarget;
     const data = new FormData(form);
+    const normalized = normalizePairingCode(code);
+    if (normalized && !/^[A-F0-9]{12}$/.test(normalized)) {
+      setError("プラグインに表示された12文字のコードを入力してください。"); setBusy(false); return;
+    }
+    onLink(normalized);
     try {
       const result = await supabase.auth.signInWithPassword({
         email: String(data.get("email")).trim(),
@@ -122,9 +128,13 @@ function Login({ onRecovery }: { onRecovery: () => void }) {
                 required
                 disabled={busy}
               />
+              <label htmlFor="login-code">プラグイン連携コード（初回のみ・任意）</label>
+              <input id="login-code" value={code} maxLength={20} autoComplete="off" spellCheck={false}
+                placeholder="ABCDEF-123456" disabled={busy} onChange={e => setCode(e.target.value)} />
+              {code.trim() && <p className="muted">自分のプラグインで発行したコードを入力してください。ログインと同時に、このアカウントへの同期を承認します。</p>}
               {error && <Notice error>{error}</Notice>}
               <button className="primary login-button" disabled={busy}>
-                {busy ? "ログイン中…" : "ログイン →"}
+                {busy ? "ログイン中…" : code.trim() ? "ログインして連携 →" : "ログイン →"}
               </button>
             </form>
           )}
@@ -144,8 +154,8 @@ function Login({ onRecovery }: { onRecovery: () => void }) {
   );
 }
 
-function Dashboard({ session }: { session: Session }) {
-  const [section, setSection] = useState<Section>("overview");
+function Dashboard({ session, linkCode, onCodeUsed }: { session: Session; linkCode: string; onCodeUsed: () => void }) {
+  const [section, setSection] = useState<Section>(linkCode || window.location.hash === "#link" ? "devices" : "overview");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -265,28 +275,29 @@ function Dashboard({ session }: { session: Session }) {
           {loading && <Notice>記録を取得しています…</Notice>}
           {!loading && !error && snapshot && !latest && (
             <Notice>
-              初回同期を待っています。「同期端末」でPCを連携し、AltMateのWeb同期を開始してください。
+              初回同期を待っています。「設定」の「プラグイン連携」で登録してください。
             </Notice>
           )}
-          {snapshot &&
-            (section === "devices" ? (
+          {section === "devices" ? (
               <section className="card">
                 <div className="card-heading">
-                  <h2>登録済みの同期端末</h2>
+                  <h2>設定</h2>
                 </div>
                 <SyncDevices
-                  devices={snapshot.devices}
+                  devices={snapshot?.devices ?? []}
+                  initialCode={linkCode}
+                  onCodeUsed={onCodeUsed}
                   onRefresh={() => setRefresh((value) => value + 1)}
                 />
               </section>
-            ) : (
+            ) : snapshot && (
               <Operations
                 section={section}
                 entities={entities}
                 navigate={(view) => setSection(view)}
               />
-            ))}
-          {!snapshot && !loading && error && (
+            )}
+          {section !== "devices" && !snapshot && !loading && error && (
             <div className="op-empty">
               <h2>記録を表示できません</h2>「表示を更新」から再試行できます。
             </div>
@@ -304,6 +315,7 @@ function Dashboard({ session }: { session: Session }) {
   );
 }
 export default function App() {
+  const [linkCode, setLinkCode] = useState("");
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(!supabase);
   const [authError, setAuthError] = useState(false);
@@ -373,9 +385,9 @@ export default function App() {
         </Notice>
       )}
       {session ? (
-        <Dashboard key={session.user.id} session={session} />
+        <Dashboard key={session.user.id} session={session} linkCode={linkCode} onCodeUsed={() => setLinkCode("")} />
       ) : (
-        <Login onRecovery={openRecovery} />
+        <Login onRecovery={openRecovery} onLink={setLinkCode} />
       )}
     </>
   );

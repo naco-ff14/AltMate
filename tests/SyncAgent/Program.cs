@@ -203,6 +203,51 @@ await File.WriteAllTextAsync(input, Source(500));
     await WaitFor(() => !controller.Status.Paired && !saved.Exists("identity"));
     controller.Dispose(); await controller.Completion;
 }
+{
+    var saved = new SecureStore(Path.Combine(root, "plugin-issued-pair"));
+    var clock = new AdjustableClock(); var calls = 0; var uploads = 0; string? bearer = null;
+    var fake = new FakeHandler { Handle = async request => {
+        using var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+        if (body.RootElement.TryGetProperty("Action", out var action))
+        {
+            calls++;
+            bearer ??= request.Headers.Authorization!.Parameter;
+            Check(SyncTransport.IsSecret(bearer!) && request.Headers.Authorization!.Parameter == bearer, "Pair request must reuse private secret.");
+            if (action.GetString() == "begin_plugin_pairing") return Json(new { Code="ABCDEF123456", ExpiresAt=DateTimeOffset.UtcNow.AddMinutes(10) });
+            return calls == 2 ? Json(new { Pending=true }) : Json(new { DeviceId=id, Token=token, HmacKey=hmac });
+        }
+        uploads++; return Json(new { duplicate=false, applied=5 });
+    }};
+    using var controller = new WebSyncController(false, saved.DirectoryPath, input, new HttpClient(fake), clock);
+    await WaitFor(()=>controller.Status.Phase==WebSyncPhase.Disabled);
+    Check(controller.BeginPluginPairing("https://test.supabase.co"), "Plugin issue command rejected.");
+    await WaitFor(()=>controller.Status.PairingCode.Length>0 && !controller.Status.Busy);
+    var observerCalls=0;
+    using var observer=new WebSyncController(false,saved.DirectoryPath,input,new HttpClient(new FakeHandler {Handle=_=>{observerCalls++;throw new Exception("Disabled second installation must not poll");}}),clock);
+    await WaitFor(()=>observer.Status.Phase==WebSyncPhase.Disabled);
+    Check(!saved.Exists("identity") && !controller.Enabled && uploads==0, "Issuing must not upload before web approval.");
+    Check(!Encoding.UTF8.GetString(File.ReadAllBytes(Path.Combine(saved.DirectoryPath,"pair-request.bin"))).Contains(bearer!), "Pending pair secret must be encrypted.");
+    clock.Advance(TimeSpan.FromSeconds(6)); await WaitFor(()=>calls>=2 && !controller.Status.Busy);
+    Check(!saved.Exists("identity") && uploads==0, "Pending approval must not create credentials or upload.");
+    clock.Advance(TimeSpan.FromSeconds(6)); await WaitFor(()=>controller.Enabled && saved.Exists("identity"));
+    await WaitFor(()=>uploads==1);
+    Check(!saved.Exists("pair-request") && controller.Status.PairingCode=="", "Approval must clear temporary secret and display code.");
+    Check(!observer.Enabled && observerCalls==0,"Pairing consent must not enable a second installation.");
+    observer.Dispose(); await observer.Completion;
+    controller.Dispose(); await controller.Completion;
+}
+{
+    var saved = new SecureStore(Path.Combine(root,"plugin-pair-expiry")); var clock=new AdjustableClock();
+    var fake = new FakeHandler { Handle = _=>Task.FromResult(Json(new {Code="ABCDEF123456",ExpiresAt=DateTimeOffset.UtcNow.AddMinutes(10)})) };
+    using var controller=new WebSyncController(false,saved.DirectoryPath,input,new HttpClient(fake),clock);
+    await WaitFor(()=>controller.Status.Phase==WebSyncPhase.Disabled);
+    Check(controller.BeginPluginPairing("https://test.supabase.co"),"Issue rejected.");
+    await WaitFor(()=>controller.Status.PairingCode.Length>0 && !controller.Status.Busy);
+    clock.Advance(TimeSpan.FromMinutes(11));
+    await WaitFor(()=>controller.Status.PairingCode=="" && !saved.Exists("pair-request"));
+    Check(!controller.Enabled && !saved.Exists("identity"),"Expired request must never enable sync.");
+    controller.Dispose(); await controller.Completion;
+}
 Console.WriteLine($"Sync agent/plugin: {checks} checks passed (synthetic data; privacy, DPAPI, retries, opt-in, ownership, cooldown and unload cancellation).");
 return 0;
 
