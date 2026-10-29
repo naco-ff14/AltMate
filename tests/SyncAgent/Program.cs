@@ -40,7 +40,28 @@ var exported = Exporter.Build(doc.RootElement, Guid.NewGuid(), secret);
 var wire = JsonSerializer.Serialize(exported);
 foreach (var forbidden in new[] { "LocalLinkKey", "ContentId", "FreeCompanyId", "Retainers", "98765432123456789", "12345678998765432", "private-link", "PrivateField" })
     Check(!wire.Contains(forbidden, StringComparison.Ordinal), "Private field escaped allowlist: " + forbidden);
-Check(exported.Changes.Count == 5, "Expected character, FC metadata, FC gil, credits and submarine.");
+Check(exported.Changes.Count == 7, "Expected character, FC metadata/gil/credits, submarine, fleet and sync metadata.");
+using (var scheduled = JsonDocument.Parse(JsonSerializer.Serialize(new { Configuration = new { Characters = new Dictionary<string,object> { ["safe-test"] = new { ContentId=1, CharacterName="A", WorldName="W", LastCheckedAt=when, EntryPhaseEndsAt=when.AddDays(3) } } } })))
+{
+    var lottery=Exporter.Build(scheduled.RootElement,Guid.NewGuid(),secret).Changes.Single(e=>e.EntityType=="housing_lottery");
+    Check(lottery.Data.GetProperty("EntryPhaseEndsAt").GetDateTimeOffset()==when.AddDays(3), "Scheduled future lottery deadlines must not be discarded as future observations.");
+}
+using (var expanded = JsonDocument.Parse(JsonSerializer.Serialize(new { Configuration = new {
+    CycleAnchorUtc = when.AddDays(-6),
+    Characters = new Dictionary<string,object> { ["98765432123456789"] = new { ContentId="98765432123456789", CharacterName="Unobserved", WorldName="World", LastCheckedAt=DateTime.MinValue, EnabledForDisplay=true } },
+    CharacterGil = new Dictionary<string,object> { ["98765432123456789"] = new { ContentId="98765432123456789", CharacterName="Owner", WorldName="World", Gil=100, UpdatedAt=when.AddDays(-2), Retainers = new Dictionary<string,object> { ["12345678998765432"] = new { RetainerId="12345678998765432", Name="Retainer", Gil=600, UpdatedAt=when } } } },
+    OpenPlots = new[] { new { WorldId=1, TerritoryTypeId=339, WorldName="World", DistrictName="Mist", WardNumber=2, PlotNumber=3, Size="M", Price=20_000_000, CheckedAt=when } }
+} })))
+{
+    var rich=Exporter.Build(expanded.RootElement,deviceId: Guid.NewGuid(), hmacKey:secret);
+    Check(rich.Changes.Any(e=>e.EntityType=="character_profile"), "Never-checked characters must still be exported as profiles.");
+    Check(!rich.Changes.Any(e=>e.EntityType=="housing_lottery"), "Never checked is not a confirmed lottery observation.");
+    Check(rich.Changes.Single(e=>e.EntityType=="retainer_gil").ObservedAt==when, "Retainer clock was replaced by wallet time.");
+    Check(rich.Changes.Single(e=>e.EntityType=="retainer_gil").Data.GetProperty("CharacterKey").GetString()==rich.Changes.Single(e=>e.EntityType=="character_gil").EntityKey, "Retainer lost owner association.");
+    Check(rich.Changes.Any(e=>e.EntityType=="open_plot"), "Open-plot list was not exported.");
+    Check(!JsonSerializer.Serialize(rich).Contains("12345678998765432"), "Raw retainer ID escaped allowlist.");
+    Check(rich.Changes.Single(e=>e.EntityType=="sync_metadata").EntityKey!=Exporter.Build(expanded.RootElement, Guid.NewGuid(),secret).Changes.Single(e=>e.EntityType=="sync_metadata").EntityKey, "Membership metadata must be scoped to its source PC.");
+}
 Check(exported.Changes.Single(e => e.EntityType == "free_company_gil").ObservedAt == when.AddMinutes(-5), "Gil must use its own clock.");
 Check(exported.Changes.Single(e => e.EntityType == "free_company_credits").ObservedAt == when, "Credits must use their own clock.");
 Check(exported.Changes.Single(e => e.EntityType == "submarine").ObservedAt == when.AddMinutes(-2), "Submarines must use their own clock.");

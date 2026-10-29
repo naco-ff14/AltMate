@@ -256,18 +256,20 @@ test("renders observations, preserves unknown credit balances, filters and handl
     }),
   ]);
   await login(page);
-  await expect(page.getByText("0 G", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "ギル・FC", exact: true }).click();
+  await expect(page.getByRole("row", { name: /Test FC/ })).toContainText(
+    "未確認",
+  );
   await expect(
-    page.getByText("カンパニークレジット: 未確認", { exact: true }),
-  ).toBeVisible();
-  await expect(page.getByText("Test Submarine", { exact: true })).toBeVisible();
+    page.getByRole("row", { name: /Test Adventurer/ }),
+  ).toContainText("0 G");
   await page.getByLabel("記録を検索").fill("no-match");
   await expect(page.getByText("Test Adventurer", { exact: true })).toHaveCount(
     0,
   );
   await page.getByLabel("記録を検索").fill("");
   await expect(page.getByText("Test Adventurer", { exact: true })).toHaveCount(
-    2,
+    1,
   );
   await page.screenshot({
     path: `test-results/observations-${info.project.name}.png`,
@@ -278,6 +280,8 @@ test("renders observations, preserves unknown credit balances, filters and handl
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBe(true);
+  await page.getByRole("button", { name: "潜水艦", exact: true }).click();
+  await expect(page.getByText("Test Submarine", { exact: true })).toBeVisible();
   await page.route("**/rest/v1/entities?**", (route) =>
     route.fulfill({ status: 403, json: { message: "Forbidden" } }),
   );
@@ -309,4 +313,226 @@ test("failed login remains private with a generic error", async ({ page }) => {
   await expect(
     page.getByRole("heading", { name: "冒険のダッシュボード" }),
   ).toHaveCount(0);
+});
+
+test("operations show total assets, sortable personal balances, housing, FC readiness and weekly unknowns", async ({
+  page,
+}, info) => {
+  const now = Date.now();
+  const day = 86400000;
+  const a = "1".repeat(64),
+    b = "2".repeat(64),
+    c = "3".repeat(64),
+    r = "4".repeat(64),
+    fc = "5".repeat(64),
+    plot = "6".repeat(64),
+    s1 = "7".repeat(64),
+    s2 = "8".repeat(64);
+  const sample = (type: string, key: string, payload: object, stamp = now) => ({
+    ...record(type, payload, key),
+    observed_at: new Date(stamp).toISOString(),
+  });
+  const person = (name: string) => ({
+    CharacterName: name,
+    WorldName: "Test World",
+  });
+  await mockApi(page, [
+    sample("sync_metadata", "metadata", {
+      DataVersion: 2,
+      CycleAnchorUtc: new Date(now - 6 * day).toISOString(),
+      CharacterKeys: [a, b, c],
+      WalletKeys: [a, b],
+      RetainerKeys: [r],
+      CompanyKeys: [fc],
+      OpenPlotKeys: [plot],
+    }),
+    sample("character_profile", a, person("Alpha")),
+    sample("character_profile", b, person("Beta")),
+    sample("character_profile", c, person("Gamma")),
+    sample("character_gil", a, { ...person("Alpha"), Gil: 100 }),
+    sample("character_gil", b, { ...person("Beta"), Gil: 400 }),
+    sample("retainer_gil", r, {
+      ...person("Alpha"),
+      Name: "Retainer",
+      CharacterKey: a,
+      Gil: 200,
+    }),
+    sample("free_company", fc, { Name: "Fleet FC", WorldName: "Test World" }),
+    sample("free_company_gil", fc, { Gil: 600, GilConfirmed: true }),
+    sample("housing_lottery", "lot1", {
+      ...person("Alpha"),
+      CharacterKey: a,
+      PlotAddress: "ミスト 2区 3番地",
+      EntryPhaseEndsAt: new Date(now - day).toISOString(),
+      ResultChecked: false,
+      BidGilDeposited: 50,
+    }),
+    sample("housing_lottery", "lot2", {
+      ...person("Beta"),
+      CharacterKey: b,
+      EntryPhaseEndsAt: null,
+    }),
+    sample("housing_demolition", "house", {
+      ...person("Alpha"),
+      IsOwned: true,
+      EstateKind: 0,
+      HouseTerritoryTypeId: 339,
+      HouseWard: 2,
+      HousePlot: 3,
+      LastEnteredAt: new Date(now - 44 * day).toISOString(),
+    }),
+    sample("open_plot", plot, {
+      WorldName: "Test World",
+      DistrictName: "シロガネ",
+      WardNumber: 4,
+      PlotNumber: 5,
+      Size: "M",
+      Price: 20000000,
+      CycleStartsAt: new Date(now - 6 * day).toISOString(),
+    }),
+    sample("submarine_fleet", fc, {
+      Name: "Fleet FC",
+      WorldName: "Test World",
+      SubmarineKeys: [s1, s2],
+    }),
+    sample("submarine", s1, {
+      Name: "Waiting Sub",
+      FreeCompanyKey: fc,
+      FreeCompanyName: "Fleet FC",
+      WorldName: "Test World",
+      ReturnTimeUnix: 0,
+    }),
+    sample("submarine", s2, {
+      Name: "Returned Sub",
+      FreeCompanyKey: fc,
+      FreeCompanyName: "Fleet FC",
+      WorldName: "Test World",
+      ReturnTimeUnix: Math.floor(now / 1000) - 60,
+    }),
+    sample("custom_delivery", "delivery1", {
+      ...person("Alpha"),
+      CharacterKey: a,
+      RemainingWeeklyAllowances: 3,
+      PurpleCrafterScrip: 123,
+      OrangeCrafterScrip: 456,
+      PurpleGathererScrip: 789,
+      OrangeGathererScrip: 20,
+    }),
+    sample(
+      "custom_delivery",
+      "delivery2",
+      { ...person("Beta"), CharacterKey: b, RemainingWeeklyAllowances: 0 },
+      now - 8 * day,
+    ),
+  ]);
+  await login(page);
+  await expect(page.getByText("1,350 G", { exact: true })).toBeVisible();
+  await expect(page.getByText("Alpha", { exact: true })).toHaveCount(0);
+  await page.screenshot({
+    path: `test-results/overview-v2-${info.project.name}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "ギル・FC", exact: true }).click();
+  const balances = page
+    .locator("section.op-panel")
+    .filter({
+      has: page.getByRole("heading", { name: "キャラクター別の資産" }),
+    });
+  await expect(balances.getByRole("row").nth(1)).toContainText("Beta");
+  await page.getByLabel("並び順").selectOption("asc");
+  await expect(balances.getByRole("row").nth(1)).toContainText("Alpha");
+  await expect(page.getByRole("row", { name: /Alpha/ })).toContainText("300 G");
+  await page.screenshot({
+    path: `test-results/gil-v2-${info.project.name}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "ハウジング", exact: true }).click();
+  await expect(page.getByRole("row", { name: /Alpha/ })).toContainText(
+    "結果未確認",
+  );
+  await expect(page.getByRole("row", { name: /Beta/ })).toContainText(
+    "応募記録なし",
+  );
+  await expect(page.getByRole("row", { name: /Gamma/ })).toContainText(
+    "今期未確認",
+  );
+  await page.getByRole("tab", { name: "ハウス保持期限" }).click();
+  await expect(page.getByRole("row", { name: /Alpha/ })).toContainText(
+    "個人宅",
+  );
+  await page.getByRole("tab", { name: "空き土地" }).click();
+  await expect(page.getByRole("row", { name: /シロガネ/ })).toContainText(
+    "4区 5番地",
+  );
+  await page.screenshot({
+    path: `test-results/plots-v2-${info.project.name}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "潜水艦", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Fleet FC" })).toBeVisible();
+  await expect(page.getByRole("row", { name: /Waiting Sub/ })).toContainText(
+    "未出航・待機",
+  );
+  await expect(page.getByRole("row", { name: /Returned Sub/ })).toContainText(
+    "帰港予定経過",
+  );
+  await page.screenshot({
+    path: `test-results/submarines-v2-${info.project.name}.png`,
+    fullPage: true,
+  });
+  await page.getByRole("button", { name: "お得意様取引", exact: true }).click();
+  await expect(page.getByRole("row", { name: /Alpha/ })).toContainText(
+    "未消化",
+  );
+  await expect(page.getByRole("row", { name: /Alpha/ })).toContainText("123");
+  await expect(page.getByRole("row", { name: /Beta/ })).toContainText(
+    "今週未確認",
+  );
+  await expect(page.getByRole("row", { name: /Gamma/ })).toContainText(
+    "記録なし",
+  );
+  await page.getByLabel("消化状況").selectOption("未消化");
+  await expect(page.getByRole("row", { name: /Beta/ })).toHaveCount(0);
+  await page.screenshot({
+    path: `test-results/delivery-v2-${info.project.name}.png`,
+    fullPage: true,
+  });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBe(true);
+});
+
+test("return countdown progresses without requesting another cloud snapshot", async ({
+  page,
+}) => {
+  await page.clock.install();
+  const now = Date.now();
+  let reads = 0;
+  await mockApi(page, [
+    {
+      ...record("submarine", {
+        Name: "Timed Sub",
+        FreeCompanyName: "Timed FC",
+        WorldName: "World",
+        ReturnTimeUnix: Math.floor(now / 1000) + 30,
+      }),
+      observed_at: new Date(now).toISOString(),
+    },
+  ]);
+  page.on("request", (request) => {
+    if (request.url().includes("/rest/v1/entities?")) reads++;
+  });
+  await login(page);
+  await page.getByRole("button", { name: "潜水艦", exact: true }).click();
+  await expect(page.getByRole("row", { name: /Timed Sub/ })).toContainText(
+    "航海中",
+  );
+  const before = reads;
+  await page.clock.fastForward(60000);
+  await expect(page.getByRole("row", { name: /Timed Sub/ })).toContainText(
+    "帰港予定経過",
+  );
+  expect(reads).toBe(before);
 });

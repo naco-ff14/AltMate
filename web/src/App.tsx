@@ -4,21 +4,11 @@ import type { Session } from "@supabase/supabase-js";
 import { configurationError, recoveryRequested, supabase } from "./supabase";
 import PasswordRecovery from "./PasswordRecovery";
 import SyncDevices from "./SyncDevices";
-import {
-  dateLabel,
-  isStale,
-  loadSnapshot,
-  mergeCompanies,
-  numberField,
-  stringField,
-  totalGil,
-  unixDateLabel,
-} from "./data";
-import type { Entity, Snapshot } from "./data";
-
+import { dateLabel, loadSnapshot } from "./data";
+import type { Snapshot } from "./data";
+import Operations from "./DashboardViews";
 const sections = [
   ["overview", "◈", "概要"],
-  ["characters", "♙", "キャラクター"],
   ["housing", "⌂", "ハウジング"],
   ["gil", "◎", "ギル・FC"],
   ["submarines", "≋", "潜水艦"],
@@ -26,9 +16,6 @@ const sections = [
   ["devices", "▣", "同期端末"],
 ] as const;
 type Section = (typeof sections)[number][0];
-const amount = (n: number | null, suffix = "") =>
-  n === null ? "未記録" : `${n.toLocaleString("ja-JP")}${suffix}`;
-
 function Brand() {
   return (
     <div className="brand">
@@ -157,169 +144,11 @@ function Login({ onRecovery }: { onRecovery: () => void }) {
   );
 }
 
-function Empty({ title, children }: { title: string; children?: ReactNode }) {
-  return (
-    <div className="empty">
-      <span aria-hidden="true">◇</span>
-      <h3>{title}</h3>
-      <p>
-        {children ??
-          "まだ同期された記録がありません。同期が届くと、ここに表示されます。"}
-      </p>
-    </div>
-  );
-}
-function Card({
-  title,
-  subtitle,
-  children,
-}: {
-  title: string;
-  subtitle?: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="card">
-      <div className="card-heading">
-        <h2>{title}</h2>
-        {subtitle && <span>{subtitle}</span>}
-      </div>
-      {children}
-    </section>
-  );
-}
-function Stamp({ entity }: { entity: Entity }) {
-  return (
-    <small className={isStale(entity.observed_at) ? "stale" : "muted"}>
-      観測: {dateLabel(entity.observed_at)}
-      {isStale(entity.observed_at) && " · 24時間以上前 / 日時不明"}
-    </small>
-  );
-}
-function Rows({
-  rows,
-  kind,
-}: {
-  rows: Entity[];
-  kind: "character" | "housing" | "fc" | "submarine" | "lottery" | "delivery";
-}) {
-  if (!rows.length) return <Empty title="まだ記録がありません" />;
-  return (
-    <div className="records">
-      {rows.map((e) => {
-        const p = e.payload;
-        return (
-          <article className="record" key={`${e.entity_type}:${e.entity_key}`}>
-            <div className="record-title">
-              <h3>
-                {stringField(
-                  p,
-                  kind === "fc" || kind === "submarine"
-                    ? "Name"
-                    : "CharacterName",
-                )}
-              </h3>
-              <span>{stringField(p, "WorldName", "")}</span>
-            </div>
-            {kind === "character" && (
-              <p className="record-value">
-                {amount(numberField(p, "Gil"), " G")}
-              </p>
-            )}
-            {kind === "housing" && (
-              <>
-                <p>
-                  {p.IsOwned === true
-                    ? "所有確認あり"
-                    : p.IsOwned === false
-                      ? "所有確認なし"
-                      : "所有状況不明"}{" "}
-                  ·{" "}
-                  {p.EstateKind === 0
-                    ? "個人宅"
-                    : p.EstateKind === 1
-                      ? "FCハウス"
-                      : "種別未記録"}
-                </p>
-                <p>
-                  区: {amount(numberField(p, "HouseWard"))} / 番地:{" "}
-                  {amount(numberField(p, "HousePlot"))}
-                </p>
-                <p>最終入室: {dateLabel(p.LastEnteredAt)}</p>
-                <small className="muted">
-                  撤去期限はこの記録だけでは確定できません。ゲーム内の表示を確認してください。
-                </small>
-              </>
-            )}
-            {kind === "fc" && (
-              <>
-                <p>
-                  FCギル:{" "}
-                  {p.GilConfirmed === true
-                    ? amount(numberField(p, "Gil"), " G")
-                    : "未確認"}
-                </p>
-                <p>
-                  カンパニークレジット:{" "}
-                  {p.CompanyCreditsConfirmed === true
-                    ? amount(numberField(p, "CompanyCredits"))
-                    : "未確認"}
-                </p>
-                <small className="muted">
-                  FCギル観測: {dateLabel(p.GilUpdatedAt)}
-                </small>
-                <small className="muted">
-                  クレジット観測: {dateLabel(p.CompanyCreditsUpdatedAt)}
-                </small>
-              </>
-            )}
-            {kind === "submarine" && (
-              <>
-                <p>FC: {stringField(p, "FreeCompanyName")}</p>
-                <p>
-                  帰港予定: {unixDateLabel(numberField(p, "ReturnTimeUnix"))}
-                </p>
-              </>
-            )}
-            {kind === "lottery" && (
-              <>
-                <p>{stringField(p, "PlotAddress")}</p>
-                <p>応募期間終了: {dateLabel(p.EntryPhaseEndsAt)}</p>
-                <p>結果: {p.ResultChecked === true ? "確認済み" : "未確認"}</p>
-              </>
-            )}
-            {kind === "delivery" && (
-              <>
-                <p>
-                  今週の残り納品回数:{" "}
-                  {amount(numberField(p, "RemainingWeeklyAllowances"))}
-                </p>
-                <p>
-                  クラフタースクリップ · 紫貨{" "}
-                  {amount(numberField(p, "PurpleCrafterScrip"))} / 橙貨{" "}
-                  {amount(numberField(p, "OrangeCrafterScrip"))}
-                </p>
-                <p>
-                  ギャザラースクリップ · 紫貨{" "}
-                  {amount(numberField(p, "PurpleGathererScrip"))} / 橙貨{" "}
-                  {amount(numberField(p, "OrangeGathererScrip"))}
-                </p>
-              </>
-            )}
-            <Stamp entity={e} />
-          </article>
-        );
-      })}
-    </div>
-  );
-}
-
 function Dashboard({ session }: { session: Session }) {
   const [section, setSection] = useState<Section>("overview");
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [query, setQuery] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [checkedAt, setCheckedAt] = useState("");
   const [signingOut, setSigningOut] = useState(false);
@@ -348,20 +177,10 @@ function Dashboard({ session }: { session: Session }) {
     return () => controller.abort();
   }, [session.user.id, refresh]);
   const entities = snapshot?.entities ?? [];
-  const filtered = entities.filter(
-    (e) =>
-      Object.values(e.payload).some(
-        (v) =>
-          typeof v === "string" &&
-          v.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()),
-      ) || !query.trim(),
-  );
-  const of = (type: string) => filtered.filter((e) => e.entity_type === type);
-  const characters = of("character_gil");
-  const housing = of("housing_demolition");
-  const submarines = of("submarine");
-  const fc = mergeCompanies(filtered);
   const latest = entities
+    .filter(
+      (e) => !["sync_metadata", "character_profile"].includes(e.entity_type),
+    )
     .map((e) => e.observed_at)
     .filter((d) => Number.isFinite(Date.parse(d)))
     .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
@@ -369,11 +188,10 @@ function Dashboard({ session }: { session: Session }) {
     setSigningOut(true);
     setError("");
     try {
-      const { error: logoutError } = await supabase!.auth.signOut({
+      const { error: result } = await supabase!.auth.signOut({
         scope: "local",
       });
-      if (logoutError)
-        setError("ログアウトできませんでした。再度お試しください。");
+      if (result) setError("ログアウトできませんでした。再度お試しください。");
     } catch {
       setError("ログアウトできませんでした。再度お試しください。");
     } finally {
@@ -391,10 +209,7 @@ function Dashboard({ session }: { session: Session }) {
               key={id}
               className={section === id ? "nav-item active" : "nav-item"}
               aria-current={section === id ? "page" : undefined}
-              onClick={() => {
-                setSection(id);
-                setQuery("");
-              }}
+              onClick={() => setSection(id)}
             >
               <span aria-hidden="true">{icon}</span>
               {label}
@@ -436,7 +251,7 @@ function Dashboard({ session }: { session: Session }) {
             <button
               className="refresh"
               disabled={loading}
-              onClick={() => setRefresh((r) => r + 1)}
+              onClick={() => setRefresh((value) => value + 1)}
             >
               {loading ? "取得中…" : "↻ 表示を更新"}
             </button>
@@ -448,134 +263,38 @@ function Dashboard({ session }: { session: Session }) {
             </Notice>
           )}
           {loading && <Notice>記録を取得しています…</Notice>}
-          {!loading && !error && snapshot && !entities.length && (
+          {!loading && !error && snapshot && !latest && (
             <Notice>
-              初回同期を待っています。「同期端末」でPCを連携し、PC側の AltMate
-              Sync Agent から同期を開始してください。
+              初回同期を待っています。「同期端末」でPCを連携し、AltMateのWeb同期を開始してください。
             </Notice>
           )}
-          {section !== "devices" && (
-            <div className="filter-row">
-              <label htmlFor="search">記録を検索</label>
-              <input
-                id="search"
-                type="search"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="キャラクター名・ワールド・FC名"
+          {snapshot &&
+            (section === "devices" ? (
+              <section className="card">
+                <div className="card-heading">
+                  <h2>登録済みの同期端末</h2>
+                </div>
+                <SyncDevices
+                  devices={snapshot.devices}
+                  onRefresh={() => setRefresh((value) => value + 1)}
+                />
+              </section>
+            ) : (
+              <Operations
+                section={section}
+                entities={entities}
+                navigate={(view) => setSection(view)}
               />
-              <span>{filtered.length} 件の記録</span>
-            </div>
-          )}
-          {snapshot && (
-            <>
-              {section === "overview" && (
-                <>
-                  <div className="stats">
-                    <div className="stat">
-                      <span>♙ キャラクター</span>
-                      <strong>
-                        {characters.length}
-                        <small>人のギル記録</small>
-                      </strong>
-                    </div>
-                    <div className="stat">
-                      <span>◎ キャラクター所持金</span>
-                      <strong>
-                        {amount(totalGil(filtered))}
-                        <small>
-                          {totalGil(filtered) !== null
-                            ? "GIL · FC・リテイナーを除く"
-                            : "同期後に表示"}
-                        </small>
-                      </strong>
-                    </div>
-                    <div className="stat">
-                      <span>⌂ ハウジング</span>
-                      <strong>
-                        {housing.length}
-                        <small>件の記録</small>
-                      </strong>
-                    </div>
-                    <div className="stat">
-                      <span>≋ 潜水艦</span>
-                      <strong>
-                        {submarines.length}
-                        <small>隻の記録</small>
-                      </strong>
-                    </div>
-                  </div>
-                  <div className="overview-grid">
-                    <Card title="キャラクターの資産" subtitle="CHARACTERS">
-                      <Rows rows={characters} kind="character" />
-                    </Card>
-                    <Card title="ハウジング" subtitle="ESTATES">
-                      <Rows rows={housing} kind="housing" />
-                    </Card>
-                    <Card title="潜水艦" subtitle="SUBMERSIBLES">
-                      <Rows rows={submarines} kind="submarine" />
-                    </Card>
-                    <Card title="フリーカンパニー" subtitle="FREE COMPANIES">
-                      <Rows rows={fc} kind="fc" />
-                    </Card>
-                  </div>
-                </>
-              )}
-              {section === "characters" && (
-                <Card title="キャラクター">
-                  <Rows rows={characters} kind="character" />
-                </Card>
-              )}
-              {section === "housing" && (
-                <div className="overview-grid">
-                  <Card title="所有ハウジング">
-                    <Rows rows={housing} kind="housing" />
-                  </Card>
-                  <Card title="土地抽選の記録">
-                    <Rows rows={of("housing_lottery")} kind="lottery" />
-                  </Card>
-                </div>
-              )}
-              {section === "gil" && (
-                <div className="overview-grid">
-                  <Card title="キャラクター所持金">
-                    <Rows rows={characters} kind="character" />
-                  </Card>
-                  <Card title="FC資産・クレジット">
-                    <Rows rows={fc} kind="fc" />
-                  </Card>
-                </div>
-              )}
-              {section === "submarines" && (
-                <Card title="潜水艦の帰港予定">
-                  <Rows rows={submarines} kind="submarine" />
-                </Card>
-              )}
-              {section === "delivery" && (
-                <Card title="お得意様取引・スクリップ">
-                  <Rows rows={of("custom_delivery")} kind="delivery" />
-                </Card>
-              )}
-              {section === "devices" && (
-                <Card title="登録済みの同期端末">
-                  <SyncDevices
-                    devices={snapshot.devices}
-                    onRefresh={() => setRefresh((r) => r + 1)}
-                  />
-                </Card>
-              )}
-            </>
-          )}
+            ))}
           {!snapshot && !loading && error && (
-            <Empty title="記録を表示できません">
-              「表示を更新」から再試行できます。
-            </Empty>
+            <div className="op-empty">
+              <h2>記録を表示できません</h2>「表示を更新」から再試行できます。
+            </div>
           )}
           <footer>
             AltMate{" "}
             <span>
-              読み取り専用 · 表示確認{" "}
-              {checkedAt ? dateLabel(checkedAt) : "未取得"} ·
+              表示確認 {checkedAt ? dateLabel(checkedAt) : "未取得"} ·
               日時は端末のタイムゾーン
             </span>
           </footer>
@@ -584,7 +303,6 @@ function Dashboard({ session }: { session: Session }) {
     </div>
   );
 }
-
 export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(!supabase);

@@ -1,7 +1,49 @@
-type Rule = "text" | "uint" | "bool" | "date" | "nullableDate";
+type Rule = "text" | "uint" | "bool" | "date" | "nullableDate" | "key" | "keys";
 const schemas: Record<string, Record<string, Rule>> = {
-  character_gil: { CharacterName: "text", WorldName: "text", Gil: "uint" },
+  character_gil: {
+    CharacterName: "text",
+    WorldName: "text",
+    Gil: "uint",
+    CharacterKey: "key",
+  },
+  retainer_gil: {
+    CharacterName: "text",
+    WorldName: "text",
+    Name: "text",
+    Gil: "uint",
+    CharacterKey: "key",
+  },
+  character_profile: {
+    CharacterName: "text",
+    WorldName: "text",
+    EnabledForDisplay: "bool",
+    EnabledForDemolitionDisplay: "bool",
+  },
+  sync_metadata: {
+    DataVersion: "uint",
+    CycleAnchorUtc: "date",
+    CharacterKeys: "keys",
+    WalletKeys: "keys",
+    RetainerKeys: "keys",
+    CompanyKeys: "keys",
+    OpenPlotKeys: "keys",
+    HousingKeys: "keys",
+    LotteryKeys: "keys",
+    DeliveryKeys: "keys",
+  },
+  submarine_fleet: { Name: "text", WorldName: "text", SubmarineKeys: "keys" },
+  open_plot: {
+    WorldName: "text",
+    DistrictName: "text",
+    WardNumber: "uint",
+    PlotNumber: "uint",
+    Size: "text",
+    Price: "uint",
+    CheckedAt: "date",
+    CycleStartsAt: "date",
+  },
   custom_delivery: {
+    CharacterKey: "key",
     CharacterName: "text",
     WorldName: "text",
     RemainingWeeklyAllowances: "uint",
@@ -23,6 +65,9 @@ const schemas: Record<string, Record<string, Rule>> = {
     LastOwnershipCheckedAt: "date",
   },
   housing_lottery: {
+    CharacterKey: "key",
+    BidWardNumber: "uint",
+    BidPlotNumber: "uint",
     CharacterName: "text",
     WorldName: "text",
     PlotAddress: "text",
@@ -46,6 +91,7 @@ const schemas: Record<string, Record<string, Rule>> = {
     CompanyCreditsUpdatedAt: "date",
   },
   submarine: {
+    FreeCompanyKey: "key",
     Name: "text",
     FreeCompanyName: "text",
     WorldName: "text",
@@ -127,6 +173,20 @@ export function validateEnvelope(value: unknown, now = Date.now()): boolean {
     for (const [field, item] of Object.entries(change.Data)) {
       if (!Object.hasOwn(schema, field)) return false;
       switch (schema[field]) {
+        case "key":
+          if (typeof item !== "string" || !hex.test(item)) return false;
+          break;
+        case "keys":
+          if (
+            !Array.isArray(item) ||
+            item.length > 1000 ||
+            item.some(
+              (value) => typeof value !== "string" || !hex.test(value),
+            ) ||
+            new Set(item).size !== item.length
+          )
+            return false;
+          break;
         case "text":
           if (
             typeof item !== "string" ||

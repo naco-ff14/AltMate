@@ -27,6 +27,7 @@ beforeAll(async () => {
   for (const file of [
     "202610280001_web_dashboard.sql",
     "202610290001_authenticated_sync.sql",
+    "202610290002_dashboard_views.sql",
   ])
     await db.exec(
       readFileSync(
@@ -117,6 +118,95 @@ async function allowNext(device: string) {
 }
 
 describe("PostgreSQL migrations: pairing, ownership and transactional ingestion", () => {
+  it("accepts v2 snapshots, keeps metadata out of history, and adds fields without rolling back equal-time money", async () => {
+    const device = await pair();
+    const first = envelope(device.DeviceId, 100);
+    await ingest(device.Token, first);
+    await allowNext(device.DeviceId);
+    const enriched = {
+      ...first,
+      EventId: randomUUID(),
+      Changes: [
+        {
+          ...first.Changes[0],
+          Data: {
+            ...first.Changes[0].Data,
+            Gil: 999,
+            CharacterKey: "c".repeat(64),
+          },
+        },
+      ],
+    };
+    expect((await ingest(device.Token, enriched)).applied).toBe(1);
+    await db.exec("reset role");
+    expect(
+      await scalar(
+        "select (payload->>'Gil')::int as result from public.entities where entity_type='character_gil'",
+      ),
+    ).toBe(100);
+    expect(
+      await scalar(
+        "select (payload->>'Gil')::int as result from public.entity_history where entity_type='character_gil' order by id desc limit 1",
+      ),
+    ).toBe(100);
+    await allowNext(device.DeviceId);
+    const snapshot = {
+      ...envelope(device.DeviceId),
+      Changes: [
+        {
+          EntityType: "sync_metadata",
+          EntityKey: "b".repeat(64),
+          ObservedAt: new Date().toISOString(),
+          Data: { DataVersion: 2, WalletKeys: ["a".repeat(64)] },
+        },
+      ],
+    };
+    expect((await ingest(device.Token, snapshot)).applied).toBe(1);
+    await db.exec("reset role");
+    expect(
+      await scalar(
+        "select count(*)::int as result from public.entity_history where entity_type='sync_metadata'",
+      ),
+    ).toBe(0);
+    expect(validateEnvelope(snapshot)).toBe(true);
+    expect(
+      validateEnvelope({
+        ...snapshot,
+        Changes: [
+          { ...snapshot.Changes[0], Data: { WalletKeys: ["raw-content-id"] } },
+        ],
+      }),
+    ).toBe(false);
+    await allowNext(device.DeviceId);
+    const lottery = {
+      ...envelope(device.DeviceId),
+      Changes: [
+        {
+          EntityType: "housing_lottery",
+          EntityKey: "e".repeat(64),
+          ObservedAt: first.Changes[0].ObservedAt,
+          Data: {
+            CharacterName: "A",
+            WorldName: "W",
+            EntryPhaseEndsAt: null as string | null,
+            ResultChecked: false,
+          },
+        },
+      ],
+    };
+    await ingest(device.Token, lottery);
+    await allowNext(device.DeviceId);
+    const deadline = new Date(Date.now() + 3 * 86400000).toISOString();
+    lottery.EventId = randomUUID();
+    lottery.Changes[0].Data.EntryPhaseEndsAt = deadline;
+    expect((await ingest(device.Token, lottery)).applied).toBe(1);
+    await db.exec("reset role");
+    expect(
+      await scalar(
+        "select payload->>'EntryPhaseEndsAt' as result from public.entities where entity_type='housing_lottery'",
+      ),
+    ).toBe(deadline);
+  });
   it("accepts a valid device request through the endpoint and actual database RPC", async () => {
     const device = await pair();
     const request = new Request("https://example.test/sync", {

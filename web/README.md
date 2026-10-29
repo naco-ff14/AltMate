@@ -88,7 +88,7 @@ The website reads `entities(entity_type, entity_key, payload, observed_at)` and 
 The Sync Agent now produces submarine and lottery records. Confirmed FC gil and credits are
 stored as `free_company_gil` and `free_company_credits` with independent observation clocks;
 the dashboard merges them with `free_company` metadata for display only. Unknown balances
-remain unknown. Character totals exclude retainers and FC balances. Housing addresses are
+remain unknown. Personal totals include separately observed retainer balances when v2 data is available; total assets also include FC funds and current unchecked lottery deposits. Housing addresses are
 stored one-based ward/plot values; no automatic demolition deadline is claimed.
 
 ## Authenticated sync deployment
@@ -110,8 +110,29 @@ Windows DPAPI credential/queue storage, durable retries, stale observation rejec
 **Still requires operator action/verification:** applying the SQL, publishing the Edge Function,
 setting its custom-auth configuration, daily scheduling of `public.prune_sync_history()` for
 90-day retention, live Supabase two-user isolation tests, PC pairing and first real upload.
-No automatic cloud deletion of removed source records, retainer balances, treasure histories,
+No automatic cloud deletion of removed source records, treasure histories,
 PWA/service worker, Windows service or startup integration is implemented.
 Official references: [Cloudflare build configuration](https://developers.cloudflare.com/pages/configuration/build-configuration/),
 [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys),
 [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).
+
+## Dashboard v2 operational views
+
+Overview is limited to the total asset summary and actionable housing/submarine/delivery counts.
+Housing separates lottery status, estimated estate deadlines and observed open plots. Money tables
+support name and ascending/descending wallet/personal-asset sorting. FC fleets group pending boats.
+Deliveries show incomplete, completed, this-week-unverified and unobserved characters with scrip balances.
+Timers recompute every 30 seconds and when the page regains focus; this does not imply a new game observation.
+FC estate rows use the latest entry from all records for the same address.
+
+Additional allowlisted data is implemented in the exporter: `retainer_gil`, `character_profile`,
+`open_plot`, `submarine_fleet`, `sync_metadata`, and hashed `CharacterKey` / `FreeCompanyKey` associations.
+Metadata snapshots are scoped per paired PC and their active lists are unioned for display. Metadata
+is not added to entity history. User IDs, raw content/retainer/FC IDs and local control keys remain excluded.
+
+Existing deployments must apply `202610290002_dashboard_views.sql`, replace the deployed `sync`
+function with the current source, then use the expanded exporter. The public plugin v1.62.14 does
+not produce the added rows. Until upgraded, the website works with existing records and explicitly
+marks missing balances/membership as unknown. Scheduled future lottery deadlines are preserved
+independently from the observation timestamp's anti-future-clock check.
+See [Japanese upgrade notes](../docs/dashboard-v2-ja.txt). Database RLS and device authentication are unchanged.

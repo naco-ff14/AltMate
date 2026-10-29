@@ -1,5 +1,6 @@
 #pragma warning disable NoireLib_002 // Explicit wire/DPAPI JSON contract, not Dalamud configuration serialization.
 using System.Net;
+using System.Linq;
 using System;
 using System.IO;
 using System.Net.Http;
@@ -38,7 +39,7 @@ internal sealed class SyncTransport(HttpClient client, SecureStore store)
         else
         {
             using var document = JsonDocument.Parse(await File.ReadAllTextAsync(input, cancel));
-            envelope = Exporter.Build(document.RootElement, identity.DeviceId, Convert.FromHexString(identity.HmacKey));
+            envelope = Exporter.Build(document.RootElement, identity.DeviceId, Convert.FromHexString(identity.HmacKey), File.GetLastWriteTimeUtc(input));
             if (envelope.Changes.Count == 0) return false;
             var fingerprint = Fingerprint(envelope);
             if (store.Exists("ack") && store.Load<string>("ack") == fingerprint) return false;
@@ -59,7 +60,8 @@ internal sealed class SyncTransport(HttpClient client, SecureStore store)
         store.Remove("pending");
         return true;
     }
-    private static string Fingerprint(SyncEnvelope envelope) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(envelope.Changes)));
+    private static string Fingerprint(SyncEnvelope envelope) => Convert.ToHexString(SHA256.HashData(JsonSerializer.SerializeToUtf8Bytes(
+        envelope.Changes.Select(change => new { change.EntityType, change.EntityKey, ObservedAt = change.EntityType is "sync_metadata" or "character_profile" ? (DateTimeOffset?)null : change.ObservedAt, change.Data }))));
     private static HttpRequestMessage Request(string url, string token, string body)
     {
         var request = new HttpRequestMessage(HttpMethod.Post, url.TrimEnd('/') + "/functions/v1/sync");

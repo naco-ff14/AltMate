@@ -33,3 +33,5 @@ AltMate shared-config.json -> Windows SyncAgent -> authenticated Supabase Edge F
 
 ## Cloud prerequisites
 User-owned Supabase and Cloudflare projects are required before deployment.
+
+Dashboard v2: operational tables and compact overview are implemented with legacy-data compatibility. Expanded exporter records require migration 202610290002, an Edge Function update and the corresponding client build. Public v1.62.14 cannot yet supply retainer/open-plot/profile/fleet membership data. See docs/dashboard-v2-ja.txt.
