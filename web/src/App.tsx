@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
-import { configurationError, supabase } from "./supabase";
+import { configurationError, recoveryRequested, supabase } from "./supabase";
+import PasswordRecovery from "./PasswordRecovery";
 import {
   dateLabel,
   isStale,
@@ -55,7 +56,7 @@ function Notice({
   );
 }
 
-function Login() {
+function Login({ onRecovery }: { onRecovery: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -141,7 +142,9 @@ function Login() {
           <p className="login-note">
             招待・作成済みのアカウント専用です。
             <br />
-            パスワードが分からない場合は管理者にお問い合わせください。
+            <button type="button" onClick={onRecovery}>
+              パスワードを忘れた方
+            </button>
           </p>
           <div className="privacy-note">
             ◇ ログインした本人のデータだけを表示します
@@ -595,6 +598,15 @@ export default function App() {
   const [session, setSession] = useState<Session | null>(null);
   const [ready, setReady] = useState(!supabase);
   const [authError, setAuthError] = useState(false);
+  const [recovery, setRecovery] = useState(recoveryRequested);
+  function openRecovery() {
+    window.history.replaceState(null, "", "/?reset=password");
+    setRecovery(true);
+  }
+  function closeRecovery() {
+    window.history.replaceState(null, "", "/");
+    setRecovery(false);
+  }
   useEffect(() => {
     if (!supabase) return;
     let active = true;
@@ -602,9 +614,10 @@ export default function App() {
     let authChanged = false;
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, next) => {
+    } = supabase.auth.onAuthStateChange((event, next) => {
       authChanged = true;
       if (active) {
+        if (event === "PASSWORD_RECOVERY") openRecovery();
         setSession(next);
         setReady(true);
         setAuthError(false);
@@ -636,6 +649,13 @@ export default function App() {
         AltMate · ログイン状態を確認しています…
       </main>
     );
+  if (recovery)
+    return (
+      <PasswordRecovery
+        authenticated={Boolean(session)}
+        onDone={closeRecovery}
+      />
+    );
   return (
     <>
       {authError && (
@@ -646,7 +666,7 @@ export default function App() {
       {session ? (
         <Dashboard key={session.user.id} session={session} />
       ) : (
-        <Login />
+        <Login onRecovery={openRecovery} />
       )}
     </>
   );

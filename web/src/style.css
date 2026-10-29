@@ -12,6 +12,13 @@
   line-height: 1.6;
   color-scheme: dark;
 }
+.recovery-page {
+  min-height: 100dvh;
+}
+.login-note button {
+  margin-top: 12px;
+  font-size: 12px;
+}
 * {
   box-sizing: border-box;
 }

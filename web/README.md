@@ -51,9 +51,14 @@ In Supabase:
 2. Email/password authentication must be enabled. Keep public signup and anonymous login disabled.
 3. Create your login user under **Authentication → Users → Add user → Create new user** with
    an email and password. Confirm the email using the dashboard option if available. This app
-   deliberately has no signup or invitation/recovery link flow.
+   deliberately has no public signup flow.
 4. After deployment, set Supabase's Site URL to the actual HTTPS Pages URL. Password sign-in itself
-   does not need a callback route. Do not invent a deployment URL before Cloudflare assigns it.
+   does not need a callback route. For password recovery, set **Authentication → URL Configuration**:
+   Site URL `https://altmate-web.pages.dev` and Redirect URLs `https://altmate-web.pages.dev/?reset=password`.
+   Use the actual production origin if the domain changes. The login screen's "パスワードを忘れた方"
+   sends recovery email, and verified recovery links show a new-password form. Dashboard-generated
+   recovery email also works when Site URL points here. Expired links can be re-requested.
+   Recovery tokens are consumed by the auth SDK; never share recovery URLs or passwords in chat.
 5. Verify with two real test users that each sees only their own records, and a logged-out request
    cannot read them. A filter in the browser is defense in depth; RLS is the security boundary.
 

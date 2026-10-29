@@ -59,6 +59,89 @@ async function login(page: Page) {
   ).toBeEnabled();
 }
 
+test("request recovery email without exposing account existence", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route("**/auth/v1/recover?**", async (route) => {
+    expect(route.request().postDataJSON().email).toBe("test@example.com");
+    expect(new URL(route.request().url()).searchParams.get("redirect_to")).toBe(
+      "http://127.0.0.1:4175/?reset=password",
+    );
+    await route.fulfill({ json: {} });
+  });
+  await page.goto("/");
+  await page.getByRole("button", { name: "パスワードを忘れた方" }).click();
+  await page.getByLabel("登録済みメールアドレス").fill("test@example.com");
+  await page.getByRole("button", { name: "再設定メールを送信" }).click();
+  await expect(page.getByRole("status")).toContainText(
+    "登録されたアドレスであれば",
+  );
+});
+
+test("verified recovery link permits password change and signs out", async ({
+  page,
+}) => {
+  await mockApi(page);
+  let changed = false;
+  await page.route("**/auth/v1/user", async (route) => {
+    if (route.request().method() === "PUT") {
+      expect(route.request().postDataJSON().password).toBe("new-test-password");
+      expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
+      changed = true;
+    }
+    await route.fulfill({ json: auth.user });
+  });
+  await page.goto(
+    `/#access_token=${token}&refresh_token=test-refresh-token&expires_in=3600&token_type=bearer&type=recovery`,
+  );
+  await expect(
+    page.getByRole("heading", { name: "新しいパスワードを設定" }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "冒険のダッシュボード" }),
+  ).toHaveCount(0);
+  await page
+    .getByLabel("新しいパスワード", { exact: true })
+    .fill("new-test-password");
+  await page
+    .getByLabel("新しいパスワード（確認）", { exact: true })
+    .fill("mismatched-password");
+  await page
+    .getByRole("button", { name: "パスワードを変更", exact: true })
+    .click();
+  await expect(page.getByRole("alert")).toContainText("一致しません");
+  expect(changed).toBe(false);
+  await page
+    .getByLabel("新しいパスワード（確認）", { exact: true })
+    .fill("new-test-password");
+  await page
+    .getByRole("button", { name: "パスワードを変更", exact: true })
+    .click();
+  await expect(
+    page.getByRole("heading", { name: "パスワードを変更しました" }),
+  ).toBeVisible();
+  expect(changed).toBe(true);
+  expect(new URL(page.url()).hash).toBe("");
+  await page.getByRole("button", { name: "ログイン画面へ" }).click();
+  await expect(
+    page.getByRole("heading", { name: "マイダッシュボード" }),
+  ).toBeVisible();
+});
+
+test("expired recovery link offers a new email instead of a password update", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.goto(
+    "/?reset=password#error=access_denied&error_code=otp_expired&error_description=Expired",
+  );
+  await expect(page.getByLabel("登録済みメールアドレス")).toBeVisible();
+  await expect(
+    page.getByLabel("新しいパスワード", { exact: true }),
+  ).toHaveCount(0);
+});
+
 test("private empty dashboard, navigation, reload and logout", async ({
   page,
 }, info) => {
