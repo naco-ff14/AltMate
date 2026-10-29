@@ -3,9 +3,9 @@ name: Validate Web Dashboard
 on:
   push:
     branches: [feature/web-dashboard]
-    paths: ['web/**', '.github/workflows/web-dashboard.yml']
+    paths: ['web/**', 'supabase/**', '.github/workflows/web-dashboard.yml']
   pull_request:
-    paths: ['web/**', '.github/workflows/web-dashboard.yml']
+    paths: ['web/**', 'supabase/**', '.github/workflows/web-dashboard.yml']
   workflow_dispatch:
 
 permissions:

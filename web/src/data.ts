@@ -112,3 +112,41 @@ export function unixDateLabel(value: number | null): string {
     ? "未記録"
     : dateLabel(date.toISOString());
 }
+
+// Gil and company credits have independent source clocks. Merge only for display;
+// each observation remains its own row so one cannot roll back the other.
+export function mergeCompanies(entities: Entity[]): Entity[] {
+  const companies = new Map<string, Entity>();
+  for (const entity of entities.filter((e) => e.entity_type === "free_company"))
+    companies.set(entity.entity_key, {
+      ...entity,
+      payload: { ...entity.payload },
+    });
+  for (const entity of entities.filter((e) =>
+    ["free_company_gil", "free_company_credits"].includes(e.entity_type),
+  )) {
+    const current = companies.get(entity.entity_key) ?? {
+      ...entity,
+      entity_type: "free_company",
+      payload: {},
+    };
+    const fields =
+      entity.entity_type === "free_company_gil"
+        ? ["Gil", "GilConfirmed", "GilUpdatedAt"]
+        : [
+            "CompanyCredits",
+            "CompanyCreditsConfirmed",
+            "CompanyCreditsUpdatedAt",
+          ];
+    for (const field of fields)
+      if (Object.hasOwn(entity.payload, field))
+        current.payload[field] = entity.payload[field];
+    for (const field of ["Name", "WorldName"])
+      if (!current.payload[field])
+        current.payload[field] = entity.payload[field];
+    if (Date.parse(entity.observed_at) > Date.parse(current.observed_at))
+      current.observed_at = entity.observed_at;
+    companies.set(entity.entity_key, current);
+  }
+  return [...companies.values()];
+}

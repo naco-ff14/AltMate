@@ -4,6 +4,7 @@ import {
   dateLabel,
   isStale,
   loadSnapshot,
+  mergeCompanies,
   numberField,
   totalGil,
 } from "./data";
@@ -20,6 +21,33 @@ const entity = (
   observed_at: "2026-10-29T00:00:00Z",
 });
 describe("safe display of financial observations", () => {
+  it("merges independently observed FC balances without changing the source rows", () => {
+    const metadata = entity(
+      { Name: "Test FC", WorldName: "World" },
+      "free_company",
+    );
+    const gil = entity(
+      { Gil: 40, GilConfirmed: true, GilUpdatedAt: "2026-10-25T00:00:00Z" },
+      "free_company_gil",
+    );
+    const credits = entity(
+      {
+        CompanyCredits: 80,
+        CompanyCreditsConfirmed: true,
+        CompanyCreditsUpdatedAt: "2026-10-28T00:00:00Z",
+      },
+      "free_company_credits",
+    );
+    const merged = mergeCompanies([credits, metadata, gil]);
+    expect(merged).toHaveLength(1);
+    expect(merged[0].payload).toMatchObject({
+      Gil: 40,
+      CompanyCredits: 80,
+      Name: "Test FC",
+    });
+    expect(metadata.payload).not.toHaveProperty("Gil");
+    expect(totalGil([metadata, gil, credits])).toBeNull();
+  });
   it("distinguishes absent values from confirmed zero and excludes FC balances", () => {
     expect(totalGil([])).toBeNull();
     expect(totalGil([entity({})])).toBeNull();

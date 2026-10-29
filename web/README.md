@@ -74,30 +74,44 @@ manual refresh, errors with retry, last observation times, old-observation flags
 overview/characters/housing/gil/FC/submarines/custom-delivery/device screens, and honest empty states.
 
 The website reads `entities(entity_type, entity_key, payload, observed_at)` and safe columns from
-`devices`. Payloads currently follow the PascalCase fields in the offline exporter:
+`devices`. Payloads follow the PascalCase fields in the allowlisted Sync Agent:
 
-| `entity_type`                       | Payload fields used                                                                                                  |
-| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `character_gil`                     | `CharacterName`, `WorldName`, `Gil`                                                                                  |
-| `housing_demolition`                | `CharacterName`, `WorldName`, `EstateKind` (0 personal / 1 FC), `IsOwned`, `HouseWard`, `HousePlot`, `LastEnteredAt` |
-| `free_company`                      | `Name`, `WorldName`, `Gil`, `GilConfirmed`, `CompanyCredits`, `CompanyCreditsConfirmed`, `CompanyCreditsUpdatedAt`   |
-| `custom_delivery`                   | `CharacterName`, `WorldName`, `RemainingWeeklyAllowances`, purple/orange crafter/gatherer scrip fields               |
-| `submarine` (future producer)       | `Name`, `FreeCompanyName`, `WorldName`, `ReturnTimeUnix`                                                             |
-| `housing_lottery` (future producer) | `CharacterName`, `WorldName`, `PlotAddress`, `EntryPhaseEndsAt`, `ResultChecked`                                     |
+| `entity_type`        | Payload fields used                                                                                                  |
+| -------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `character_gil`      | `CharacterName`, `WorldName`, `Gil`                                                                                  |
+| `housing_demolition` | `CharacterName`, `WorldName`, `EstateKind` (0 personal / 1 FC), `IsOwned`, `HouseWard`, `HousePlot`, `LastEnteredAt` |
+| `free_company`       | `Name`, `WorldName`, `Gil`, `GilConfirmed`, `CompanyCredits`, `CompanyCreditsConfirmed`, `CompanyCreditsUpdatedAt`   |
+| `custom_delivery`    | `CharacterName`, `WorldName`, `RemainingWeeklyAllowances`, purple/orange crafter/gatherer scrip fields               |
+| `submarine`          | `Name`, `FreeCompanyName`, `WorldName`, `ReturnTimeUnix`                                                             |
+| `housing_lottery`    | `CharacterName`, `WorldName`, `PlotAddress`, `EntryPhaseEndsAt`, `ResultChecked`                                     |
 
-Submarine and lottery screens can render these records, but the current exporter does not produce
-them. FC gil fields also are not exported yet; missing/unconfirmed balances remain unknown.
-Character gil totals exclude retainers and FC balances. Housing addresses are displayed as the
-stored one-based ward/plot values. No automatic demolition deadline is claimed.
+The Sync Agent now produces submarine and lottery records. Confirmed FC gil and credits are
+stored as `free_company_gil` and `free_company_credits` with independent observation clocks;
+the dashboard merges them with `free_company` metadata for display only. Unknown balances
+remain unknown. Character totals exclude retainers and FC balances. Housing addresses are
+stored one-based ward/plot values; no automatic demolition deadline is claimed.
 
-**Not implemented or deployed:** authenticated upload endpoint, secure one-time pairing, Windows
-DPAPI device token storage, account-scoped HMAC entity keys, durable upload queue, stale-update
-merge/idempotency, or game-to-cloud end-to-end sync. The agent remains an offline preview;
-do not upload its JSON manually. No PWA/service worker caches private data.
+## Authenticated sync deployment
 
-The next sync milestone must cover those requirements and live two-tenant/RLS tests before
-enabling any upload. No database/service credential belongs in the web app or Windows agent.
+Apply `supabase/migrations/202610290001_authenticated_sync.sql` once after the original migration.
+It makes SELECT privileges explicit (the first live setup required this), limits device columns,
+and adds authenticated code issuance/device revocation plus service-only pairing/upload functions.
+Deploy `supabase/functions/sync` with `supabase/config.toml` (`verify_jwt = false`): this endpoint
+uses independently validated random device credentials, not user JWTs. Only the server holds
+its Supabase service credential. No new Vite environment variables are required.
 
+The `同期端末` screen issues one-time 10-minute codes and revokes devices after confirmation.
+Pairing issuance is rate limited and each owner can have at most ten active devices.
+Source observation timestamps govern updates; duplicate event UUIDs are acknowledged only for
+identical owner/device/content. See [the Japanese setup guide](../docs/sync-setup-ja.txt).
+
+Implemented and locally tested: authenticated endpoint, pairing, account-scoped HMAC keys,
+Windows DPAPI credential/queue storage, durable retries, stale observation rejection and idempotency.
+**Still requires operator action/verification:** applying the SQL, publishing the Edge Function,
+setting its custom-auth configuration, daily scheduling of `public.prune_sync_history()` for
+90-day retention, live Supabase two-user isolation tests, PC pairing and first real upload.
+No automatic cloud deletion of removed source records, retainer balances, treasure histories,
+PWA/service worker, Windows service or startup integration is implemented.
 Official references: [Cloudflare build configuration](https://developers.cloudflare.com/pages/configuration/build-configuration/),
 [Supabase API keys](https://supabase.com/docs/guides/getting-started/api-keys),
 [Supabase RLS](https://supabase.com/docs/guides/database/postgres/row-level-security).

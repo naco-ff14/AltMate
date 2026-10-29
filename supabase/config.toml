@@ -1,0 +1,3 @@
+[functions.sync]
+# The handler validates a random device token / one-time pairing code, not a user JWT.
+verify_jwt = false

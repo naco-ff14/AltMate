@@ -1,0 +1,70 @@
+AltMate PC同期 セットアップ
+
+現時点の状態
+・Web画面、同期サーバーのコード、Windows用Sync Agentを実装済みです。
+・Supabaseへの追加SQL適用と sync 関数の公開は、以下の操作が必要です。
+・実際のクラウドへの初回送信・反映は、まだ検証していません。
+
+1. Supabaseに同期用SQLを適用
+  altmate-web → SQL Editor → New query を開きます。
+  同梱の supabase-sync.sql を開き、全文をコピーして実行してください。
+  既存のテーブルを作り直すSQLではありません。実行は1回だけです。
+  エラーの場合は、内容を確認するまで繰り返さないでください。
+
+2. Supabaseに sync 関数を公開
+  Edge Functions → Deploy a new function → Via Editor を開きます。
+  関数名を sync にし、index.ts の内容を同梱の sync-function.ts の全文に置き換えます。
+  関数をデプロイしてください。
+  sync の Details で、プラットフォーム側の JWT verification をOFFにします。
+  この関数はJWTの代わりに、1回限りの連携コードまたは登録済み端末の認証情報を検証します。
+  管理用キーをCloudflareやPCに入力する必要はありません。
+  SUPABASE_URL と SUPABASE_SERVICE_ROLE_KEY はサーバー実行環境の既定値を使います。
+  APIキー、パスワード、連携コードをチャットへ貼らないでください。
+
+3. PCを連携
+  https://altmate-web.pages.dev を更新してログインします。
+  「同期端末」→ 端末名を入力 →「連携コードを発行」→「コードをコピー」。
+  このフォルダーの 1-pair.cmd を開き、コードを貼り付けてEnterを押します。
+  入力したコードは画面には表示されません。有効期限は10分、1回だけ使えます。
+  成功すると Device paired と表示されます。この段階ではデータ送信は始まりません。
+  連携の通信が途中で失敗し、Web側に端末だけ残った場合は、その端末を無効にして新しいコードでやり直します。
+
+4. 同期を開始
+  まず 3-sync-once.cmd を開いて、Sync acknowledged と表示されるか確認します。
+  Webで「表示を更新」を押し、PC側の記録が表示されるか確認してください。
+  継続する場合は 2-start-sync.cmd を開きます。ウィンドウが開いている間、5分間隔で同期します。
+  Ctrl+C またはウィンドウを閉じると停止します。自動起動や常駐サービスは作成しません。
+  watch と sync を同時に起動することはできません。
+  Rate limited と表示された場合は5分待ちます。
+  No new observed data to send は、変更済みの観測データがないという意味です。
+
+保存場所と送信内容
+  既存の %LOCALAPPDATA%\AltMate\shared-config.json を読み取ります。
+  ゲームの設定全体や、キャラクターID・リテイナーID・LocalLinkKeyは送信しません。
+  キャラクター名、ワールド、所持金、住宅、土地抽選、FCの確認済み資産、潜水艦、お得意様取引の記録を送信します。
+  FCギルとカンパニークレジットは別々の観測時刻で同期します。未確認値を0で埋めません。
+  リテイナー資産、削除された記録の自動削除、宝物売却履歴は今回の対象外です。
+  認証情報と送信待ちデータは %LOCALAPPDATA%\AltMate\web-sync に、現在のWindowsユーザー向けに暗号化して保存します。
+  通信失敗時は送信待ちデータを保持して、同じ送信番号で再試行します。
+  古い観測で新しい記録を上書きしません。
+
+端末を解除する場合
+  Webの「同期端末」→ 対象端末の「この端末を無効にする」。
+  PC側の同期を止めてから、5-forget-local.cmd を開きます。
+  この操作はPC側の認証情報と送信待ちデータを削除します。Web上の記録は削除しません。
+  再連携には新しいコードが必要です。
+
+管理者向け補足
+  履歴・受信イベントを90日で削除する public.prune_sync_history() を用意しています。
+  SupabaseのCronで毎日1回「select public.prune_sync_history();」を実行する設定が別途必要です。
+  初回は、未ログイン・別ユーザーから他人の記録が読めないことも実Supabaseで確認してください。
+  ローカルのPostgreSQL互換環境では、2ユーザー分離、端末解除、期限切れ・再利用コード、
+  重複受信、古い観測、送信頻度、エラー時の全件取り消しを検証済みです。
+
+公式手順
+  https://supabase.com/docs/guides/functions/quickstart-dashboard
+  https://supabase.com/docs/guides/functions/auth
+
+ソースコード / ライセンス
+  https://github.com/naco-ff14/AltMate/tree/feature/web-dashboard
+  AGPL-3.0-or-later。LICENSE.txt を同梱しています。

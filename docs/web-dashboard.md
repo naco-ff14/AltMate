@@ -1,6 +1,6 @@
 # AltMate Web Dashboard — implementation plan
 
-Status: React/Vite read-only dashboard implemented in `web/`; not yet deployed or connected to the game plugin. See `web/README.md` for exact setup, security boundaries, tests, and remaining sync work.
+Status: Web dashboard deployed. Authenticated sync backend and Windows companion implemented and locally tested; server migration/function deployment, daily retention scheduling and first live upload still pending. See `docs/sync-setup-ja.txt` and `AltMate.SyncAgent/README.md`.
 
 ## Architecture
 AltMate shared-config.json -> Windows SyncAgent -> authenticated Supabase Edge Function -> PostgreSQL RLS -> Cloudflare Pages PWA. Future SwiftUI uses the same read API.

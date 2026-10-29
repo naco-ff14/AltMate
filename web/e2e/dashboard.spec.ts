@@ -59,6 +59,45 @@ async function login(page: Page) {
   ).toBeEnabled();
 }
 
+test("pairing code and device revocation are available only in the authenticated workspace", async ({
+  page,
+}) => {
+  await mockApi(page);
+  await page.route("**/rest/v1/rpc/create_sync_pairing", async (route) => {
+    expect(route.request().headers().authorization).toBe(`Bearer ${token}`);
+    expect(route.request().postDataJSON()).toEqual({ p_name: "Windows PC" });
+    await route.fulfill({
+      json: {
+        code: "a".repeat(64),
+        expires_at: new Date(Date.now() + 600000).toISOString(),
+      },
+    });
+  });
+  await login(page);
+  await page.getByRole("button", { name: "同期端末" }).click();
+  await page.getByRole("button", { name: "連携コードを発行" }).click();
+  await expect(page.getByLabel("PC登録用コード")).toHaveValue("a".repeat(64));
+  await page.getByRole("button", { name: "コードを隠す" }).click();
+  await expect(page.getByLabel("PC登録用コード")).toHaveCount(0);
+  await page.route("**/rest/v1/devices?**", (route) =>
+    route.fulfill({
+      json: [
+        { id: owner, name: "Test PC", revoked_at: null, last_seen_at: null },
+      ],
+    }),
+  );
+  await page.getByRole("button", { name: "↻ 表示を更新" }).click();
+  let revoked = false;
+  await page.route("**/rest/v1/rpc/revoke_sync_device", async (route) => {
+    expect(route.request().postDataJSON()).toEqual({ p_device_id: owner });
+    revoked = true;
+    await route.fulfill({ status: 204 });
+  });
+  page.once("dialog", (dialog) => dialog.accept());
+  await page.getByRole("button", { name: "この端末を無効にする" }).click();
+  await expect.poll(() => revoked).toBe(true);
+});
+
 test("request recovery email without exposing account existence", async ({
   page,
 }) => {

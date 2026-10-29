@@ -675,3 +675,28 @@ footer {
     gap: 6px;
   }
 }
+.pairing-panel label {
+  display: block;
+  margin: 16px 0 8px;
+  font-size: 12px;
+}
+.pairing-panel input {
+  max-width: 540px;
+  display: block;
+}
+.pairing-panel button {
+  margin: 14px 10px 14px 0;
+  font-size: 12px;
+}
+.pairing-panel .notice {
+  margin: 12px 0;
+}
+.pairing-result {
+  padding: 16px;
+  border: 1px solid #355147;
+  border-radius: 8px;
+  margin-top: 14px;
+}
+.pairing-result input {
+  font-family: monospace;
+}

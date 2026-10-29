@@ -3,10 +3,12 @@ import type { FormEvent, ReactNode } from "react";
 import type { Session } from "@supabase/supabase-js";
 import { configurationError, recoveryRequested, supabase } from "./supabase";
 import PasswordRecovery from "./PasswordRecovery";
+import SyncDevices from "./SyncDevices";
 import {
   dateLabel,
   isStale,
   loadSnapshot,
+  mergeCompanies,
   numberField,
   stringField,
   totalGil,
@@ -264,6 +266,9 @@ function Rows({
                     : "未確認"}
                 </p>
                 <small className="muted">
+                  FCギル観測: {dateLabel(p.GilUpdatedAt)}
+                </small>
+                <small className="muted">
                   クレジット観測: {dateLabel(p.CompanyCreditsUpdatedAt)}
                 </small>
               </>
@@ -355,7 +360,7 @@ function Dashboard({ session }: { session: Session }) {
   const characters = of("character_gil");
   const housing = of("housing_demolition");
   const submarines = of("submarine");
-  const fc = of("free_company");
+  const fc = mergeCompanies(filtered);
   const latest = entities
     .map((e) => e.observed_at)
     .filter((d) => Number.isFinite(Date.parse(d)))
@@ -445,8 +450,8 @@ function Dashboard({ session }: { session: Session }) {
           {loading && <Notice>記録を取得しています…</Notice>}
           {!loading && !error && snapshot && !entities.length && (
             <Notice>
-              初回同期を待っています。現在の SyncAgent
-              はローカルプレビュー段階です。クラウドへの自動送信はまだ利用できません。
+              初回同期を待っています。「同期端末」でPCを連携し、PC側の AltMate
+              Sync Agent から同期を開始してください。
             </Notice>
           )}
           {section !== "devices" && (
@@ -553,24 +558,10 @@ function Dashboard({ session }: { session: Session }) {
               )}
               {section === "devices" && (
                 <Card title="登録済みの同期端末">
-                  {!snapshot.devices.length ? (
-                    <Empty title="同期端末は未登録です">
-                      端末のペアリング機能は準備中です。プレビューの JSON
-                      をアップロードする必要はありません。
-                    </Empty>
-                  ) : (
-                    <div className="records">
-                      {snapshot.devices.map((d) => (
-                        <article className="record" key={d.id}>
-                          <div className="record-title">
-                            <h3>{d.name}</h3>
-                            <span>{d.revoked_at ? "無効" : "登録済み"}</span>
-                          </div>
-                          <p>最終通信: {dateLabel(d.last_seen_at)}</p>
-                        </article>
-                      ))}
-                    </div>
-                  )}
+                  <SyncDevices
+                    devices={snapshot.devices}
+                    onRefresh={() => setRefresh((r) => r + 1)}
+                  />
                 </Card>
               )}
             </>
