@@ -1,0 +1,64 @@
+name: Supabase database health check
+
+on:
+  schedule:
+    # UTC; four times daily, away from the busy start of the hour.
+    - cron: '23 2,8,14,20 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: supabase-healthcheck
+  cancel-in-progress: false
+
+jobs:
+  database:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Check database without reading private records
+        env:
+          SUPABASE_URL: ${{ vars.ALTMATE_SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ vars.ALTMATE_SUPABASE_PUBLISHABLE_KEY }}
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+          import time
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          url = os.environ.get('SUPABASE_URL', '').strip().rstrip('/')
+          key = os.environ.get('SUPABASE_PUBLISHABLE_KEY', '').strip()
+          parsed = urllib.parse.urlsplit(url)
+          if (parsed.scheme != 'https' or not parsed.hostname
+              or not parsed.hostname.endswith('.supabase.co')
+              or parsed.path or parsed.query or parsed.fragment
+              or parsed.username or parsed.password or parsed.port
+              or not key.startswith('sb_publishable_')):
+              sys.exit('Missing or invalid public connection settings. No admin key is needed.')
+
+          for attempt in range(3):
+              try:
+                  request = urllib.request.Request(
+                      url + '/rest/v1/rpc/altmate_healthcheck',
+                      data=b'{}', method='POST',
+                      headers={'apikey': key, 'Content-Type': 'application/json'},
+                  )
+                  with urllib.request.urlopen(request, timeout=20) as response:
+                      if json.loads(response.read(1024)) is not True:
+                          raise ValueError('Unexpected database response')
+                  print('Supabase database query succeeded. No private records were requested.')
+                  break
+              except urllib.error.HTTPError as error:
+                  print(f'Database check failed: HTTP {error.code} (attempt {attempt + 1}/3).')
+                  if error.code < 500 and error.code != 429:
+                      sys.exit('Check project status and apply the healthcheck migration.')
+              except (urllib.error.URLError, TimeoutError, ValueError):
+                  print(f'Database check did not succeed (attempt {attempt + 1}/3).')
+              if attempt == 2:
+                  sys.exit('Supabase database remains unavailable. A paused project needs manual resume.')
+              time.sleep(15)
