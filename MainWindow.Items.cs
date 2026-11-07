@@ -17,8 +17,13 @@ public sealed partial class MainWindow
     private string lastRecipeSearch = "\0";
     private int recipeCraftCount = 1;
     private uint selectedStorageRecipeId;
+    private readonly List<RecipePlanEntry> recipeCraftPlan = new();
+    private RecipeMaterial[] recipeMaterialsCache = Array.Empty<RecipeMaterial>();
+    private long recipeMaterialsCacheRevision = -1;
+    private int recipeMaterialsCacheSignature;
     private IReadOnlyList<(uint Id, string Name)> storageRecipeCandidates = Array.Empty<(uint, string)>();
     private DateTime nextItemResultRefreshUtc;
+    private long observedItemInventoryRevision = -1;
     private bool recipeMissingOnly;
     private string companyRecipeSearch = string.Empty;
     private string lastCompanyRecipeSearch = "\0";
@@ -27,11 +32,21 @@ public sealed partial class MainWindow
     private bool companyRawMissingOnly;
     private uint selectedCompanyBreakdownItemId;
     private readonly List<CompanyCraftPlanEntry> companyCraftPlan = new();
+    private CompanyMaterial[] companyMaterialsCache = Array.Empty<CompanyMaterial>();
+    private CompanyMaterial[] companyRawMaterialsCache = Array.Empty<CompanyMaterial>();
+    private long companyMaterialsCacheRevision = -1;
+    private int companyMaterialsCacheSignature;
     private Dictionary<uint, Recipe>? normalRecipeByResultItem;
     private IReadOnlyList<(uint Id, string Name)> companyRecipeCandidates = Array.Empty<(uint, string)>();
 
     private void DrawItems()
     {
+        var inventoryRevision = plugin.ItemInventory.Revision;
+        if (inventoryRevision != observedItemInventoryRevision)
+        {
+            observedItemInventoryRevision = inventoryRevision;
+            nextItemResultRefreshUtc = default;
+        }
         ImGui.TextColored(ThemeAccent, Loc.L("全キャラ アイテム管理", "All-character item storage"));
         ImGui.TextDisabled(Loc.L(
             "各保管先をゲームで読み込んだ時点の情報を保存します。FCチェストはFC単位で1回だけ集計します。",
@@ -86,8 +101,10 @@ public sealed partial class MainWindow
         {
             var first = itemGroup.First();
             var total = itemGroup.Sum(x => x.Quantity);
-            if (!ImGui.CollapsingHeader($"{first.ItemName}  ×{total:N0}##stored-item-{first.ItemId}",
-                    ImGuiTreeNodeFlags.DefaultOpen))
+            var itemOpen = ImGui.CollapsingHeader($"{first.ItemName}  ×{total:N0}##stored-item-{first.ItemId}",
+                ImGuiTreeNodeFlags.DefaultOpen);
+            CopyItemNameOnClick(first.ItemName);
+            if (!itemOpen)
                 continue;
 
             if (!ImGui.BeginTable($"item-locations-{first.ItemId}", 4,
@@ -161,29 +178,84 @@ public sealed partial class MainWindow
             }
         }
 
-        if (selectedStorageRecipeId == 0 ||
-            !Plugin.DataManager.GetExcelSheet<Recipe>().TryGetRow(selectedStorageRecipeId, out var recipe))
-            return;
-
-        ImGui.TextUnformatted(Loc.L($"{recipe.ItemResult.Value.Name}：{recipeCraftCount:N0}回分の素材",
-            $"{recipe.ItemResult.Value.Name}: materials for {recipeCraftCount:N0} crafts"));
-        ImGui.SameLine();
-        if (ImGui.SmallButton(Loc.L("レシピを選び直す##stored-recipe-reset", "Choose another##stored-recipe-reset")))
+        if (selectedStorageRecipeId != 0 &&
+            Plugin.DataManager.GetExcelSheet<Recipe>().TryGetRow(selectedStorageRecipeId, out var selectedRecipe))
         {
-            selectedStorageRecipeId = 0;
+            var selectedName = selectedRecipe.ItemResult.Value.Name.ToString();
+            if (ImGui.Button(Loc.L($"「{selectedName}」を制作リストに追加",
+                    $"Add {selectedName} to craft list")))
+            {
+                var existing = recipeCraftPlan.FindIndex(x => x.RecipeId == selectedStorageRecipeId);
+                if (existing >= 0) recipeCraftPlan[existing].CraftCount = checked(
+                    recipeCraftPlan[existing].CraftCount + recipeCraftCount);
+                else recipeCraftPlan.Add(new RecipePlanEntry(selectedStorageRecipeId, recipeCraftCount));
+                selectedStorageRecipeId = 0;
+                recipeSearch = string.Empty;
+                lastRecipeSearch = "\0";
+                recipeCraftCount = 1;
+            }
+        }
+
+        if (recipeCraftPlan.Count == 0)
+        {
+            ImGui.TextDisabled(Loc.L("制作するアイテムを検索してリストに追加してください。",
+                "Search for crafted items and add them to the list."));
             return;
         }
-        var materials = Enumerable.Range(0, recipe.Ingredient.Count)
-            .Select(index => (Item: recipe.Ingredient[index], Amount: recipe.AmountIngredient[index]))
-            .Where(x => x.Item.RowId != 0 && x.Amount != 0)
-            .Select(x =>
+
+        ImGui.Spacing();
+        ImGui.TextUnformatted(Loc.L("制作リスト", "Craft list"));
+        var removeAt = -1;
+        for (var planIndex = 0; planIndex < recipeCraftPlan.Count; planIndex++)
+        {
+            var entry = recipeCraftPlan[planIndex];
+            if (!Plugin.DataManager.GetExcelSheet<Recipe>().TryGetRow(entry.RecipeId, out var recipeRow)) continue;
+            var resultName = recipeRow.ItemResult.Value.Name.ToString();
+            ImGui.PushID($"recipe-plan-{entry.RecipeId}");
+            DrawCopyableItemText(resultName);
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(95 * ImGuiHelpers.GlobalScale);
+            var crafts = entry.CraftCount;
+            ImGui.InputInt(Loc.L("回", "crafts"), ref crafts, 1, 10);
+            entry.CraftCount = Math.Clamp(crafts, 1, 9999);
+            ImGui.SameLine();
+            if (ImGui.SmallButton(Loc.L("削除", "Remove"))) removeAt = planIndex;
+            ImGui.PopID();
+        }
+        if (removeAt >= 0) recipeCraftPlan.RemoveAt(removeAt);
+        if (ImGui.SmallButton(Loc.L("すべて消去##recipe-plan-clear", "Clear all##recipe-plan-clear")))
+            recipeCraftPlan.Clear();
+
+        var planSignature = PlanSignature(recipeCraftPlan.Select(x => (x.RecipeId, x.CraftCount)));
+        if (recipeMaterialsCacheRevision != observedItemInventoryRevision || recipeMaterialsCacheSignature != planSignature)
+        {
+            var requiredItems = new Dictionary<uint, int>();
+            foreach (var entry in recipeCraftPlan)
             {
-                var required = checked((int)x.Amount * recipeCraftCount);
-                var locations = plugin.ItemInventory.Search(x.Item.RowId.ToString());
+                if (!Plugin.DataManager.GetExcelSheet<Recipe>().TryGetRow(entry.RecipeId, out var recipe)) continue;
+                for (var ingredientIndex = 0; ingredientIndex < recipe.Ingredient.Count; ingredientIndex++)
+                {
+                    var ingredient = recipe.Ingredient[ingredientIndex];
+                    var amount = recipe.AmountIngredient[ingredientIndex];
+                    if (ingredient.RowId == 0 || amount == 0) continue;
+                    var required = checked((int)amount * entry.CraftCount);
+                    requiredItems.TryGetValue(ingredient.RowId, out var current);
+                    requiredItems[ingredient.RowId] = checked(current + required);
+                }
+            }
+            recipeMaterialsCache = requiredItems.Select(pair =>
+            {
+                var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
+                var locations = plugin.ItemInventory.Search(pair.Key.ToString());
                 var owned = locations.Sum(row => row.Quantity);
-                return new { Item = x.Item, Required = required, Owned = owned,
-                    Missing = Math.Max(0, required - owned), Locations = locations };
-            }).ToArray();
+                return new RecipeMaterial(pair.Key, item.Name.ToString(), pair.Value, owned,
+                    Math.Max(0, pair.Value - owned), locations);
+            }).OrderByDescending(x => x.Missing > 0)
+              .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+            recipeMaterialsCacheRevision = observedItemInventoryRevision;
+            recipeMaterialsCacheSignature = planSignature;
+        }
+        var materials = recipeMaterialsCache;
         var missingTypes = materials.Count(x => x.Missing > 0);
         ImGui.TextColored(missingTypes == 0
                 ? new Vector4(0.35f, 0.9f, 0.5f, 1f)
@@ -206,7 +278,7 @@ public sealed partial class MainWindow
             if (recipeMissingOnly && material.Missing == 0) continue;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(material.Item.Value.Name.ToString());
+            DrawCopyableItemName(material.Name, $"recipe-material-{material.ItemId}");
             ImGui.TableNextColumn();
             ImGui.TextUnformatted($"{material.Required:N0} / {material.Owned:N0}");
             ImGui.TableNextColumn();
@@ -301,7 +373,7 @@ public sealed partial class MainWindow
             if (!Plugin.DataManager.GetExcelSheet<CompanyCraftSequence>().TryGetRow(entry.SequenceId, out var row))
                 continue;
             ImGui.PushID($"company-plan-{entry.SequenceId}");
-            ImGui.TextUnformatted(row.ResultItem.Value.Name.ToString());
+            DrawCopyableItemText(row.ResultItem.Value.Name.ToString());
             ImGui.SameLine();
             ImGui.SetNextItemWidth(95 * ImGuiHelpers.GlobalScale);
             var quantity = entry.Quantity;
@@ -316,41 +388,62 @@ public sealed partial class MainWindow
         if (ImGui.SmallButton(Loc.L("すべて消去##company-plan-clear", "Clear all##company-plan-clear")))
             companyCraftPlan.Clear();
 
-        var requiredItems = new Dictionary<uint, int>();
-        foreach (var planEntry in companyCraftPlan)
+        var companyPlanSignature = PlanSignature(companyCraftPlan.Select(x => (x.SequenceId, x.Quantity)));
+        if (companyMaterialsCacheRevision != observedItemInventoryRevision ||
+            companyMaterialsCacheSignature != companyPlanSignature)
         {
-            if (!Plugin.DataManager.GetExcelSheet<CompanyCraftSequence>().TryGetRow(planEntry.SequenceId, out var sequence))
-                continue;
-            foreach (var partRef in sequence.CompanyCraftPart)
+            var requiredItems = new Dictionary<uint, int>();
+            foreach (var planEntry in companyCraftPlan)
             {
-                if (partRef.RowId == 0) continue;
-                foreach (var processRef in partRef.Value.CompanyCraftProcess)
+                if (!Plugin.DataManager.GetExcelSheet<CompanyCraftSequence>().TryGetRow(planEntry.SequenceId, out var sequence))
+                    continue;
+                foreach (var partRef in sequence.CompanyCraftPart)
                 {
-                    if (processRef.RowId == 0) continue;
-                    var process = processRef.Value;
-                    for (var supplyIndex = 0; supplyIndex < process.SupplyItem.Count; supplyIndex++)
+                    if (partRef.RowId == 0) continue;
+                    foreach (var processRef in partRef.Value.CompanyCraftProcess)
                     {
-                        var supplyRef = process.SupplyItem[supplyIndex];
-                        if (supplyRef.RowId == 0 || supplyRef.Value.Item.RowId == 0) continue;
-                        var quantity = checked((int)process.SetQuantity[supplyIndex] *
-                            (int)process.SetsRequired[supplyIndex] * planEntry.Quantity);
-                        if (quantity <= 0) continue;
-                        requiredItems.TryGetValue(supplyRef.Value.Item.RowId, out var current);
-                        requiredItems[supplyRef.Value.Item.RowId] = checked(current + quantity);
+                        if (processRef.RowId == 0) continue;
+                        var process = processRef.Value;
+                        for (var supplyIndex = 0; supplyIndex < process.SupplyItem.Count; supplyIndex++)
+                        {
+                            var supplyRef = process.SupplyItem[supplyIndex];
+                            if (supplyRef.RowId == 0 || supplyRef.Value.Item.RowId == 0) continue;
+                            var quantity = checked((int)process.SetQuantity[supplyIndex] *
+                                (int)process.SetsRequired[supplyIndex] * planEntry.Quantity);
+                            if (quantity <= 0) continue;
+                            requiredItems.TryGetValue(supplyRef.Value.Item.RowId, out var current);
+                            requiredItems[supplyRef.Value.Item.RowId] = checked(current + quantity);
+                        }
                     }
                 }
             }
-        }
+            companyMaterialsCache = requiredItems.Select(pair =>
+            {
+                var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
+                var locations = plugin.ItemInventory.Search(pair.Key.ToString());
+                var owned = locations.Sum(row => row.Quantity);
+                return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
+                    Math.Max(0, pair.Value - owned), locations);
+            }).OrderByDescending(x => x.Missing > 0)
+              .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
 
-        var materials = requiredItems.Select(pair =>
-        {
-            var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
-            var locations = plugin.ItemInventory.Search(pair.Key.ToString());
-            var owned = locations.Sum(row => row.Quantity);
-            return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
-                Math.Max(0, pair.Value - owned), locations);
-        }).OrderByDescending(x => x.Missing > 0)
-          .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+            var rawRequired = new Dictionary<uint, int>();
+            foreach (var material in companyMaterialsCache.Where(x => x.Missing > 0))
+                ExpandToRawMaterials(material.ItemId, material.Missing, rawRequired, new HashSet<uint>());
+            companyRawMaterialsCache = rawRequired.Select(pair =>
+            {
+                var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
+                var locations = plugin.ItemInventory.Search(pair.Key.ToString());
+                var owned = locations.Sum(x => x.Quantity);
+                return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
+                    Math.Max(0, pair.Value - owned), locations);
+            }).OrderByDescending(x => x.Missing > 0)
+              .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+            companyMaterialsCacheRevision = observedItemInventoryRevision;
+            companyMaterialsCacheSignature = companyPlanSignature;
+        }
+        var materials = companyMaterialsCache;
+        var rawMaterials = companyRawMaterialsCache;
         var missingTypes = materials.Count(x => x.Missing > 0);
         ImGui.TextColored(missingTypes == 0
                 ? new Vector4(0.35f, 0.9f, 0.5f, 1f)
@@ -384,7 +477,11 @@ public sealed partial class MainWindow
             ImGui.TableNextColumn();
             if (ImGui.Selectable($"{material.Name}##company-material-{material.ItemId}",
                     selectedCompanyBreakdownItemId == material.ItemId))
+            {
                 selectedCompanyBreakdownItemId = material.ItemId;
+                ImGui.SetClipboardText(material.Name);
+            }
+            DrawCopyItemTooltip();
             ImGui.TableNextColumn();
             ImGui.TextDisabled(material.Type);
             ImGui.TableNextColumn();
@@ -403,18 +500,6 @@ public sealed partial class MainWindow
         if (selectedCompanyBreakdownItemId != 0)
             DrawCompanyMaterialBreakdown(selectedCompanyBreakdownItemId,
                 materials.FirstOrDefault(x => x.ItemId == selectedCompanyBreakdownItemId)?.Missing ?? 0);
-
-        var rawRequired = new Dictionary<uint, int>();
-        foreach (var material in materials.Where(x => x.Missing > 0))
-            ExpandToRawMaterials(material.ItemId, material.Missing, rawRequired, new HashSet<uint>());
-        var rawMaterials = rawRequired.Select(pair =>
-        {
-            var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
-            var locations = plugin.ItemInventory.Search(pair.Key.ToString());
-            var owned = locations.Sum(x => x.Quantity);
-            return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
-                Math.Max(0, pair.Value - owned), locations);
-        }).OrderByDescending(x => x.Missing > 0).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
 
         ImGui.Spacing();
         if (!ImGui.CollapsingHeader(Loc.L("一次素材まで分解", "Expanded to raw materials"),
@@ -488,7 +573,13 @@ public sealed partial class MainWindow
                 direct[ingredient.RowId] = crafts * (int)recipe.AmountIngredient[index];
         }
         foreach (var pair in direct)
-            ImGui.BulletText($"{Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key).Name} ×{pair.Value:N0}");
+        {
+            var ingredientName = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key).Name.ToString();
+            ImGui.Bullet();
+            ImGui.SameLine();
+            DrawCopyableItemName($"{ingredientName} ×{pair.Value:N0}",
+                $"breakdown-material-{itemId}-{pair.Key}", ingredientName);
+        }
         ImGui.TreePop();
     }
 
@@ -505,7 +596,8 @@ public sealed partial class MainWindow
         foreach (var material in materials)
         {
             if (missingOnly && material.Missing == 0) continue;
-            ImGui.TableNextRow(); ImGui.TableNextColumn(); ImGui.TextUnformatted(material.Name);
+            ImGui.TableNextRow(); ImGui.TableNextColumn();
+            DrawCopyableItemName(material.Name, $"raw-material-{material.ItemId}");
             ImGui.TableNextColumn(); ImGui.TextDisabled(material.Type);
             ImGui.TableNextColumn(); ImGui.TextUnformatted($"{material.Required:N0} / {material.Owned:N0}");
             ImGui.TableNextColumn();
@@ -519,11 +611,55 @@ public sealed partial class MainWindow
         ImGui.EndTable();
     }
 
+    private static void DrawCopyableItemName(string name, string id, string? clipboardName = null)
+    {
+        if (ImGui.Selectable($"{name}##{id}")) ImGui.SetClipboardText(clipboardName ?? name);
+        DrawCopyItemTooltip();
+    }
+
+    private static void DrawCopyableItemText(string name)
+    {
+        ImGui.TextUnformatted(name);
+        CopyItemNameOnClick(name);
+    }
+
+    private static void CopyItemNameOnClick(string name)
+    {
+        if (ImGui.IsItemClicked()) ImGui.SetClipboardText(name);
+        DrawCopyItemTooltip();
+    }
+
+    private static void DrawCopyItemTooltip()
+    {
+        if (ImGui.IsItemHovered())
+            ImGui.SetTooltip(Loc.L("クリックでアイテム名をコピー", "Click to copy item name"));
+    }
+
+    private static int PlanSignature(IEnumerable<(uint Id, int Quantity)> entries)
+    {
+        var hash = new HashCode();
+        foreach (var entry in entries)
+        {
+            hash.Add(entry.Id);
+            hash.Add(entry.Quantity);
+        }
+        return hash.ToHashCode();
+    }
+
     private sealed class CompanyCraftPlanEntry(uint sequenceId, int quantity)
     {
         public uint SequenceId { get; } = sequenceId;
         public int Quantity { get; set; } = quantity;
     }
+
+    private sealed class RecipePlanEntry(uint recipeId, int craftCount)
+    {
+        public uint RecipeId { get; } = recipeId;
+        public int CraftCount { get; set; } = craftCount;
+    }
+
+    private sealed record RecipeMaterial(uint ItemId, string Name, int Required, int Owned, int Missing,
+        IReadOnlyList<StoredItemRecord> Locations);
 
     private sealed record CompanyMaterial(uint ItemId, string Name, string Type, int Required, int Owned, int Missing,
         IReadOnlyList<StoredItemRecord> Locations);
