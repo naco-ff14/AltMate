@@ -94,11 +94,9 @@ internal sealed class ItemCatalogWindow : Window
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(item.Quantity.ToString("N0"));
             ImGui.TableNextColumn();
-            ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、",
-                item.Locations.Select(x => x.OwnerName).Distinct()));
+            ImGui.TextWrapped(ItemLocationFormatter.FormatOwners(item.Locations));
             ImGui.TableNextColumn();
-            ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、", item.Locations.Select(x =>
-                $"{x.OwnerName}：{x.StorageName} ×{x.Quantity:N0}{(x.IsHq ? " HQ" : string.Empty)}")));
+            ImGui.TextWrapped(ItemLocationFormatter.FormatGrouped(item.Locations));
             ImGui.TableNextColumn();
             var newest = item.Locations.Max(x => x.ScannedAtUtc);
             var label = newest.ToLocalTime().ToString("yyyy/MM/dd HH:mm");
