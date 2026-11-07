@@ -23,6 +23,7 @@ public sealed partial class MainWindow : Window
         Submarines,
         CustomDeliveries,
         CrafterLeveling,
+        Items,
     }
 
     private enum HousingSection
@@ -250,6 +251,7 @@ public sealed partial class MainWindow : Window
     internal void OpenSubmarines() => OpenSection(MainSection.Submarines);
     internal void OpenCustomDeliveries() => OpenSection(MainSection.CustomDeliveries);
     internal void OpenCrafterLeveling() => OpenSection(MainSection.CrafterLeveling);
+    internal void OpenItems() => OpenSection(MainSection.Items);
 
     private void OpenSection(MainSection section)
     {
@@ -308,6 +310,9 @@ public sealed partial class MainWindow : Window
                 break;
             case MainSection.CrafterLeveling:
                 DrawCrafterLeveling();
+                break;
+            case MainSection.Items:
+                DrawItems();
                 break;
             case MainSection.Settings:
                 DrawSettings();
@@ -369,6 +374,8 @@ public sealed partial class MainWindow : Window
         DrawMenuButton(narrow ? Loc.L("潜水艦", "Subs") : Loc.L("潜水艦管理", "Submersibles"),
             MainSection.Submarines);
         DrawMenuButton(Loc.T("Gil"), MainSection.Gil);
+        DrawMenuButton(narrow ? Loc.L("アイテム", "Items") : Loc.L("アイテム管理", "Item Storage"),
+            MainSection.Items);
         var bottomY = ImGui.GetWindowHeight() - 62 * ImGuiHelpers.GlobalScale;
         if (ImGui.GetCursorPosY() < bottomY)
             ImGui.SetCursorPosY(bottomY);
@@ -555,6 +562,7 @@ public sealed partial class MainWindow : Window
             (Loc.L("住宅", "Housing"), MainSection.Housing),
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
             (Loc.L("ギル", "Gil"), MainSection.Gil),
+            (Loc.L("アイテム", "Items"), MainSection.Items),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         }.Where(item => !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section)).ToArray();
 
@@ -1458,6 +1466,7 @@ public sealed partial class MainWindow : Window
             (Loc.L("住宅", "Housing"), MainSection.Housing),
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
             (Loc.L("ギル", "Gil"), MainSection.Gil),
+            (Loc.L("アイテム", "Items"), MainSection.Items),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         };
         for (var index = 0; index < compactMenuItems.Length; index++)
