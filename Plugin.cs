@@ -114,6 +114,8 @@ public sealed class Plugin : IDalamudPlugin
     internal CustomDeliveryService CustomDeliveries { get; }
     internal CrafterRetainerScanner CrafterRetainers { get; }
     internal CrafterLevelingAutomation CrafterLeveling { get; }
+    internal ItemInventoryDatabase ItemInventory { get; }
+    internal ItemInventoryScanner ItemInventoryScanner { get; }
     internal string IconPath { get; }
     internal WebSyncController WebSync { get; }
 
@@ -150,6 +152,8 @@ public sealed class Plugin : IDalamudPlugin
         IconPath = Path.Combine(PluginInterface.AssemblyLocation.Directory?.FullName ?? string.Empty,
             "images", "icon.png");
         Configuration = LoadConfiguration();
+        ItemInventory = new ItemInventoryDatabase(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AltMate", "item-inventory-v1.json"));
         if (Configuration.Version < 3)
         {
             Configuration.CycleAnchorUtc = new DateTime(2026, 8, 12, 15, 0, 0, DateTimeKind.Utc);
@@ -215,6 +219,7 @@ public sealed class Plugin : IDalamudPlugin
         CustomDeliveries = new CustomDeliveryService(this);
         CrafterRetainers = new CrafterRetainerScanner(this);
         CrafterLeveling = new CrafterLevelingAutomation(this);
+        ItemInventoryScanner = new ItemInventoryScanner(this);
         wardObserver = HousingWardObserver.TryCreate(this);
         gilTracker = new GilTracker(this);
         HousingDemolition = new HousingDemolitionTracker(this);
@@ -233,6 +238,7 @@ public sealed class Plugin : IDalamudPlugin
                 "/altmate animation → アニメーションを開く\n" +
                 "/altmate housing → ハウジングを開く\n" +
                 "/altmate gil → ギル管理を開く\n" +
+                "/altmate items → アイテム管理を開く\n" +
                 "/altmate submarine → 潜水艦管理を開く\n" +
                 "/altmate delivery → お得意様取引を開く\n" +
                 "/altmate lottery → 未確認の抽選応募先へ移動",
@@ -244,6 +250,7 @@ public sealed class Plugin : IDalamudPlugin
                 "/altmate animation → Open Animations\n" +
                 "/altmate housing → Open Housing\n" +
                 "/altmate gil → Open Gil Management\n" +
+                "/altmate items → Open Item Management\n" +
                 "/altmate submarine → Open Submersible Management\n" +
                 "/altmate delivery → Open Custom Deliveries\n" +
                 "/altmate lottery → Travel to an unchecked lottery entry")
@@ -662,6 +669,11 @@ public sealed class Plugin : IDalamudPlugin
             case "ギル":
                 mainWindow.OpenGil();
                 break;
+            case "item":
+            case "items":
+            case "アイテム":
+                mainWindow.OpenItems();
+                break;
             case "submarine":
             case "submarines":
             case "潜水艦":
@@ -1054,6 +1066,8 @@ public sealed class Plugin : IDalamudPlugin
         Animations.Dispose();
         CrafterRetainers.Dispose();
         CrafterLeveling.Dispose();
+        ItemInventoryScanner.Dispose();
+        ItemInventory.Dispose();
         CustomDeliveries.Dispose();
         RoleBasedFps.Dispose();
         CharacterLink.Dispose();
