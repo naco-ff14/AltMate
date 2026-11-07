@@ -45,6 +45,7 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
 
     private readonly Plugin plugin;
     private DateTime nextScanUtc;
+    private DateTime inventoryChangeFollowUpUtc;
 
     internal ItemInventoryScanner(Plugin plugin)
     {
@@ -55,8 +56,12 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
 
     private void OnInventoryChanged(IReadOnlyCollection<InventoryEventArgs> _)
     {
-        // Coalesce bursts from crafting, sorting, and item transfers, then refresh promptly.
-        nextScanUtc = DateTime.UtcNow.AddMilliseconds(250);
+        // Refresh promptly without allowing a burst of events to postpone an already scheduled scan.
+        // A second scan catches containers whose native state settles just after the raw event.
+        var now = DateTime.UtcNow;
+        var promptScan = now.AddMilliseconds(100);
+        if (nextScanUtc == default || nextScanUtc > promptScan) nextScanUtc = promptScan;
+        inventoryChangeFollowUpUtc = now.AddSeconds(1);
     }
 
     private void OnFrameworkUpdate(IFramework _)
@@ -64,6 +69,13 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
         var now = DateTime.UtcNow;
         if (now < nextScanUtc) return;
         nextScanUtc = now.AddSeconds(5);
+        if (inventoryChangeFollowUpUtc != default)
+        {
+            if (now >= inventoryChangeFollowUpUtc)
+                inventoryChangeFollowUpUtc = default;
+            else if (inventoryChangeFollowUpUtc < nextScanUtc)
+                nextScanUtc = inventoryChangeFollowUpUtc;
+        }
         if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0) return;
         try
         {
