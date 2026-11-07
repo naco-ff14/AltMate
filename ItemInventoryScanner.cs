@@ -119,6 +119,9 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
 
     private void ScanFreeCompanyChest(DateTime now)
     {
+        // FC inventory containers can remain marked as loaded after the window closes.
+        // Only an open chest is authoritative; otherwise two clients can alternate stale snapshots.
+        if (Plugin.GameGui.GetAddonByName("FreeCompanyChest").Address == nint.Zero) return;
         var module = InfoModule.Instance();
         var info = module == null ? null : module->GetInfoProxyFreeCompany();
         if (info == null || info->Id == 0) return;
