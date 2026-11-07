@@ -60,6 +60,7 @@ public sealed class Plugin : IDalamudPlugin
     private const string Command = "/altmate";
     private readonly WindowSystem windowSystem = new("AltMate");
     private readonly MainWindow mainWindow;
+    internal ItemCatalogWindow ItemCatalogWindow { get; }
     private IAddonEventHandle? confirmHandle;
     private IAddonEventHandle? resultHandle;
     private bool placardOpen;
@@ -225,7 +226,9 @@ public sealed class Plugin : IDalamudPlugin
         HousingDemolition = new HousingDemolitionTracker(this);
         WebSync = new WebSyncController(Configuration.WebSyncEnabled);
         mainWindow = new MainWindow(this);
+        ItemCatalogWindow = new ItemCatalogWindow(this);
         windowSystem.AddWindow(mainWindow);
+        windowSystem.AddWindow(ItemCatalogWindow);
 
         CommandManager.AddHandler(Command, new CommandInfo(OnAltMateCommand)
         {
