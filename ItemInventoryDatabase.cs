@@ -15,6 +15,7 @@ internal enum ItemStorageKind
     FreeCompanyChest,
     Armoire,
     GlamourDresser,
+    ArmouryChest,
 }
 
 internal sealed class StoredItemRecord
@@ -102,6 +103,8 @@ internal sealed class ItemInventoryDatabase : IDisposable
                 .ThenBy(x => x.StorageKind).ThenBy(x => x.StorageName).ToArray();
         }
     }
+
+    internal IReadOnlyList<StoredItemRecord> GetAll() => Search(string.Empty);
 
     private void ReloadIfChanged()
     {
