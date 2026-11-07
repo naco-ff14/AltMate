@@ -123,8 +123,12 @@ internal sealed class ItemInventoryDatabase : IDisposable
                     var currentVersion = ReadDataVersion(connection);
                     if (currentVersion != dataVersion)
                     {
-                        dataVersion = currentVersion;
-                        ReplaceCache(LoadAll(connection));
+                        var expectedRevision = Revision;
+                        var loadedRows = LoadAll(connection);
+                        // A local scan may have changed the cache while SQLite was being read.
+                        // In that case keep the local state and retry this data version next loop.
+                        if (TryReplaceCache(loadedRows, expectedRevision))
+                            dataVersion = currentVersion;
                     }
                 }
                 if (writes.Reader.Completion.IsCompleted && pending.Count == 0) break;
@@ -254,6 +258,20 @@ internal sealed class ItemInventoryDatabase : IDisposable
             snapshots = grouped;
             RebuildIndexesUnsafe();
             Interlocked.Increment(ref revision);
+        }
+    }
+
+    private bool TryReplaceCache(IEnumerable<StoredItemRecord> rows, long expectedRevision)
+    {
+        var grouped = rows.GroupBy(x => new SnapshotKey(x.OwnerKey, x.StorageKind, x.StorageKey))
+            .ToDictionary(x => x.Key, x => x.ToArray());
+        lock (gate)
+        {
+            if (revision != expectedRevision) return false;
+            snapshots = grouped;
+            RebuildIndexesUnsafe();
+            Interlocked.Increment(ref revision);
+            return true;
         }
     }
 
