@@ -153,8 +153,11 @@ public sealed class Plugin : IDalamudPlugin
         IconPath = Path.Combine(PluginInterface.AssemblyLocation.Directory?.FullName ?? string.Empty,
             "images", "icon.png");
         Configuration = LoadConfiguration();
-        ItemInventory = new ItemInventoryDatabase(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AltMate", "item-inventory-v1.json"));
+        var itemDataDirectory = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AltMate");
+        ItemInventory = new ItemInventoryDatabase(
+            Path.Combine(itemDataDirectory, "item-inventory-v2.db"),
+            Path.Combine(itemDataDirectory, "item-inventory-v1.json"));
         if (Configuration.Version < 3)
         {
             Configuration.CycleAnchorUtc = new DateTime(2026, 8, 12, 15, 0, 0, DateTimeKind.Utc);
