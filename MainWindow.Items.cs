@@ -248,7 +248,7 @@ public sealed partial class MainWindow
                 var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
                 var locations = plugin.ItemInventory.Search(pair.Key.ToString());
                 var owned = locations.Sum(row => row.Quantity);
-                return new RecipeMaterial(pair.Key, item.Name.ToString(), pair.Value, owned,
+                return new RecipeMaterial(pair.Key, item.Name.ToString(), IsCrystalMaterial(item), pair.Value, owned,
                     Math.Max(0, pair.Value - owned), locations);
             }).OrderByDescending(x => x.Missing > 0)
               .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
@@ -265,9 +265,22 @@ public sealed partial class MainWindow
                 : Loc.L($"{missingTypes:N0}種類の素材が不足しています。", $"{missingTypes:N0} material types are missing."));
         ImGui.SameLine();
         ImGui.Checkbox(Loc.L("不足のみ", "Missing only"), ref recipeMissingOnly);
-        if (!ImGui.BeginTable("stored-recipe-materials", 4,
-                ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp))
-            return;
+        ImGui.TextColored(new Vector4(0.47f, 0.65f, 0.78f, 1f), Loc.L("通常素材", "Materials"));
+        DrawRecipeMaterialTable("stored-recipe-materials", materials.Where(x => !x.IsCrystal).ToArray(), recipeMissingOnly);
+        var crystals = materials.Where(x => x.IsCrystal).ToArray();
+        if (crystals.Length > 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(new Vector4(0.72f, 0.55f, 0.92f, 1f),
+                Loc.L("クリスタル類", "Crystals"));
+            DrawRecipeMaterialTable("stored-recipe-crystals", crystals, recipeMissingOnly);
+        }
+    }
+
+    private void DrawRecipeMaterialTable(string id, IReadOnlyList<RecipeMaterial> materials, bool missingOnly)
+    {
+        if (!ImGui.BeginTable(id, 4,
+                ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp)) return;
         ImGui.TableSetupColumn(Loc.L("素材", "Material"), ImGuiTableColumnFlags.WidthStretch, 1.3f);
         ImGui.TableSetupColumn(Loc.L("必要／所持", "Need / owned"), ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("不足", "Missing"), ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
@@ -275,7 +288,7 @@ public sealed partial class MainWindow
         ImGui.TableHeadersRow();
         foreach (var material in materials)
         {
-            if (recipeMissingOnly && material.Missing == 0) continue;
+            if (missingOnly && material.Missing == 0) continue;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
             DrawCopyableItemName(material.Name, $"recipe-material-{material.ItemId}");
@@ -286,8 +299,7 @@ public sealed partial class MainWindow
             else ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f), "0");
             ImGui.TableNextColumn();
             if (material.Locations.Count == 0) ImGui.TextDisabled("—");
-            else ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、", material.Locations.Select(x =>
-                $"{x.OwnerName}：{x.StorageName} ×{x.Quantity:N0}")));
+            else ImGui.TextWrapped(ItemLocationFormatter.FormatGrouped(material.Locations));
         }
         ImGui.EndTable();
     }
@@ -422,7 +434,8 @@ public sealed partial class MainWindow
                 var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
                 var locations = plugin.ItemInventory.Search(pair.Key.ToString());
                 var owned = locations.Sum(row => row.Quantity);
-                return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
+                return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item),
+                    IsCrystalMaterial(item), pair.Value, owned,
                     Math.Max(0, pair.Value - owned), locations);
             }).OrderByDescending(x => x.Missing > 0)
               .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
@@ -435,7 +448,8 @@ public sealed partial class MainWindow
                 var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
                 var locations = plugin.ItemInventory.Search(pair.Key.ToString());
                 var owned = locations.Sum(x => x.Quantity);
-                return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
+                return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item),
+                    IsCrystalMaterial(item), pair.Value, owned,
                     Math.Max(0, pair.Value - owned), locations);
             }).OrderByDescending(x => x.Missing > 0)
               .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
@@ -470,7 +484,7 @@ public sealed partial class MainWindow
             70 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("保管場所", "Locations"), ImGuiTableColumnFlags.WidthStretch, 2f);
         ImGui.TableHeadersRow();
-        foreach (var material in materials)
+        foreach (var material in materials.Where(x => !x.IsCrystal))
         {
             if (companyMissingOnly && material.Missing == 0) continue;
             ImGui.TableNextRow();
@@ -492,10 +506,18 @@ public sealed partial class MainWindow
             else ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f), "0");
             ImGui.TableNextColumn();
             if (material.Locations.Count == 0) ImGui.TextDisabled("—");
-            else ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、", material.Locations.Select(x =>
-                $"{x.OwnerName}：{x.StorageName} ×{x.Quantity:N0}")));
+            else ImGui.TextWrapped(ItemLocationFormatter.FormatGrouped(material.Locations));
         }
         ImGui.EndTable();
+
+        var supplyCrystals = materials.Where(x => x.IsCrystal).ToArray();
+        if (supplyCrystals.Length > 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(new Vector4(0.72f, 0.55f, 0.92f, 1f),
+                Loc.L("クリスタル類", "Crystals"));
+            DrawCompanyMaterialTable("company-supply-crystals", supplyCrystals, companyMissingOnly);
+        }
 
         if (selectedCompanyBreakdownItemId != 0)
             DrawCompanyMaterialBreakdown(selectedCompanyBreakdownItemId,
@@ -510,7 +532,17 @@ public sealed partial class MainWindow
             "Recursively expands missing supply materials through normal recipes. Intermediate stock is already deducted above."));
         ImGui.SameLine();
         ImGui.Checkbox(Loc.L("不足のみ##company-raw-missing", "Missing only##company-raw-missing"), ref companyRawMissingOnly);
-        DrawCompanyMaterialTable("company-raw-materials", rawMaterials, companyRawMissingOnly);
+        ImGui.TextColored(new Vector4(0.47f, 0.65f, 0.78f, 1f), Loc.L("通常素材", "Materials"));
+        DrawCompanyMaterialTable("company-raw-materials",
+            rawMaterials.Where(x => !x.IsCrystal).ToArray(), companyRawMissingOnly);
+        var rawCrystals = rawMaterials.Where(x => x.IsCrystal).ToArray();
+        if (rawCrystals.Length > 0)
+        {
+            ImGui.Spacing();
+            ImGui.TextColored(new Vector4(0.72f, 0.55f, 0.92f, 1f),
+                Loc.L("クリスタル類", "Crystals"));
+            DrawCompanyMaterialTable("company-raw-crystals", rawCrystals, companyRawMissingOnly);
+        }
     }
 
     private Dictionary<uint, Recipe> NormalRecipes => normalRecipeByResultItem ??=
@@ -524,11 +556,7 @@ public sealed partial class MainWindow
     private string ClassifyCompanyMaterial(Item item)
     {
         var name = item.Name.ToString();
-        var category = item.ItemUICategory.RowId == 0 ? string.Empty : item.ItemUICategory.Value.Name.ToString();
-        if (category.Contains("クリスタル", StringComparison.OrdinalIgnoreCase) ||
-            category.Contains("Crystal", StringComparison.OrdinalIgnoreCase) ||
-            category.Contains("Shard", StringComparison.OrdinalIgnoreCase) ||
-            category.Contains("Cluster", StringComparison.OrdinalIgnoreCase))
+        if (IsCrystalMaterial(item))
             return Loc.L("クリスタル類", "Crystal");
         if (name.Contains("フレーム", StringComparison.OrdinalIgnoreCase) ||
             name.EndsWith(" Frame", StringComparison.OrdinalIgnoreCase))
@@ -536,6 +564,20 @@ public sealed partial class MainWindow
         return HasNormalRecipe(item.RowId)
             ? Loc.L("中間素材", "Intermediate")
             : Loc.L("一次素材", "Raw");
+    }
+
+    private static bool IsCrystalMaterial(Item item)
+    {
+        var name = item.Name.ToString();
+        var category = item.ItemUICategory.RowId == 0 ? string.Empty : item.ItemUICategory.Value.Name.ToString();
+        return category.Contains("クリスタル", StringComparison.OrdinalIgnoreCase) ||
+               category.Contains("Crystal", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("シャード", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("クリスタル", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("クラスター", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Shard", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Crystal", StringComparison.OrdinalIgnoreCase) ||
+               name.Contains("Cluster", StringComparison.OrdinalIgnoreCase);
     }
 
     private void ExpandToRawMaterials(uint itemId, int quantity, Dictionary<uint, int> totals, HashSet<uint> path)
@@ -605,8 +647,7 @@ public sealed partial class MainWindow
             else ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f), "0");
             ImGui.TableNextColumn();
             if (material.Locations.Count == 0) ImGui.TextDisabled("—");
-            else ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、", material.Locations.Select(x =>
-                $"{x.OwnerName}：{x.StorageName} ×{x.Quantity:N0}")));
+            else ImGui.TextWrapped(ItemLocationFormatter.FormatGrouped(material.Locations));
         }
         ImGui.EndTable();
     }
@@ -658,9 +699,11 @@ public sealed partial class MainWindow
         public int CraftCount { get; set; } = craftCount;
     }
 
-    private sealed record RecipeMaterial(uint ItemId, string Name, int Required, int Owned, int Missing,
+    private sealed record RecipeMaterial(uint ItemId, string Name, bool IsCrystal,
+        int Required, int Owned, int Missing,
         IReadOnlyList<StoredItemRecord> Locations);
 
-    private sealed record CompanyMaterial(uint ItemId, string Name, string Type, int Required, int Owned, int Missing,
+    private sealed record CompanyMaterial(uint ItemId, string Name, string Type, bool IsCrystal,
+        int Required, int Owned, int Missing,
         IReadOnlyList<StoredItemRecord> Locations);
 }
