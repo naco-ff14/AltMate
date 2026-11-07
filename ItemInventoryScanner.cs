@@ -1,4 +1,5 @@
 using Dalamud.Plugin.Services;
+using Dalamud.Game.Inventory.InventoryEventArgTypes;
 using FFXIVClientStructs.FFXIV.Client.Game;
 using FFXIVClientStructs.FFXIV.Client.Game.UI;
 using FFXIVClientStructs.FFXIV.Client.UI.Info;
@@ -49,6 +50,13 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
     {
         this.plugin = plugin;
         Plugin.Framework.Update += OnFrameworkUpdate;
+        Plugin.GameInventory.InventoryChangedRaw += OnInventoryChanged;
+    }
+
+    private void OnInventoryChanged(IReadOnlyCollection<InventoryEventArgs> _)
+    {
+        // Coalesce bursts from crafting, sorting, and item transfers, then refresh promptly.
+        nextScanUtc = DateTime.UtcNow.AddMilliseconds(250);
     }
 
     private void OnFrameworkUpdate(IFramework _)
@@ -253,5 +261,9 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
         plugin.ItemInventory.ReplaceSnapshot(ownerKey, kind, storageKey, snapshot);
     }
 
-    public void Dispose() => Plugin.Framework.Update -= OnFrameworkUpdate;
+    public void Dispose()
+    {
+        Plugin.Framework.Update -= OnFrameworkUpdate;
+        Plugin.GameInventory.InventoryChangedRaw -= OnInventoryChanged;
+    }
 }
