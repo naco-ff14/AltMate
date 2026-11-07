@@ -1,6 +1,6 @@
 <Project Sdk="Dalamud.NET.Sdk/15.0.0">
   <PropertyGroup>
-    <Version>1.62.20</Version>
+    <Version>1.62.21</Version>
     <AssemblyName>AltMate</AssemblyName>
     <RootNamespace>AltMate</RootNamespace>
     <Description>Multi-character linking, housing, animation, and gil management for FFXIV.</Description>
@@ -19,6 +19,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="NoireLib" Version="2.0.0.0" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.0" />
     <PackageReference Include="Penumbra.Api" Version="5.15.1" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.14" />
   </ItemGroup>
