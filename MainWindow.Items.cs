@@ -22,9 +22,12 @@ public sealed partial class MainWindow
     private bool recipeMissingOnly;
     private string companyRecipeSearch = string.Empty;
     private string lastCompanyRecipeSearch = "\0";
-    private int companyCraftCount = 1;
     private uint selectedCompanyRecipeId;
     private bool companyMissingOnly;
+    private bool companyRawMissingOnly;
+    private uint selectedCompanyBreakdownItemId;
+    private readonly List<CompanyCraftPlanEntry> companyCraftPlan = new();
+    private Dictionary<uint, Recipe>? normalRecipeByResultItem;
     private IReadOnlyList<(uint Id, string Name)> companyRecipeCandidates = Array.Empty<(uint, string)>();
 
     private void DrawItems()
@@ -237,12 +240,6 @@ public sealed partial class MainWindow
         ImGui.InputTextWithHint("##company-recipe-search",
             Loc.L("飛空艇・潜水艦パーツ、ハウス外装など", "Airship/submersible parts, house exteriors, etc."),
             ref companyRecipeSearch, 120);
-        ImGui.SameLine();
-        ImGui.SetNextItemWidth(110 * ImGuiHelpers.GlobalScale);
-        ImGui.InputInt(Loc.L("個##company-craft-count", "items##company-craft-count"),
-            ref companyCraftCount, 1, 10);
-        companyCraftCount = Math.Clamp(companyCraftCount, 1, 9999);
-
         if (!string.Equals(companyRecipeSearch, lastCompanyRecipeSearch, StringComparison.Ordinal))
         {
             lastCompanyRecipeSearch = companyRecipeSearch;
@@ -273,37 +270,74 @@ public sealed partial class MainWindow
             }
         }
 
-        if (selectedCompanyRecipeId == 0 ||
-            !Plugin.DataManager.GetExcelSheet<CompanyCraftSequence>()
-                .TryGetRow(selectedCompanyRecipeId, out var sequence))
-            return;
-
-        ImGui.TextUnformatted(Loc.L($"{sequence.ResultItem.Value.Name} ×{companyCraftCount:N0} の全工程素材",
-            $"All phase materials for {sequence.ResultItem.Value.Name} ×{companyCraftCount:N0}"));
-        ImGui.SameLine();
-        if (ImGui.SmallButton(Loc.L("選び直す##company-recipe-reset", "Choose another##company-recipe-reset")))
+        if (selectedCompanyRecipeId != 0 &&
+            Plugin.DataManager.GetExcelSheet<CompanyCraftSequence>().TryGetRow(selectedCompanyRecipeId, out var selected))
         {
-            selectedCompanyRecipeId = 0;
+            if (ImGui.Button(Loc.L($"「{selected.ResultItem.Value.Name}」を計画に追加",
+                    $"Add {selected.ResultItem.Value.Name} to plan")))
+            {
+                var existing = companyCraftPlan.FindIndex(x => x.SequenceId == selectedCompanyRecipeId);
+                if (existing >= 0) companyCraftPlan[existing].Quantity++;
+                else companyCraftPlan.Add(new CompanyCraftPlanEntry(selectedCompanyRecipeId, 1));
+                selectedCompanyRecipeId = 0;
+                companyRecipeSearch = string.Empty;
+                lastCompanyRecipeSearch = "\0";
+            }
+        }
+
+        if (companyCraftPlan.Count == 0)
+        {
+            ImGui.TextDisabled(Loc.L("製作するパーツや外装を検索して計画に追加してください。",
+                "Search for parts or exteriors and add them to the plan."));
             return;
         }
 
-        var requiredItems = new Dictionary<uint, int>();
-        foreach (var partRef in sequence.CompanyCraftPart)
+        ImGui.Spacing();
+        ImGui.TextUnformatted(Loc.L("作成リスト", "Craft plan"));
+        var removeAt = -1;
+        for (var index = 0; index < companyCraftPlan.Count; index++)
         {
-            if (partRef.RowId == 0) continue;
-            foreach (var processRef in partRef.Value.CompanyCraftProcess)
+            var entry = companyCraftPlan[index];
+            if (!Plugin.DataManager.GetExcelSheet<CompanyCraftSequence>().TryGetRow(entry.SequenceId, out var row))
+                continue;
+            ImGui.PushID($"company-plan-{entry.SequenceId}");
+            ImGui.TextUnformatted(row.ResultItem.Value.Name.ToString());
+            ImGui.SameLine();
+            ImGui.SetNextItemWidth(95 * ImGuiHelpers.GlobalScale);
+            var quantity = entry.Quantity;
+            ImGui.InputInt(Loc.L("個", "items"), ref quantity, 1, 10);
+            entry.Quantity = Math.Clamp(quantity, 1, 9999);
+            ImGui.SameLine();
+            if (ImGui.SmallButton(Loc.L("削除", "Remove"))) removeAt = index;
+            ImGui.PopID();
+        }
+        if (removeAt >= 0) companyCraftPlan.RemoveAt(removeAt);
+        ImGui.SameLine();
+        if (ImGui.SmallButton(Loc.L("すべて消去##company-plan-clear", "Clear all##company-plan-clear")))
+            companyCraftPlan.Clear();
+
+        var requiredItems = new Dictionary<uint, int>();
+        foreach (var planEntry in companyCraftPlan)
+        {
+            if (!Plugin.DataManager.GetExcelSheet<CompanyCraftSequence>().TryGetRow(planEntry.SequenceId, out var sequence))
+                continue;
+            foreach (var partRef in sequence.CompanyCraftPart)
             {
-                if (processRef.RowId == 0) continue;
-                var process = processRef.Value;
-                for (var index = 0; index < process.SupplyItem.Count; index++)
+                if (partRef.RowId == 0) continue;
+                foreach (var processRef in partRef.Value.CompanyCraftProcess)
                 {
-                    var supplyRef = process.SupplyItem[index];
-                    if (supplyRef.RowId == 0 || supplyRef.Value.Item.RowId == 0) continue;
-                    var quantity = checked((int)process.SetQuantity[index] *
-                                           (int)process.SetsRequired[index] * companyCraftCount);
-                    if (quantity <= 0) continue;
-                    requiredItems.TryGetValue(supplyRef.Value.Item.RowId, out var current);
-                    requiredItems[supplyRef.Value.Item.RowId] = checked(current + quantity);
+                    if (processRef.RowId == 0) continue;
+                    var process = processRef.Value;
+                    for (var supplyIndex = 0; supplyIndex < process.SupplyItem.Count; supplyIndex++)
+                    {
+                        var supplyRef = process.SupplyItem[supplyIndex];
+                        if (supplyRef.RowId == 0 || supplyRef.Value.Item.RowId == 0) continue;
+                        var quantity = checked((int)process.SetQuantity[supplyIndex] *
+                            (int)process.SetsRequired[supplyIndex] * planEntry.Quantity);
+                        if (quantity <= 0) continue;
+                        requiredItems.TryGetValue(supplyRef.Value.Item.RowId, out var current);
+                        requiredItems[supplyRef.Value.Item.RowId] = checked(current + quantity);
+                    }
                 }
             }
         }
@@ -313,7 +347,7 @@ public sealed partial class MainWindow
             var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
             var locations = plugin.ItemInventory.Search(pair.Key.ToString());
             var owned = locations.Sum(row => row.Quantity);
-            return new CompanyMaterial(item.Name.ToString(), pair.Value, owned,
+            return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
                 Math.Max(0, pair.Value - owned), locations);
         }).OrderByDescending(x => x.Missing > 0)
           .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
@@ -329,10 +363,14 @@ public sealed partial class MainWindow
         ImGui.Checkbox(Loc.L("不足のみ##company-missing-only", "Missing only##company-missing-only"),
             ref companyMissingOnly);
 
-        if (!ImGui.BeginTable("company-recipe-materials", 4,
+        if (!ImGui.CollapsingHeader(Loc.L("納品素材（中間素材・フレーム）", "Supply materials (intermediates / frames)"),
+                ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+        if (!ImGui.BeginTable("company-recipe-materials", 5,
                 ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp))
             return;
         ImGui.TableSetupColumn(Loc.L("素材", "Material"), ImGuiTableColumnFlags.WidthStretch, 1.3f);
+        ImGui.TableSetupColumn(Loc.L("区分", "Type"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("必要／所持", "Need / owned"), ImGuiTableColumnFlags.WidthFixed,
             105 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("不足", "Missing"), ImGuiTableColumnFlags.WidthFixed,
@@ -344,7 +382,11 @@ public sealed partial class MainWindow
             if (companyMissingOnly && material.Missing == 0) continue;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(material.Name);
+            if (ImGui.Selectable($"{material.Name}##company-material-{material.ItemId}",
+                    selectedCompanyBreakdownItemId == material.ItemId))
+                selectedCompanyBreakdownItemId = material.ItemId;
+            ImGui.TableNextColumn();
+            ImGui.TextDisabled(material.Type);
             ImGui.TableNextColumn();
             ImGui.TextUnformatted($"{material.Required:N0} / {material.Owned:N0}");
             ImGui.TableNextColumn();
@@ -357,8 +399,132 @@ public sealed partial class MainWindow
                 $"{x.OwnerName}：{x.StorageName} ×{x.Quantity:N0}")));
         }
         ImGui.EndTable();
+
+        if (selectedCompanyBreakdownItemId != 0)
+            DrawCompanyMaterialBreakdown(selectedCompanyBreakdownItemId,
+                materials.FirstOrDefault(x => x.ItemId == selectedCompanyBreakdownItemId)?.Missing ?? 0);
+
+        var rawRequired = new Dictionary<uint, int>();
+        foreach (var material in materials.Where(x => x.Missing > 0))
+            ExpandToRawMaterials(material.ItemId, material.Missing, rawRequired, new HashSet<uint>());
+        var rawMaterials = rawRequired.Select(pair =>
+        {
+            var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
+            var locations = plugin.ItemInventory.Search(pair.Key.ToString());
+            var owned = locations.Sum(x => x.Quantity);
+            return new CompanyMaterial(pair.Key, item.Name.ToString(), ClassifyCompanyMaterial(item), pair.Value, owned,
+                Math.Max(0, pair.Value - owned), locations);
+        }).OrderByDescending(x => x.Missing > 0).ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+
+        ImGui.Spacing();
+        if (!ImGui.CollapsingHeader(Loc.L("一次素材まで分解", "Expanded to raw materials"),
+                ImGuiTreeNodeFlags.DefaultOpen))
+            return;
+        ImGui.TextDisabled(Loc.L(
+            "納品素材の不足分を通常レシピで再帰展開しています。中間素材の在庫は上の表で差し引き済みです。",
+            "Recursively expands missing supply materials through normal recipes. Intermediate stock is already deducted above."));
+        ImGui.SameLine();
+        ImGui.Checkbox(Loc.L("不足のみ##company-raw-missing", "Missing only##company-raw-missing"), ref companyRawMissingOnly);
+        DrawCompanyMaterialTable("company-raw-materials", rawMaterials, companyRawMissingOnly);
     }
 
-    private sealed record CompanyMaterial(string Name, int Required, int Owned, int Missing,
+    private Dictionary<uint, Recipe> NormalRecipes => normalRecipeByResultItem ??=
+        Plugin.DataManager.GetExcelSheet<Recipe>()
+            .Where(x => x.ItemResult.RowId != 0 && x.AmountResult > 0)
+            .GroupBy(x => x.ItemResult.RowId)
+            .ToDictionary(x => x.Key, x => x.First());
+
+    private bool HasNormalRecipe(uint itemId) => NormalRecipes.ContainsKey(itemId);
+
+    private string ClassifyCompanyMaterial(Item item)
+    {
+        var name = item.Name.ToString();
+        var category = item.ItemUICategory.RowId == 0 ? string.Empty : item.ItemUICategory.Value.Name.ToString();
+        if (category.Contains("クリスタル", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Crystal", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Shard", StringComparison.OrdinalIgnoreCase) ||
+            category.Contains("Cluster", StringComparison.OrdinalIgnoreCase))
+            return Loc.L("クリスタル類", "Crystal");
+        if (name.Contains("フレーム", StringComparison.OrdinalIgnoreCase) ||
+            name.EndsWith(" Frame", StringComparison.OrdinalIgnoreCase))
+            return Loc.L("フレーム", "Frame");
+        return HasNormalRecipe(item.RowId)
+            ? Loc.L("中間素材", "Intermediate")
+            : Loc.L("一次素材", "Raw");
+    }
+
+    private void ExpandToRawMaterials(uint itemId, int quantity, Dictionary<uint, int> totals, HashSet<uint> path)
+    {
+        if (quantity <= 0) return;
+        if (!NormalRecipes.TryGetValue(itemId, out var recipe) || !path.Add(itemId))
+        {
+            totals.TryGetValue(itemId, out var current);
+            totals[itemId] = checked(current + quantity);
+            return;
+        }
+        var crafts = checked((quantity + (int)recipe.AmountResult - 1) / (int)recipe.AmountResult);
+        for (var index = 0; index < recipe.Ingredient.Count; index++)
+        {
+            var ingredient = recipe.Ingredient[index];
+            var amount = recipe.AmountIngredient[index];
+            if (ingredient.RowId == 0 || amount == 0) continue;
+            ExpandToRawMaterials(ingredient.RowId, checked(crafts * (int)amount), totals, path);
+        }
+        path.Remove(itemId);
+    }
+
+    private void DrawCompanyMaterialBreakdown(uint itemId, int missing)
+    {
+        if (!NormalRecipes.TryGetValue(itemId, out var recipe) || missing <= 0) return;
+        var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(itemId);
+        if (!ImGui.TreeNode(Loc.L($"{item.Name} の内訳（不足 {missing:N0}）##company-breakdown-{itemId}",
+                $"{item.Name} breakdown (missing {missing:N0})##company-breakdown-{itemId}"))) return;
+        var direct = new Dictionary<uint, int>();
+        var crafts = (missing + (int)recipe.AmountResult - 1) / (int)recipe.AmountResult;
+        for (var index = 0; index < recipe.Ingredient.Count; index++)
+        {
+            var ingredient = recipe.Ingredient[index];
+            if (ingredient.RowId != 0 && recipe.AmountIngredient[index] != 0)
+                direct[ingredient.RowId] = crafts * (int)recipe.AmountIngredient[index];
+        }
+        foreach (var pair in direct)
+            ImGui.BulletText($"{Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key).Name} ×{pair.Value:N0}");
+        ImGui.TreePop();
+    }
+
+    private void DrawCompanyMaterialTable(string id, IReadOnlyList<CompanyMaterial> materials, bool missingOnly)
+    {
+        if (!ImGui.BeginTable(id, 5, ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH |
+                ImGuiTableFlags.SizingStretchProp)) return;
+        ImGui.TableSetupColumn(Loc.L("素材", "Material"), ImGuiTableColumnFlags.WidthStretch, 1.3f);
+        ImGui.TableSetupColumn(Loc.L("区分", "Type"), ImGuiTableColumnFlags.WidthFixed, 90 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("必要／所持", "Need / owned"), ImGuiTableColumnFlags.WidthFixed, 105 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("不足", "Missing"), ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
+        ImGui.TableSetupColumn(Loc.L("保管場所", "Locations"), ImGuiTableColumnFlags.WidthStretch, 2f);
+        ImGui.TableHeadersRow();
+        foreach (var material in materials)
+        {
+            if (missingOnly && material.Missing == 0) continue;
+            ImGui.TableNextRow(); ImGui.TableNextColumn(); ImGui.TextUnformatted(material.Name);
+            ImGui.TableNextColumn(); ImGui.TextDisabled(material.Type);
+            ImGui.TableNextColumn(); ImGui.TextUnformatted($"{material.Required:N0} / {material.Owned:N0}");
+            ImGui.TableNextColumn();
+            if (material.Missing > 0) ImGui.TextColored(new Vector4(0.96f, 0.42f, 0.38f, 1f), material.Missing.ToString("N0"));
+            else ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f), "0");
+            ImGui.TableNextColumn();
+            if (material.Locations.Count == 0) ImGui.TextDisabled("—");
+            else ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、", material.Locations.Select(x =>
+                $"{x.OwnerName}：{x.StorageName} ×{x.Quantity:N0}")));
+        }
+        ImGui.EndTable();
+    }
+
+    private sealed class CompanyCraftPlanEntry(uint sequenceId, int quantity)
+    {
+        public uint SequenceId { get; } = sequenceId;
+        public int Quantity { get; set; } = quantity;
+    }
+
+    private sealed record CompanyMaterial(uint ItemId, string Name, string Type, int Required, int Owned, int Missing,
         IReadOnlyList<StoredItemRecord> Locations);
 }
