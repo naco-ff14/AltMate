@@ -16,6 +16,7 @@ internal sealed class ItemCatalogWindow : Window
     private string ownerFilter = string.Empty;
     private ItemStorageKind? storageFilter;
     private DateTime nextRefreshUtc;
+    private long observedInventoryRevision = -1;
     private int page;
     private StoredItemRecord[] rows = Array.Empty<StoredItemRecord>();
 
@@ -37,9 +38,11 @@ internal sealed class ItemCatalogWindow : Window
 
     public override void Draw()
     {
-        if (DateTime.UtcNow >= nextRefreshUtc)
+        var revision = plugin.ItemInventory.Revision;
+        if (revision != observedInventoryRevision || DateTime.UtcNow >= nextRefreshUtc)
         {
             rows = plugin.ItemInventory.GetAll().ToArray();
+            observedInventoryRevision = revision;
             nextRefreshUtc = DateTime.UtcNow.AddSeconds(2);
         }
 
@@ -83,8 +86,11 @@ internal sealed class ItemCatalogWindow : Window
         {
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(item.Name);
-            if (ImGui.IsItemHovered()) ImGui.SetTooltip($"Item ID: {item.ItemId}");
+            if (ImGui.Selectable($"{item.Name}##catalog-item-{item.ItemId}"))
+                ImGui.SetClipboardText(item.Name);
+            if (ImGui.IsItemHovered())
+                ImGui.SetTooltip(Loc.L($"クリックでアイテム名をコピー\nItem ID: {item.ItemId}",
+                    $"Click to copy item name\nItem ID: {item.ItemId}"));
             ImGui.TableNextColumn();
             ImGui.TextUnformatted(item.Quantity.ToString("N0"));
             ImGui.TableNextColumn();
