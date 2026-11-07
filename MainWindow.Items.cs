@@ -19,6 +19,7 @@ public sealed partial class MainWindow
     private uint selectedStorageRecipeId;
     private IReadOnlyList<(uint Id, string Name)> storageRecipeCandidates = Array.Empty<(uint, string)>();
     private DateTime nextItemResultRefreshUtc;
+    private bool recipeMissingOnly;
 
     private void DrawItems()
     {
@@ -26,6 +27,8 @@ public sealed partial class MainWindow
         ImGui.TextDisabled(Loc.L(
             "各保管先をゲームで読み込んだ時点の情報を保存します。FCチェストはFC単位で1回だけ集計します。",
             "Stores the latest data loaded by the game. FC chests are counted once per free company."));
+        if (ImGui.Button(Loc.L("全アイテム一覧を別ウィンドウで開く", "Open all items in a separate window")))
+            plugin.ItemCatalogWindow.Open();
         ImGui.Spacing();
 
         DrawRecipeStoragePlanner();
@@ -153,6 +156,32 @@ public sealed partial class MainWindow
 
         ImGui.TextUnformatted(Loc.L($"{recipe.ItemResult.Value.Name}：{recipeCraftCount:N0}回分の素材",
             $"{recipe.ItemResult.Value.Name}: materials for {recipeCraftCount:N0} crafts"));
+        ImGui.SameLine();
+        if (ImGui.SmallButton(Loc.L("レシピを選び直す##stored-recipe-reset", "Choose another##stored-recipe-reset")))
+        {
+            selectedStorageRecipeId = 0;
+            return;
+        }
+        var materials = Enumerable.Range(0, recipe.Ingredient.Count)
+            .Select(index => (Item: recipe.Ingredient[index], Amount: recipe.AmountIngredient[index]))
+            .Where(x => x.Item.RowId != 0 && x.Amount != 0)
+            .Select(x =>
+            {
+                var required = checked((int)x.Amount * recipeCraftCount);
+                var locations = plugin.ItemInventory.Search(x.Item.RowId.ToString());
+                var owned = locations.Sum(row => row.Quantity);
+                return new { Item = x.Item, Required = required, Owned = owned,
+                    Missing = Math.Max(0, required - owned), Locations = locations };
+            }).ToArray();
+        var missingTypes = materials.Count(x => x.Missing > 0);
+        ImGui.TextColored(missingTypes == 0
+                ? new Vector4(0.35f, 0.9f, 0.5f, 1f)
+                : new Vector4(0.96f, 0.68f, 0.25f, 1f),
+            missingTypes == 0
+                ? Loc.L("必要素材はすべて揃っています。", "All required materials are available.")
+                : Loc.L($"{missingTypes:N0}種類の素材が不足しています。", $"{missingTypes:N0} material types are missing."));
+        ImGui.SameLine();
+        ImGui.Checkbox(Loc.L("不足のみ", "Missing only"), ref recipeMissingOnly);
         if (!ImGui.BeginTable("stored-recipe-materials", 4,
                 ImGuiTableFlags.RowBg | ImGuiTableFlags.BordersInnerH | ImGuiTableFlags.SizingStretchProp))
             return;
@@ -161,27 +190,20 @@ public sealed partial class MainWindow
         ImGui.TableSetupColumn(Loc.L("不足", "Missing"), ImGuiTableColumnFlags.WidthFixed, 70 * ImGuiHelpers.GlobalScale);
         ImGui.TableSetupColumn(Loc.L("保管場所", "Locations"), ImGuiTableColumnFlags.WidthStretch, 2f);
         ImGui.TableHeadersRow();
-        for (var index = 0; index < recipe.Ingredient.Count; index++)
+        foreach (var material in materials)
         {
-            var ingredientId = recipe.Ingredient[index].RowId;
-            var amount = recipe.AmountIngredient[index];
-            if (ingredientId == 0 || amount == 0) continue;
-            var required = checked((int)amount * recipeCraftCount);
-            var locations = plugin.ItemInventory.Search(ingredientId.ToString());
-            var owned = locations.Sum(x => x.Quantity);
-            var missing = Math.Max(0, required - owned);
-            var itemName = recipe.Ingredient[index].Value.Name.ToString();
+            if (recipeMissingOnly && material.Missing == 0) continue;
             ImGui.TableNextRow();
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted(itemName);
+            ImGui.TextUnformatted(material.Item.Value.Name.ToString());
             ImGui.TableNextColumn();
-            ImGui.TextUnformatted($"{required:N0} / {owned:N0}");
+            ImGui.TextUnformatted($"{material.Required:N0} / {material.Owned:N0}");
             ImGui.TableNextColumn();
-            if (missing > 0) ImGui.TextColored(new Vector4(0.96f, 0.42f, 0.38f, 1f), missing.ToString("N0"));
+            if (material.Missing > 0) ImGui.TextColored(new Vector4(0.96f, 0.42f, 0.38f, 1f), material.Missing.ToString("N0"));
             else ImGui.TextColored(new Vector4(0.35f, 0.9f, 0.5f, 1f), "0");
             ImGui.TableNextColumn();
-            if (locations.Count == 0) ImGui.TextDisabled("—");
-            else ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、", locations.Select(x =>
+            if (material.Locations.Count == 0) ImGui.TextDisabled("—");
+            else ImGui.TextWrapped(string.Join(Loc.IsEnglish ? ", " : "、", material.Locations.Select(x =>
                 $"{x.OwnerName}：{x.StorageName} ×{x.Quantity:N0}")));
         }
         ImGui.EndTable();
@@ -191,7 +213,7 @@ public sealed partial class MainWindow
     {
         ImGui.Spacing();
         ImGui.TextColored(new Vector4(0.47f, 0.65f, 0.78f, 1f), Loc.L("更新方法", "How data updates"));
-        ImGui.BulletText(Loc.L("所持品・チョコボかばん：ログイン中に自動更新", "Inventory / saddlebag: automatic while logged in"));
+        ImGui.BulletText(Loc.L("所持品・チョコボかばん・アーマリーチェスト：ログイン中に自動更新", "Inventory / saddlebag / armoury chest: automatic while logged in"));
         ImGui.BulletText(Loc.L("リテイナー：各リテイナーを開くと更新", "Retainers: open each retainer"));
         ImGui.BulletText(Loc.L("FCチェスト：チェストを開き、各タブを読み込むと更新", "FC chest: open the chest and load its tabs"));
         ImGui.BulletText(Loc.L("愛蔵品・ミラージュドレッサー：宿屋などで画面を開くと更新", "Armoire / glamour dresser: open them at an inn or similar location"));
