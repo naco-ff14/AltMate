@@ -22,6 +22,14 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
         InventoryType.SaddleBag1, InventoryType.SaddleBag2,
         InventoryType.PremiumSaddleBag1, InventoryType.PremiumSaddleBag2,
     };
+    private static readonly InventoryType[] ArmouryContainers =
+    {
+        InventoryType.ArmoryMainHand, InventoryType.ArmoryOffHand,
+        InventoryType.ArmoryHead, InventoryType.ArmoryBody, InventoryType.ArmoryHands,
+        InventoryType.ArmoryWaist, InventoryType.ArmoryLegs, InventoryType.ArmoryFeets,
+        InventoryType.ArmoryEar, InventoryType.ArmoryNeck, InventoryType.ArmoryWrist,
+        InventoryType.ArmoryRings, InventoryType.ArmorySoulCrystal,
+    };
     private static readonly InventoryType[] RetainerContainers =
     {
         InventoryType.RetainerPage1, InventoryType.RetainerPage2, InventoryType.RetainerPage3,
@@ -72,6 +80,10 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
         SaveContainers(ownerKey, Plugin.PlayerState.CharacterName,
             Plugin.PlayerState.HomeWorld.Value.Name.ToString(), ItemStorageKind.Saddlebag,
             Loc.L("チョコボかばん", "Chocobo saddlebag"), SaddlebagContainers, now,
+            requireAll: false, splitContainers: true);
+        SaveContainers(ownerKey, Plugin.PlayerState.CharacterName,
+            Plugin.PlayerState.HomeWorld.Value.Name.ToString(), ItemStorageKind.ArmouryChest,
+            Loc.L("アーマリーチェスト", "Armoury chest"), ArmouryContainers, now,
             requireAll: false, splitContainers: true);
     }
 
@@ -192,6 +204,24 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
             return type == InventoryType.FreeCompanyCrystals
                 ? Loc.L("FCチェスト・クリスタル", "FC chest - crystals")
                 : Loc.L($"FCチェスト 第{index}タブ", $"FC chest tab {index}");
+        if (kind == ItemStorageKind.ArmouryChest)
+            return type switch
+            {
+                InventoryType.ArmoryMainHand => Loc.L("アーマリーチェスト・メインアーム", "Armoury - main hand"),
+                InventoryType.ArmoryOffHand => Loc.L("アーマリーチェスト・サブアーム", "Armoury - off hand"),
+                InventoryType.ArmoryHead => Loc.L("アーマリーチェスト・頭防具", "Armoury - head"),
+                InventoryType.ArmoryBody => Loc.L("アーマリーチェスト・胴防具", "Armoury - body"),
+                InventoryType.ArmoryHands => Loc.L("アーマリーチェスト・手防具", "Armoury - hands"),
+                InventoryType.ArmoryWaist => Loc.L("アーマリーチェスト・帯防具", "Armoury - waist"),
+                InventoryType.ArmoryLegs => Loc.L("アーマリーチェスト・脚防具", "Armoury - legs"),
+                InventoryType.ArmoryFeets => Loc.L("アーマリーチェスト・足防具", "Armoury - feet"),
+                InventoryType.ArmoryEar => Loc.L("アーマリーチェスト・耳飾り", "Armoury - earrings"),
+                InventoryType.ArmoryNeck => Loc.L("アーマリーチェスト・首飾り", "Armoury - necklace"),
+                InventoryType.ArmoryWrist => Loc.L("アーマリーチェスト・腕輪", "Armoury - bracelets"),
+                InventoryType.ArmoryRings => Loc.L("アーマリーチェスト・指輪", "Armoury - rings"),
+                InventoryType.ArmorySoulCrystal => Loc.L("アーマリーチェスト・ソウルクリスタル", "Armoury - soul crystals"),
+                _ => Loc.L($"アーマリーチェスト {index}", $"Armoury {index}"),
+            };
         return type switch
         {
             InventoryType.SaddleBag1 => Loc.L("チョコボかばん 1", "Chocobo saddlebag 1"),
