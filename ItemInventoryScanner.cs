@@ -130,39 +130,52 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
     {
         var inventory = InventoryManager.Instance();
         if (inventory == null) return;
-        var loaded = containerTypes.Select(x => (Type: x, Container: inventory->GetInventoryContainer(x)))
-            .Where(x => x.Container != null && x.Container->IsLoaded).ToArray();
-        if (loaded.Length == 0 || (requireAll && loaded.Length != containerTypes.Length)) return;
+        var loaded = new List<InventoryType>();
+        foreach (var type in containerTypes)
+        {
+            var container = inventory->GetInventoryContainer(type);
+            if (container != null && container->IsLoaded) loaded.Add(type);
+        }
+        if (loaded.Count == 0 || (requireAll && loaded.Count != containerTypes.Length)) return;
 
         if (splitContainers)
         {
-            foreach (var entry in loaded)
+            foreach (var type in loaded)
             {
-                var index = Array.IndexOf(containerTypes, entry.Type) + 1;
-                var pageName = SplitStorageName(kind, entry.Type, index);
-                SaveSnapshot(ownerKey, kind, $"container:{(uint)entry.Type}", Aggregate(ReadContainer(entry.Container, kind, ownerKey,
+                var container = inventory->GetInventoryContainer(type);
+                if (container == null) continue;
+                var index = Array.IndexOf(containerTypes, type) + 1;
+                var pageName = SplitStorageName(kind, type, index);
+                SaveSnapshot(ownerKey, kind, $"container:{(uint)type}", Aggregate(ReadContainer(container, kind, ownerKey,
                     ownerName, worldName, pageName, index, now)));
             }
             return;
         }
 
         var combined = new List<StoredItemRecord>();
-        foreach (var entry in loaded)
-            combined.AddRange(ReadContainer(entry.Container, kind, ownerKey, ownerName, worldName,
-                storageName, Array.IndexOf(containerTypes, entry.Type) + 1, now));
+        foreach (var type in loaded)
+        {
+            var container = inventory->GetInventoryContainer(type);
+            if (container != null)
+                combined.AddRange(ReadContainer(container, kind, ownerKey, ownerName, worldName,
+                    storageName, Array.IndexOf(containerTypes, type) + 1, now));
+        }
         SaveSnapshot(ownerKey, kind, "combined", Aggregate(combined));
     }
 
-    private IEnumerable<StoredItemRecord> ReadContainer(InventoryContainer* container, ItemStorageKind kind,
+    private List<StoredItemRecord> ReadContainer(InventoryContainer* container, ItemStorageKind kind,
         string ownerKey, string ownerName, string worldName, string storageName, int containerIndex, DateTime now)
     {
+        var rows = new List<StoredItemRecord>();
         for (var slotIndex = 0; slotIndex < container->Size; slotIndex++)
         {
             var slot = container->GetInventorySlot(slotIndex);
             if (slot == null || slot->ItemId == 0 || slot->Quantity == 0) continue;
-            yield return CreateRecord(slot->ItemId, (int)slot->Quantity, slot->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality),
-                kind, ownerKey, ownerName, worldName, storageName, containerIndex, now);
+            rows.Add(CreateRecord(slot->ItemId, (int)slot->Quantity,
+                slot->Flags.HasFlag(InventoryItem.ItemFlags.HighQuality), kind, ownerKey, ownerName,
+                worldName, storageName, containerIndex, now));
         }
+        return rows;
     }
 
     private static IEnumerable<StoredItemRecord> Aggregate(IEnumerable<StoredItemRecord> source) =>
