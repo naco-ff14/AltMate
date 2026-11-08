@@ -19,12 +19,14 @@ public sealed partial class MainWindow
     private uint selectedStorageRecipeId;
     private readonly List<RecipePlanEntry> recipeCraftPlan = new();
     private RecipeMaterial[] recipeMaterialsCache = Array.Empty<RecipeMaterial>();
+    private RecipeMaterial[] recipeRawMaterialsCache = Array.Empty<RecipeMaterial>();
     private long recipeMaterialsCacheRevision = -1;
     private int recipeMaterialsCacheSignature;
     private IReadOnlyList<(uint Id, string Name)> storageRecipeCandidates = Array.Empty<(uint, string)>();
     private DateTime nextItemResultRefreshUtc;
     private long observedItemInventoryRevision = -1;
     private bool recipeMissingOnly;
+    private bool recipeRawMissingOnly;
     private string companyRecipeSearch = string.Empty;
     private string lastCompanyRecipeSearch = "\0";
     private uint selectedCompanyRecipeId;
@@ -252,11 +254,31 @@ public sealed partial class MainWindow
                     Math.Max(0, pair.Value - owned), locations);
             }).OrderByDescending(x => x.Missing > 0)
               .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+
+            var rawRequired = new Dictionary<uint, int>();
+            foreach (var material in recipeMaterialsCache.Where(x => !x.IsCrystal))
+            {
+                var quantityToExpand = HasNormalRecipe(material.ItemId)
+                    ? material.Missing
+                    : material.Required;
+                if (quantityToExpand > 0)
+                    ExpandToRawMaterials(material.ItemId, quantityToExpand, rawRequired, new HashSet<uint>());
+            }
+            recipeRawMaterialsCache = rawRequired.Select(pair =>
+            {
+                var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
+                var locations = plugin.ItemInventory.Search(pair.Key.ToString());
+                var owned = locations.Sum(row => row.Quantity);
+                return new RecipeMaterial(pair.Key, item.Name.ToString(), IsCrystalMaterial(item), pair.Value, owned,
+                    Math.Max(0, pair.Value - owned), locations);
+            }).OrderByDescending(x => x.Missing > 0)
+              .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
             recipeMaterialsCacheRevision = observedItemInventoryRevision;
             recipeMaterialsCacheSignature = planSignature;
         }
         var materials = recipeMaterialsCache;
-        var missingTypes = materials.Count(x => x.Missing > 0);
+        var rawMaterials = recipeRawMaterialsCache;
+        var missingTypes = materials.Count(x => !x.IsCrystal && x.Missing > 0);
         ImGui.TextColored(missingTypes == 0
                 ? new Vector4(0.35f, 0.9f, 0.5f, 1f)
                 : new Vector4(0.96f, 0.68f, 0.25f, 1f),
@@ -265,16 +287,19 @@ public sealed partial class MainWindow
                 : Loc.L($"{missingTypes:N0}種類の素材が不足しています。", $"{missingTypes:N0} material types are missing."));
         ImGui.SameLine();
         ImGui.Checkbox(Loc.L("不足のみ", "Missing only"), ref recipeMissingOnly);
-        ImGui.TextColored(new Vector4(0.47f, 0.65f, 0.78f, 1f), Loc.L("通常素材", "Materials"));
         DrawRecipeMaterialTable("stored-recipe-materials", materials.Where(x => !x.IsCrystal).ToArray(), recipeMissingOnly);
-        var crystals = materials.Where(x => x.IsCrystal).ToArray();
-        if (crystals.Length > 0)
-        {
-            ImGui.Spacing();
-            ImGui.TextColored(new Vector4(0.72f, 0.55f, 0.92f, 1f),
-                Loc.L("クリスタル類", "Crystals"));
-            DrawRecipeMaterialTable("stored-recipe-crystals", crystals, recipeMissingOnly);
-        }
+
+        ImGui.Spacing();
+        if (!ImGui.CollapsingHeader(Loc.L("一次素材まで分解", "Expanded to raw materials"),
+                ImGuiTreeNodeFlags.DefaultOpen)) return;
+        ImGui.TextDisabled(Loc.L(
+            "中間素材の不足分を通常レシピで分解し、必要な一次素材を合算します。クリスタル類は表示しません。",
+            "Expands missing intermediates and totals the required raw materials. Crystals are hidden."));
+        ImGui.SameLine();
+        ImGui.Checkbox(Loc.L("不足のみ##recipe-raw-missing", "Missing only##recipe-raw-missing"),
+            ref recipeRawMissingOnly);
+        DrawRecipeMaterialTable("stored-recipe-raw-materials",
+            rawMaterials.Where(x => !x.IsCrystal).ToArray(), recipeRawMissingOnly);
     }
 
     private void DrawRecipeMaterialTable(string id, IReadOnlyList<RecipeMaterial> materials, bool missingOnly)
@@ -441,8 +466,14 @@ public sealed partial class MainWindow
               .ThenBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
 
             var rawRequired = new Dictionary<uint, int>();
-            foreach (var material in companyMaterialsCache.Where(x => x.Missing > 0))
-                ExpandToRawMaterials(material.ItemId, material.Missing, rawRequired, new HashSet<uint>());
+            foreach (var material in companyMaterialsCache.Where(x => !x.IsCrystal))
+            {
+                var quantityToExpand = HasNormalRecipe(material.ItemId)
+                    ? material.Missing
+                    : material.Required;
+                if (quantityToExpand > 0)
+                    ExpandToRawMaterials(material.ItemId, quantityToExpand, rawRequired, new HashSet<uint>());
+            }
             companyRawMaterialsCache = rawRequired.Select(pair =>
             {
                 var item = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
@@ -458,7 +489,7 @@ public sealed partial class MainWindow
         }
         var materials = companyMaterialsCache;
         var rawMaterials = companyRawMaterialsCache;
-        var missingTypes = materials.Count(x => x.Missing > 0);
+        var missingTypes = materials.Count(x => !x.IsCrystal && x.Missing > 0);
         ImGui.TextColored(missingTypes == 0
                 ? new Vector4(0.35f, 0.9f, 0.5f, 1f)
                 : new Vector4(0.96f, 0.68f, 0.25f, 1f),
@@ -510,15 +541,6 @@ public sealed partial class MainWindow
         }
         ImGui.EndTable();
 
-        var supplyCrystals = materials.Where(x => x.IsCrystal).ToArray();
-        if (supplyCrystals.Length > 0)
-        {
-            ImGui.Spacing();
-            ImGui.TextColored(new Vector4(0.72f, 0.55f, 0.92f, 1f),
-                Loc.L("クリスタル類", "Crystals"));
-            DrawCompanyMaterialTable("company-supply-crystals", supplyCrystals, companyMissingOnly);
-        }
-
         if (selectedCompanyBreakdownItemId != 0)
             DrawCompanyMaterialBreakdown(selectedCompanyBreakdownItemId,
                 materials.FirstOrDefault(x => x.ItemId == selectedCompanyBreakdownItemId)?.Missing ?? 0);
@@ -528,21 +550,12 @@ public sealed partial class MainWindow
                 ImGuiTreeNodeFlags.DefaultOpen))
             return;
         ImGui.TextDisabled(Loc.L(
-            "納品素材の不足分を通常レシピで再帰展開しています。中間素材の在庫は上の表で差し引き済みです。",
-            "Recursively expands missing supply materials through normal recipes. Intermediate stock is already deducted above."));
+            "納品素材の不足分を通常レシピで再帰展開しています。クリスタル類は表示しません。",
+            "Recursively expands missing supply materials through normal recipes. Crystals are hidden."));
         ImGui.SameLine();
         ImGui.Checkbox(Loc.L("不足のみ##company-raw-missing", "Missing only##company-raw-missing"), ref companyRawMissingOnly);
-        ImGui.TextColored(new Vector4(0.47f, 0.65f, 0.78f, 1f), Loc.L("通常素材", "Materials"));
         DrawCompanyMaterialTable("company-raw-materials",
             rawMaterials.Where(x => !x.IsCrystal).ToArray(), companyRawMissingOnly);
-        var rawCrystals = rawMaterials.Where(x => x.IsCrystal).ToArray();
-        if (rawCrystals.Length > 0)
-        {
-            ImGui.Spacing();
-            ImGui.TextColored(new Vector4(0.72f, 0.55f, 0.92f, 1f),
-                Loc.L("クリスタル類", "Crystals"));
-            DrawCompanyMaterialTable("company-raw-crystals", rawCrystals, companyRawMissingOnly);
-        }
     }
 
     private Dictionary<uint, Recipe> NormalRecipes => normalRecipeByResultItem ??=
@@ -616,7 +629,9 @@ public sealed partial class MainWindow
         }
         foreach (var pair in direct)
         {
-            var ingredientName = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key).Name.ToString();
+            var ingredientItem = Plugin.DataManager.GetExcelSheet<Item>().GetRow(pair.Key);
+            if (IsCrystalMaterial(ingredientItem)) continue;
+            var ingredientName = ingredientItem.Name.ToString();
             ImGui.Bullet();
             ImGui.SameLine();
             DrawCopyableItemName($"{ingredientName} ×{pair.Value:N0}",
