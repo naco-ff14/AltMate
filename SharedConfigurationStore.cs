@@ -249,6 +249,9 @@ internal sealed class SharedConfigurationStore : IDisposable
                 pair.Value.Progress.UpdatedAt >= existing.Progress.UpdatedAt)
                 target.CrafterLevelingCharacters[pair.Key] = pair.Value;
         }
+        if (incoming.CraftPlans is { } incomingPlans &&
+            (target.CraftPlans is null || incomingPlans.UpdatedAtUtc >= target.CraftPlans.UpdatedAtUtc))
+            target.CraftPlans = incomingPlans;
         foreach (var pair in incoming.HousingDemolition)
         {
             if (!target.HousingDemolition.TryGetValue(pair.Key, out var existing) ||
