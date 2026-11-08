@@ -91,6 +91,7 @@ public sealed partial class MainWindow : Window
         $"AltMate v{Plugin.PluginInterface.Manifest.AssemblyVersion.ToString(3)} - {Loc.L("複数キャラクター支援", "Multi-Character Support")}###AltMate")
     {
         this.plugin = plugin;
+        RestoreCraftPlans();
         if (Enum.IsDefined(typeof(MainSection), plugin.Configuration.LastMainSection))
             selectedSection = (MainSection)plugin.Configuration.LastMainSection;
         if (Enum.IsDefined(typeof(HousingSection), plugin.Configuration.LastHousingSection))
