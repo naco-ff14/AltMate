@@ -40,9 +40,11 @@ public sealed partial class MainWindow
     private int companyMaterialsCacheSignature;
     private Dictionary<uint, Recipe>? normalRecipeByResultItem;
     private IReadOnlyList<(uint Id, string Name)> companyRecipeCandidates = Array.Empty<(uint, string)>();
+    private DateTime observedCraftPlansUpdatedAtUtc;
 
     private void DrawItems()
     {
+        RefreshCraftPlansFromConfiguration();
         var inventoryRevision = plugin.ItemInventory.Revision;
         if (inventoryRevision != observedItemInventoryRevision)
         {
@@ -138,6 +140,50 @@ public sealed partial class MainWindow
         }
     }
 
+    private void RestoreCraftPlans()
+    {
+        var saved = plugin.Configuration.CraftPlans ?? new CraftPlanSettings();
+        recipeCraftPlan.Clear();
+        recipeCraftPlan.AddRange((saved.Recipes ?? new List<SavedRecipePlanEntry>())
+            .Where(x => x.RecipeId != 0)
+            .Select(x => new RecipePlanEntry(x.RecipeId, Math.Clamp(x.CraftCount, 1, 9999))));
+        companyCraftPlan.Clear();
+        companyCraftPlan.AddRange((saved.CompanyCrafts ?? new List<SavedCompanyCraftPlanEntry>())
+            .Where(x => x.SequenceId != 0)
+            .Select(x => new CompanyCraftPlanEntry(x.SequenceId, Math.Clamp(x.Quantity, 1, 9999))));
+        observedCraftPlansUpdatedAtUtc = saved.UpdatedAtUtc;
+        recipeMaterialsCacheRevision = -1;
+        companyMaterialsCacheRevision = -1;
+    }
+
+    private void RefreshCraftPlansFromConfiguration()
+    {
+        var saved = plugin.Configuration.CraftPlans;
+        if (saved is not null && saved.UpdatedAtUtc > observedCraftPlansUpdatedAtUtc)
+            RestoreCraftPlans();
+    }
+
+    private void SaveCraftPlans()
+    {
+        var saved = new CraftPlanSettings
+        {
+            Recipes = recipeCraftPlan.Select(x => new SavedRecipePlanEntry
+            {
+                RecipeId = x.RecipeId,
+                CraftCount = x.CraftCount,
+            }).ToList(),
+            CompanyCrafts = companyCraftPlan.Select(x => new SavedCompanyCraftPlanEntry
+            {
+                SequenceId = x.SequenceId,
+                Quantity = x.Quantity,
+            }).ToList(),
+            UpdatedAtUtc = DateTime.UtcNow,
+        };
+        plugin.Configuration.CraftPlans = saved;
+        observedCraftPlansUpdatedAtUtc = saved.UpdatedAtUtc;
+        plugin.Configuration.Save();
+    }
+
     private void DrawRecipeStoragePlanner()
     {
         ImGui.TextColored(new Vector4(0.47f, 0.65f, 0.78f, 1f),
@@ -191,6 +237,7 @@ public sealed partial class MainWindow
                 if (existing >= 0) recipeCraftPlan[existing].CraftCount = checked(
                     recipeCraftPlan[existing].CraftCount + recipeCraftCount);
                 else recipeCraftPlan.Add(new RecipePlanEntry(selectedStorageRecipeId, recipeCraftCount));
+                SaveCraftPlans();
                 selectedStorageRecipeId = 0;
                 recipeSearch = string.Empty;
                 lastRecipeSearch = "\0";
@@ -218,15 +265,26 @@ public sealed partial class MainWindow
             ImGui.SameLine();
             ImGui.SetNextItemWidth(95 * ImGuiHelpers.GlobalScale);
             var crafts = entry.CraftCount;
-            ImGui.InputInt(Loc.L("回", "crafts"), ref crafts, 1, 10);
-            entry.CraftCount = Math.Clamp(crafts, 1, 9999);
+            if (ImGui.InputInt(Loc.L("回", "crafts"), ref crafts, 1, 10))
+            {
+                entry.CraftCount = Math.Clamp(crafts, 1, 9999);
+                SaveCraftPlans();
+            }
             ImGui.SameLine();
             if (ImGui.SmallButton(Loc.L("削除", "Remove"))) removeAt = planIndex;
             ImGui.PopID();
         }
-        if (removeAt >= 0) recipeCraftPlan.RemoveAt(removeAt);
-        if (ImGui.SmallButton(Loc.L("すべて消去##recipe-plan-clear", "Clear all##recipe-plan-clear")))
+        if (removeAt >= 0)
+        {
+            recipeCraftPlan.RemoveAt(removeAt);
+            SaveCraftPlans();
+        }
+        if (recipeCraftPlan.Count > 0 &&
+            ImGui.SmallButton(Loc.L("すべて消去##recipe-plan-clear", "Clear all##recipe-plan-clear")))
+        {
             recipeCraftPlan.Clear();
+            SaveCraftPlans();
+        }
 
         var planSignature = PlanSignature(recipeCraftPlan.Select(x => (x.RecipeId, x.CraftCount)));
         if (recipeMaterialsCacheRevision != observedItemInventoryRevision || recipeMaterialsCacheSignature != planSignature)
@@ -388,6 +446,7 @@ public sealed partial class MainWindow
                 var existing = companyCraftPlan.FindIndex(x => x.SequenceId == selectedCompanyRecipeId);
                 if (existing >= 0) companyCraftPlan[existing].Quantity++;
                 else companyCraftPlan.Add(new CompanyCraftPlanEntry(selectedCompanyRecipeId, 1));
+                SaveCraftPlans();
                 selectedCompanyRecipeId = 0;
                 companyRecipeSearch = string.Empty;
                 lastCompanyRecipeSearch = "\0";
@@ -414,16 +473,27 @@ public sealed partial class MainWindow
             ImGui.SameLine();
             ImGui.SetNextItemWidth(95 * ImGuiHelpers.GlobalScale);
             var quantity = entry.Quantity;
-            ImGui.InputInt(Loc.L("個", "items"), ref quantity, 1, 10);
-            entry.Quantity = Math.Clamp(quantity, 1, 9999);
+            if (ImGui.InputInt(Loc.L("個", "items"), ref quantity, 1, 10))
+            {
+                entry.Quantity = Math.Clamp(quantity, 1, 9999);
+                SaveCraftPlans();
+            }
             ImGui.SameLine();
             if (ImGui.SmallButton(Loc.L("削除", "Remove"))) removeAt = index;
             ImGui.PopID();
         }
-        if (removeAt >= 0) companyCraftPlan.RemoveAt(removeAt);
+        if (removeAt >= 0)
+        {
+            companyCraftPlan.RemoveAt(removeAt);
+            SaveCraftPlans();
+        }
         ImGui.SameLine();
-        if (ImGui.SmallButton(Loc.L("すべて消去##company-plan-clear", "Clear all##company-plan-clear")))
+        if (companyCraftPlan.Count > 0 &&
+            ImGui.SmallButton(Loc.L("すべて消去##company-plan-clear", "Clear all##company-plan-clear")))
+        {
             companyCraftPlan.Clear();
+            SaveCraftPlans();
+        }
 
         var companyPlanSignature = PlanSignature(companyCraftPlan.Select(x => (x.SequenceId, x.Quantity)));
         if (companyMaterialsCacheRevision != observedItemInventoryRevision ||
