@@ -16,6 +16,7 @@ public sealed class Configuration : IPluginConfiguration
     public Dictionary<string, HousingDemolitionRecord> HousingDemolition { get; set; } = new();
     public CustomDeliverySettings CustomDeliverySettings { get; set; } = new();
     public CrafterLevelingSettings CrafterLeveling { get; set; } = new();
+    public CraftPlanSettings CraftPlans { get; set; } = new();
     public Dictionary<ulong, CrafterLevelingSettings> CrafterLevelingCharacters { get; set; } = new();
     public DateTime? OpenPlotsCycleStartsAtUtc { get; set; }
     // 2026-08-13 00:00 JST: beginning of an entry period.
@@ -78,6 +79,28 @@ public sealed class Configuration : IPluginConfiguration
     public int LastHousingSection { get; set; }
 
     public void Save() => Plugin.SaveConfiguration(this);
+}
+
+[Serializable]
+public sealed class CraftPlanSettings
+{
+    public List<SavedRecipePlanEntry> Recipes { get; set; } = new();
+    public List<SavedCompanyCraftPlanEntry> CompanyCrafts { get; set; } = new();
+    public DateTime UpdatedAtUtc { get; set; }
+}
+
+[Serializable]
+public sealed class SavedRecipePlanEntry
+{
+    public uint RecipeId { get; set; }
+    public int CraftCount { get; set; } = 1;
+}
+
+[Serializable]
+public sealed class SavedCompanyCraftPlanEntry
+{
+    public uint SequenceId { get; set; }
+    public int Quantity { get; set; } = 1;
 }
 
 [Serializable]
