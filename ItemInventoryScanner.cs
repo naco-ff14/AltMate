@@ -45,7 +45,12 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
 
     private readonly Plugin plugin;
     private DateTime nextScanUtc;
+    private DateTime earliestScanUtc;
     private DateTime inventoryChangeFollowUpUtc;
+    private DateTime nextFullScanUtc;
+    private bool characterChanged;
+    private bool retainerChanged;
+    private bool chestChanged;
 
     internal ItemInventoryScanner(Plugin plugin)
     {
@@ -54,12 +59,27 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
         Plugin.GameInventory.InventoryChangedRaw += OnInventoryChanged;
     }
 
-    private void OnInventoryChanged(IReadOnlyCollection<InventoryEventArgs> _)
+    private void OnInventoryChanged(IReadOnlyCollection<InventoryEventArgs> events)
     {
+        var relevant = false;
+        foreach (var change in events)
+        {
+            var type = (InventoryType)change.Item.ContainerType;
+            if (Array.IndexOf(PlayerContainers, type) >= 0 ||
+                Array.IndexOf(SaddlebagContainers, type) >= 0 ||
+                Array.IndexOf(ArmouryContainers, type) >= 0)
+                characterChanged = relevant = true;
+            else if (Array.IndexOf(RetainerContainers, type) >= 0)
+                retainerChanged = relevant = true;
+            else if (Array.IndexOf(FcContainers, type) >= 0)
+                chestChanged = relevant = true;
+        }
+        if (!relevant) return;
         // Refresh promptly without allowing a burst of events to postpone an already scheduled scan.
         // A second scan catches containers whose native state settles just after the raw event.
         var now = DateTime.UtcNow;
-        var promptScan = now.AddMilliseconds(100);
+        var promptScan = now.AddMilliseconds(500);
+        if (promptScan < earliestScanUtc) promptScan = earliestScanUtc;
         if (nextScanUtc == default || nextScanUtc > promptScan) nextScanUtc = promptScan;
         inventoryChangeFollowUpUtc = now.AddSeconds(1);
     }
@@ -67,8 +87,12 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
     private void OnFrameworkUpdate(IFramework _)
     {
         var now = DateTime.UtcNow;
-        if (now < nextScanUtc) return;
-        nextScanUtc = now.AddSeconds(5);
+        if (now < nextScanUtc || now < earliestScanUtc) return;
+        earliestScanUtc = now.AddMilliseconds(500);
+        var fullScan = now >= nextFullScanUtc;
+        if (fullScan) nextFullScanUtc = now.AddSeconds(5);
+        nextScanUtc = nextFullScanUtc;
+        var followUp = inventoryChangeFollowUpUtc != default && now >= inventoryChangeFollowUpUtc;
         if (inventoryChangeFollowUpUtc != default)
         {
             if (now >= inventoryChangeFollowUpUtc)
@@ -79,11 +103,15 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
         if (!Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0) return;
         try
         {
-            ScanCharacterContainers(now);
-            ScanRetainer(now);
-            ScanFreeCompanyChest(now);
-            ScanArmoire(now);
-            ScanGlamourDresser(now);
+            if (fullScan || characterChanged) ScanCharacterContainers(now);
+            if (fullScan || retainerChanged) ScanRetainer(now);
+            if (fullScan || chestChanged) ScanFreeCompanyChest(now);
+            if (fullScan)
+            {
+                ScanArmoire(now);
+                ScanGlamourDresser(now);
+            }
+            if (followUp) characterChanged = retainerChanged = chestChanged = false;
         }
         catch (Exception exception)
         {
