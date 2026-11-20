@@ -15,9 +15,10 @@ internal sealed class ItemCatalogWindow : Window
     private string search = string.Empty;
     private string ownerFilter = string.Empty;
     private ItemStorageKind? storageFilter;
-    private DateTime nextRefreshUtc;
     private long observedInventoryRevision = -1;
     private int page;
+    private ItemGroup[] groups = Array.Empty<ItemGroup>();
+    private long totalQuantity;
     private StoredItemRecord[] rows = Array.Empty<StoredItemRecord>();
 
     internal ItemCatalogWindow(Plugin plugin)
@@ -33,17 +34,17 @@ internal sealed class ItemCatalogWindow : Window
     {
         IsOpen = true;
         RequestFocus = true;
-        nextRefreshUtc = default;
+        observedInventoryRevision = -1;
     }
 
     public override void Draw()
     {
         var revision = plugin.ItemInventory.Revision;
-        if (revision != observedInventoryRevision || DateTime.UtcNow >= nextRefreshUtc)
+        var inventoryChanged = revision != observedInventoryRevision;
+        if (inventoryChanged)
         {
             rows = plugin.ItemInventory.GetAll().ToArray();
             observedInventoryRevision = revision;
-            nextRefreshUtc = DateTime.UtcNow.AddSeconds(2);
         }
 
         var changed = false;
@@ -56,16 +57,19 @@ internal sealed class ItemCatalogWindow : Window
         changed |= DrawStorageFilter();
         if (changed) page = 0;
 
-        var filtered = FilteredRows();
-        var groups = filtered.GroupBy(x => x.ItemId)
-            .Select(group => new ItemGroup(group.Key, group.First().ItemName, group.Sum(x => x.Quantity),
-                group.OrderByDescending(x => x.ScannedAtUtc).ToArray()))
-            .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+        if (inventoryChanged || changed)
+        {
+            groups = FilteredRows().GroupBy(x => x.ItemId)
+                .Select(group => new ItemGroup(group.Key, group.First().ItemName, group.Sum(x => x.Quantity),
+                    group.OrderByDescending(x => x.ScannedAtUtc).ToArray()))
+                .OrderBy(x => x.Name, StringComparer.CurrentCultureIgnoreCase).ToArray();
+            totalQuantity = groups.Sum(x => (long)x.Quantity);
+        }
         var pageCount = Math.Max(1, (groups.Length + PageSize - 1) / PageSize);
         page = Math.Clamp(page, 0, pageCount - 1);
 
-        ImGui.TextDisabled(Loc.L($"{groups.Length:N0}種類 / 合計 {groups.Sum(x => x.Quantity):N0}個",
-            $"{groups.Length:N0} item types / {groups.Sum(x => x.Quantity):N0} total"));
+        ImGui.TextDisabled(Loc.L($"{groups.Length:N0}種類 / 合計 {totalQuantity:N0}個",
+            $"{groups.Length:N0} item types / {totalQuantity:N0} total"));
         ImGui.SameLine();
         DrawPager(pageCount);
         ImGui.Separator();
