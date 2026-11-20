@@ -43,6 +43,7 @@ internal sealed class ItemInventoryDatabase : IDisposable
     private Dictionary<uint, StoredItemRecord[]> byItemId = new();
     private StoredItemRecord[] allRows = Array.Empty<StoredItemRecord>();
     private long revision;
+    private bool indexesDirty;
 
     internal long Revision => Interlocked.Read(ref revision);
 
@@ -68,11 +69,11 @@ internal sealed class ItemInventoryDatabase : IDisposable
         lock (gate)
         {
             if (snapshots.TryGetValue(key, out var previous) && SameContents(previous, rows)) return;
-            snapshots = new Dictionary<SnapshotKey, StoredItemRecord[]>(snapshots) { [key] = rows };
-            RebuildIndexesUnsafe();
+            snapshots[key] = rows;
+            indexesDirty = true;
             Interlocked.Increment(ref revision);
+            writes.Writer.TryWrite(new SnapshotWrite(key, rows));
         }
-        writes.Writer.TryWrite(new SnapshotWrite(key, rows));
     }
 
     internal IReadOnlyList<StoredItemRecord> Search(string query)
@@ -80,6 +81,7 @@ internal sealed class ItemInventoryDatabase : IDisposable
         var normalized = query.Trim();
         lock (gate)
         {
+            if (indexesDirty) RebuildIndexesUnsafe();
             if (uint.TryParse(normalized, out var itemId))
                 return byItemId.TryGetValue(itemId, out var rows) ? rows : Array.Empty<StoredItemRecord>();
             if (normalized.Length == 0) return allRows;
@@ -90,7 +92,11 @@ internal sealed class ItemInventoryDatabase : IDisposable
 
     internal IReadOnlyList<StoredItemRecord> GetAll()
     {
-        lock (gate) return allRows;
+        lock (gate)
+        {
+            if (indexesDirty) RebuildIndexesUnsafe();
+            return allRows;
+        }
     }
 
     private async Task WriterLoopAsync()
@@ -99,10 +105,9 @@ internal sealed class ItemInventoryDatabase : IDisposable
         {
             using var connection = OpenConnection();
             var dataVersion = ReadDataVersion(connection);
-            while (!cancellation.IsCancellationRequested)
+            using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(500));
+            while (await timer.WaitForNextTickAsync(cancellation.Token).ConfigureAwait(false))
             {
-                var wait = writes.Reader.WaitToReadAsync(cancellation.Token).AsTask();
-                await Task.WhenAny(wait, Task.Delay(500, cancellation.Token)).ConfigureAwait(false);
                 var pending = new Dictionary<SnapshotKey, SnapshotWrite>();
                 while (writes.Reader.TryRead(out var write)) pending[write.Key] = write;
                 if (pending.Count > 0)
@@ -267,7 +272,7 @@ internal sealed class ItemInventoryDatabase : IDisposable
             .ToDictionary(x => x.Key, x => x.ToArray());
         lock (gate)
         {
-            if (revision != expectedRevision) return false;
+            if (revision != expectedRevision || writes.Reader.TryPeek(out _)) return false;
             snapshots = grouped;
             RebuildIndexesUnsafe();
             Interlocked.Increment(ref revision);
@@ -282,6 +287,7 @@ internal sealed class ItemInventoryDatabase : IDisposable
             .ThenBy(x => x.OwnerName, StringComparer.CurrentCultureIgnoreCase)
             .ThenBy(x => x.StorageKind).ThenBy(x => x.StorageName).ToArray();
         byItemId = allRows.GroupBy(x => x.ItemId).ToDictionary(x => x.Key, x => x.ToArray());
+        indexesDirty = false;
     }
 
     private void MigrateLegacyJson(SqliteConnection connection)
