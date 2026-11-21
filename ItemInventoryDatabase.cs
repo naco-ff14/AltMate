@@ -68,6 +68,17 @@ internal sealed class ItemInventoryDatabase : IDisposable
         var key = new SnapshotKey(ownerKey, kind, storageKey);
         lock (gate)
         {
+            if (kind == ItemStorageKind.FreeCompanyChest && rows.Length > 0 &&
+                !IsKnownFreeCompanyName(rows[0].OwnerName))
+            {
+                var knownName = snapshots.Where(x => x.Key.Kind == kind && x.Key.OwnerKey == ownerKey)
+                    .SelectMany(x => x.Value)
+                    .Where(x => IsKnownFreeCompanyName(x.OwnerName))
+                    .OrderByDescending(x => x.ScannedAtUtc)
+                    .FirstOrDefault()?.OwnerName;
+                if (knownName is not null)
+                    foreach (var row in rows) row.OwnerName = knownName;
+            }
             if (snapshots.TryGetValue(key, out var previous) && SameContents(previous, rows)) return;
             snapshots[key] = rows;
             indexesDirty = true;
@@ -316,12 +327,16 @@ internal sealed class ItemInventoryDatabase : IDisposable
         return Convert.ToInt64(command.ExecuteScalar(), CultureInfo.InvariantCulture);
     }
 
+    internal static bool IsKnownFreeCompanyName(string? name) =>
+        !string.IsNullOrWhiteSpace(name) && name != "不明なFC" && name != "Unknown FC";
+
     private static bool SameContents(IReadOnlyCollection<StoredItemRecord> left,
         IReadOnlyCollection<StoredItemRecord> right)
     {
         if (left.Count != right.Count) return false;
-        var expected = left.ToDictionary(x => (x.ItemId, x.IsHq), x => x.Quantity);
-        return right.All(x => expected.TryGetValue((x.ItemId, x.IsHq), out var quantity) && quantity == x.Quantity);
+        var expected = left.ToDictionary(x => (x.ItemId, x.IsHq), x => (x.Quantity, x.OwnerName));
+        return right.All(x => expected.TryGetValue((x.ItemId, x.IsHq), out var row) &&
+            row.Quantity == x.Quantity && row.OwnerName == x.OwnerName);
     }
 
     public void Dispose()
