@@ -153,7 +153,14 @@ internal sealed unsafe class ItemInventoryScanner : IDisposable
         var module = InfoModule.Instance();
         var info = module == null ? null : module->GetInfoProxyFreeCompany();
         if (info == null || info->Id == 0) return;
-        SaveContainers($"fc:{info->Id}", string.IsNullOrWhiteSpace(info->NameString) ? Loc.L("不明なFC", "Unknown FC") : info->NameString,
+        var ownerKey = $"fc:{info->Id}";
+        var name = info->NameString;
+        if (!ItemInventoryDatabase.IsKnownFreeCompanyName(name) &&
+            plugin.Configuration.FreeCompanyGil.TryGetValue(info->Id, out var savedFc) &&
+            ItemInventoryDatabase.IsKnownFreeCompanyName(savedFc.Name))
+            name = savedFc.Name;
+        SaveContainers(ownerKey, ItemInventoryDatabase.IsKnownFreeCompanyName(name)
+                ? name : Loc.L("不明なFC", "Unknown FC"),
             Plugin.PlayerState.HomeWorld.Value.Name.ToString(), ItemStorageKind.FreeCompanyChest,
             Loc.L("FCチェスト", "FC chest"), FcContainers, now, requireAll: false, splitContainers: true);
     }
