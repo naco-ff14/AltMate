@@ -1388,6 +1388,7 @@ public sealed partial class MainWindow : Window
     {
         DrawPageTitle(Loc.T("Settings"), Loc.T("SettingsDescription"));
         DrawWebSyncSettings();
+        DrawAiReplySettings();
         ImGui.TextUnformatted(Loc.T("Language"));
         var languageIndex = plugin.Configuration.Language == "en" ? 1 : 0;
         ImGui.SetNextItemWidth(180 * ImGuiHelpers.GlobalScale);
