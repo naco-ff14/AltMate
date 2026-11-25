@@ -21,6 +21,7 @@ internal sealed class AiChatReply : IDisposable
     private static readonly Regex TellAddress = new(@"\A[A-Za-z'\-]+ [A-Za-z'\-]+@[A-Za-z0-9]+\z");
     private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };
     private readonly CancellationTokenSource lifetime = new();
+    private CancellationTokenSource? replyCancellation;
     private ulong enabledCharacter;
     private long nextRequest;
     private Task<(string? Text, int? HttpError, string? Failure)>? pending;
@@ -60,6 +61,7 @@ internal sealed class AiChatReply : IDisposable
 
     internal void Disable()
     {
+        replyCancellation?.Cancel();
         enabledCharacter = 0;
         destination = "";
         key = "";
@@ -97,7 +99,8 @@ internal sealed class AiChatReply : IDisposable
         if (body.Length == 0 || body.Length > 1000) return;
         nextRequest = Environment.TickCount64 + 30000;
         Status = Loc.L("返信を生成中", "Generating reply");
-        pending = GenerateAsync(body, key, UseGemini, lifetime.Token);
+        replyCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        pending = GenerateAsync(body, key, UseGemini, replyCancellation.Token);
     }
 
     private static bool IsAddressedTo(string body, string name)
@@ -127,32 +130,7 @@ internal sealed class AiChatReply : IDisposable
     {
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, gemini
-                ? "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
-                : "https://api.openai.com/v1/responses");
-            if (gemini)
-            {
-                request.Headers.Add("x-goog-api-key", token);
-                request.Content = JsonContent.Create(new
-                {
-                    systemInstruction = new { parts = new[] { new { text = ReplyInstructions } } },
-                    contents = new[] { new { parts = new[] { new { text = body } } } },
-                    generationConfig = new { maxOutputTokens = 96 },
-                });
-            }
-            else
-            {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            request.Content = JsonContent.Create(new
-            {
-                model = "gpt-4.1-mini",
-                store = false,
-                max_output_tokens = 96,
-                instructions = ReplyInstructions,
-                input = body,
-            });
-            }
-            using var response = await http.SendAsync(request, cancellation).ConfigureAwait(false);
+            using var response = await SendApiRequestAsync(body, token, gemini, cancellation).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode) return (null, (int)response.StatusCode, null);
             using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation).ConfigureAwait(false));
             if (gemini)
@@ -196,11 +174,51 @@ internal sealed class AiChatReply : IDisposable
         return default;
     }
 
+    private async Task<HttpResponseMessage> SendApiRequestAsync(string body, string token, bool gemini,
+        CancellationToken cancellation)
+    {
+        for (var attempt = 0; ; attempt++)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, gemini
+                ? "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent"
+                : "https://api.openai.com/v1/responses");
+            if (gemini)
+            {
+                request.Headers.Add("x-goog-api-key", token);
+                request.Content = JsonContent.Create(new
+                {
+                    systemInstruction = new { parts = new[] { new { text = ReplyInstructions } } },
+                    contents = new[] { new { parts = new[] { new { text = body } } } },
+                    generationConfig = new { maxOutputTokens = 96 },
+                });
+            }
+            else
+            {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Content = JsonContent.Create(new
+            {
+                model = "gpt-4.1-mini",
+                store = false,
+                max_output_tokens = 96,
+                instructions = ReplyInstructions,
+                input = body,
+            });
+            }
+            var response = await http.SendAsync(request, cancellation).ConfigureAwait(false);
+            if (!gemini || attempt != 0 || response.StatusCode != System.Net.HttpStatusCode.ServiceUnavailable)
+                return response;
+            response.Dispose();
+            await Task.Delay(TimeSpan.FromSeconds(2), cancellation).ConfigureAwait(false);
+        }
+    }
+
     private void Update(IFramework framework)
     {
         if (enabledCharacter != 0 && (!Enabled || !Plugin.PlayerState.IsLoaded)) Disable();
         if (pending is not { IsCompleted: true } reply) return;
         pending = null;
+        replyCancellation?.Dispose();
+        replyCancellation = null;
         var target = destination;
         destination = "";
         if (!Enabled || target.Length == 0 ||
@@ -245,6 +263,7 @@ internal sealed class AiChatReply : IDisposable
         Disable();
         lifetime.Cancel();
         http.Dispose();
+        replyCancellation?.Dispose();
         lifetime.Dispose();
     }
 }
