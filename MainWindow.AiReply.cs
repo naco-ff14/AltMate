@@ -123,6 +123,11 @@ public sealed partial class MainWindow
         }
         else if (ImGui.Button(Loc.L("このキャラで自動返信を開始", "Start auto-replies for this character")) &&
             reply.Enable(aiReplyKey)) aiReplyKey = "";
+        ImGui.BeginDisabled(reply.Busy);
+        if (ImGui.Button(Loc.L("接続テスト", "Test connection")))
+            reply.TestConnection(aiReplyKey);
+        ImGui.EndDisabled();
+        ImGui.TextDisabled(Loc.L("「こんにちは」をAPIに送って確認します。", "Sends a fixed greeting to test the API."));
         ImGui.TextWrapped(reply.Status);
     }
 }
