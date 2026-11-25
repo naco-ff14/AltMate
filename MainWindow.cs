@@ -24,6 +24,7 @@ public sealed partial class MainWindow : Window
         CustomDeliveries,
         CrafterLeveling,
         Items,
+        AiChat,
     }
 
     private enum HousingSection
@@ -315,6 +316,9 @@ public sealed partial class MainWindow : Window
             case MainSection.Items:
                 DrawItems();
                 break;
+            case MainSection.AiChat:
+                DrawAiReplySettings();
+                break;
             case MainSection.Settings:
                 DrawSettings();
                 break;
@@ -377,6 +381,7 @@ public sealed partial class MainWindow : Window
         DrawMenuButton(Loc.T("Gil"), MainSection.Gil);
         DrawMenuButton(narrow ? Loc.L("アイテム", "Items") : Loc.L("アイテム管理", "Item Storage"),
             MainSection.Items);
+        DrawMenuButton(Loc.L("AI会話", "AI Chat"), MainSection.AiChat);
         var bottomY = ImGui.GetWindowHeight() - 62 * ImGuiHelpers.GlobalScale;
         if (ImGui.GetCursorPosY() < bottomY)
             ImGui.SetCursorPosY(bottomY);
@@ -564,6 +569,7 @@ public sealed partial class MainWindow : Window
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
             (Loc.L("ギル", "Gil"), MainSection.Gil),
             (Loc.L("アイテム", "Items"), MainSection.Items),
+            (Loc.L("AI会話", "AI Chat"), MainSection.AiChat),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         }.Where(item => !plugin.Configuration.HiddenCompactMenuSections.Contains((int)item.Section)).ToArray();
 
@@ -1388,7 +1394,6 @@ public sealed partial class MainWindow : Window
     {
         DrawPageTitle(Loc.T("Settings"), Loc.T("SettingsDescription"));
         DrawWebSyncSettings();
-        DrawAiReplySettings();
         ImGui.TextUnformatted(Loc.T("Language"));
         var languageIndex = plugin.Configuration.Language == "en" ? 1 : 0;
         ImGui.SetNextItemWidth(180 * ImGuiHelpers.GlobalScale);
@@ -1469,6 +1474,7 @@ public sealed partial class MainWindow : Window
             (Loc.L("潜水艦", "Subs"), MainSection.Submarines),
             (Loc.L("ギル", "Gil"), MainSection.Gil),
             (Loc.L("アイテム", "Items"), MainSection.Items),
+            (Loc.L("AI会話", "AI Chat"), MainSection.AiChat),
             (Loc.L("設定", "Settings"), MainSection.Settings),
         };
         for (var index = 0; index < compactMenuItems.Length; index++)
