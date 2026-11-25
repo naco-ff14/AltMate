@@ -12,10 +12,17 @@ public sealed partial class MainWindow
         ImGui.TextUnformatted(Loc.L("AIチャット自動返信", "AI chat auto-reply"));
         var reply = plugin.AiReply;
         ImGui.TextWrapped(Loc.L(
-            "返信対象の本文をOpenAI APIに送ります（従量課金）。返信には [AI] が付きます。",
-            "Eligible message text is sent to the OpenAI API and billed by usage. Replies include [AI]."));
+            "返信対象の本文を選択したAPIに送ります。料金や無料枠はAPI側の設定に従います。返信には [AI] が付きます。",
+            "Eligible message text is sent to the selected API. Pricing and free limits depend on your API account. Replies include [AI]."));
         if (!reply.Enabled)
-            ImGui.InputTextWithHint("##ai-reply-key", "OpenAI API key", ref aiReplyKey, 512, ImGuiInputTextFlags.Password);
+        {
+            if (ImGui.Checkbox(Loc.L("Geminiを使う（オフでOpenAI）", "Use Gemini (off for OpenAI)"), ref reply.UseGemini))
+                aiReplyKey = "";
+            ImGui.InputTextWithHint("##ai-reply-key", reply.UseGemini ? "Gemini API key" : "OpenAI API key",
+                ref aiReplyKey, 512, ImGuiInputTextFlags.Password);
+        }
+        else
+            ImGui.TextUnformatted(reply.UseGemini ? "Gemini" : "OpenAI");
         ImGui.Checkbox("Tell##ai-reply", ref reply.Tell);
         ImGui.Checkbox(Loc.L("パーティ", "Party"), ref reply.Party);
         if (reply.Party)
