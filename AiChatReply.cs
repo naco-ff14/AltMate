@@ -67,8 +67,8 @@ internal sealed class AiChatReply : IDisposable
     private void OnChat(IHandleableChatMessage chat)
     {
         if (!Enabled || pending is not null || Environment.TickCount64 < nextRequest) return;
-        var isTell = Tell && chat.Type == XivChatType.TellIncoming;
-        var isParty = Party && chat.Type is XivChatType.Party or XivChatType.CrossParty;
+        var isTell = Tell && chat.LogKind == XivChatType.TellIncoming;
+        var isParty = Party && chat.LogKind is XivChatType.Party or XivChatType.CrossParty;
         if (!isTell && !isParty) return;
         var sender = chat.Sender.Payloads.OfType<PlayerPayload>().FirstOrDefault();
         if (sender is null || sender.PlayerName.Equals(Plugin.PlayerState.CharacterName, StringComparison.OrdinalIgnoreCase))
