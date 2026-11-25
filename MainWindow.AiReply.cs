@@ -11,7 +11,8 @@ public sealed partial class MainWindow
     private ulong aiSettingsCharacter;
     private string aiSettingsError = "";
 
-    private sealed record AiReplyPreferences(bool Gemini, bool Tell, bool Party, bool WithoutName, string Nickname);
+    private sealed record AiReplyPreferences(bool Gemini, bool Tell, bool Party, bool WithoutName,
+        string Nickname, string? GeminiModel = null);
 
     private static string AiSettingsPath(ulong character) => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -33,6 +34,8 @@ public sealed partial class MainWindow
             aiSettingsError = Loc.L("AI会話の設定を読み込めませんでした。", "Could not load AI chat settings.");
         }
         reply.UseGemini = saved?.Gemini ?? false;
+        reply.GeminiModel = saved?.GeminiModel == AiChatReply.HydrogenModel
+            ? AiChatReply.HydrogenModel : AiChatReply.FlashLiteModel;
         reply.Tell = saved?.Tell ?? false;
         reply.Party = saved?.Party ?? false;
         reply.PartyRespondWithoutName = saved?.WithoutName ?? false;
@@ -47,7 +50,8 @@ public sealed partial class MainWindow
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
             var temporary = path + $".{Environment.ProcessId}.tmp";
             File.WriteAllText(temporary, JsonSerializer.Serialize(new AiReplyPreferences(
-                reply.UseGemini, reply.Tell, reply.Party, reply.PartyRespondWithoutName, reply.PartyNickname)));
+                reply.UseGemini, reply.Tell, reply.Party, reply.PartyRespondWithoutName, reply.PartyNickname,
+                reply.GeminiModel)));
             File.Move(temporary, path, overwrite: true);
             aiSettingsError = "";
         }
@@ -80,11 +84,25 @@ public sealed partial class MainWindow
                 aiReplyKey = "";
                 changed = true;
             }
+            if (reply.UseGemini && ImGui.BeginCombo(Loc.L("Geminiモデル", "Gemini model"), reply.GeminiModel))
+            {
+                if (ImGui.Selectable(AiChatReply.FlashLiteModel, reply.GeminiModel == AiChatReply.FlashLiteModel))
+                {
+                    reply.GeminiModel = AiChatReply.FlashLiteModel;
+                    changed = true;
+                }
+                if (ImGui.Selectable(AiChatReply.HydrogenModel, reply.GeminiModel == AiChatReply.HydrogenModel))
+                {
+                    reply.GeminiModel = AiChatReply.HydrogenModel;
+                    changed = true;
+                }
+                ImGui.EndCombo();
+            }
             ImGui.InputTextWithHint("##ai-reply-key", reply.UseGemini ? "Gemini API key" : "OpenAI API key",
                 ref aiReplyKey, 512, ImGuiInputTextFlags.Password);
         }
         else
-            ImGui.TextUnformatted(reply.UseGemini ? "Gemini" : "OpenAI");
+            ImGui.TextUnformatted(reply.UseGemini ? reply.GeminiModel : "OpenAI");
         changed |= ImGui.Checkbox("Tell##ai-reply", ref reply.Tell);
         changed |= ImGui.Checkbox(Loc.L("パーティ", "Party"), ref reply.Party);
         if (reply.Party)
