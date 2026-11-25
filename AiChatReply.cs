@@ -33,6 +33,7 @@ internal sealed class AiChatReply : IDisposable
     internal bool UseGemini;
     internal const string FlashLiteModel = "gemini-3.1-flash-lite";
     internal const string HydrogenModel = "gemini-4-hydrogen";
+    internal const string Flash36Model = "gemini-3.6-flash";
     internal string GeminiModel = FlashLiteModel;
     internal bool Tell;
     internal bool Party;
