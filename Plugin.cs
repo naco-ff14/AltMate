@@ -30,6 +30,7 @@ namespace AltMate;
 public sealed class Plugin : IDalamudPlugin
 {
     private static Plugin? current;
+    internal AiChatReply AiReply { get; }
     private SharedConfigurationStore? sharedConfiguration;
     private bool configurationSavePending;
     private bool sharedSettingsSavePending;
@@ -270,6 +271,7 @@ public sealed class Plugin : IDalamudPlugin
         PluginInterface.UiBuilder.OpenConfigUi += mainWindow.OpenSettings;
         ClientState.Login += OnLogin;
         ChatGui.ChatMessage += OnChatMessage;
+        AiReply = new AiChatReply();
 
         AddonLifecycle.RegisterListener(AddonEvent.PostSetup, "HousingSignBoard", OnPlacardOpen);
         AddonLifecycle.RegisterListener(AddonEvent.PostRequestedUpdate, "HousingSignBoard", OnPlacardUpdate);
@@ -1082,6 +1084,7 @@ public sealed class Plugin : IDalamudPlugin
         wardObserver?.Dispose();
         ClientState.Login -= OnLogin;
         ChatGui.ChatMessage -= OnChatMessage;
+        AiReply.Dispose();
         PluginInterface.UiBuilder.Draw -= windowSystem.Draw;
         PluginInterface.UiBuilder.OpenMainUi -= mainWindow.Toggle;
         PluginInterface.UiBuilder.OpenConfigUi -= mainWindow.OpenSettings;
