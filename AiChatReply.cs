@@ -19,7 +19,7 @@ namespace AltMate;
 internal sealed class AiChatReply : IDisposable
 {
     private static readonly Regex TellAddress = new(@"\A[A-Za-z'\-]+ [A-Za-z'\-]+@[A-Za-z0-9]+\z");
-    private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(15) };
+    private readonly HttpClient http = new() { Timeout = TimeSpan.FromSeconds(30) };
     private readonly CancellationTokenSource lifetime = new();
     private CancellationTokenSource? replyCancellation;
     private ulong enabledCharacter;
