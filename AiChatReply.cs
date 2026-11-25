@@ -26,6 +26,8 @@ internal sealed class AiChatReply : IDisposable
     private long nextRequest;
     private Task<(string? Text, int? HttpError, string? Failure)>? pending;
     private string destination = "";
+    private ulong testCharacter;
+    private string? testModel;
     private long partyId;
     private string key = "";
     internal bool UseGemini;
@@ -38,6 +40,25 @@ internal sealed class AiChatReply : IDisposable
     internal string PartyNickname = "";
     internal string Status { get; private set; } = "";
     internal bool Enabled => enabledCharacter != 0 && enabledCharacter == Plugin.PlayerState.ContentId;
+    internal bool Busy => pending is not null;
+
+    internal void TestConnection(string sessionKey)
+    {
+        if (Busy || !Plugin.PlayerState.IsLoaded || Plugin.PlayerState.ContentId == 0) return;
+        var token = Enabled ? key : sessionKey.Trim();
+        if (token.Length == 0)
+            token = Environment.GetEnvironmentVariable(UseGemini ? "GEMINI_API_KEY" : "OPENAI_API_KEY") ?? "";
+        if (string.IsNullOrWhiteSpace(token) || token.Any(char.IsWhiteSpace))
+        {
+            Status = Loc.L("接続テストにはAPIキーが必要です。", "An API key is required for the connection test.");
+            return;
+        }
+        testCharacter = Plugin.PlayerState.ContentId;
+        testModel = UseGemini ? GeminiModel : null;
+        Status = Loc.L("接続テスト中…", "Testing API connection…");
+        replyCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        pending = GenerateAsync("こんにちは", token, testModel, replyCancellation.Token);
+    }
 
     internal AiChatReply()
     {
@@ -219,15 +240,30 @@ internal sealed class AiChatReply : IDisposable
     private void Update(IFramework framework)
     {
         if (enabledCharacter != 0 && (!Enabled || !Plugin.PlayerState.IsLoaded)) Disable();
+        if (testCharacter != 0 && (!Plugin.PlayerState.IsLoaded || testCharacter != Plugin.PlayerState.ContentId))
+            replyCancellation?.Cancel();
         if (pending is not { IsCompleted: true } reply) return;
         pending = null;
         replyCancellation?.Dispose();
         replyCancellation = null;
         var target = destination;
         destination = "";
+        var result = reply.IsCompletedSuccessfully ? reply.Result : default;
+        if (testCharacter != 0)
+        {
+            var sameCharacter = Plugin.PlayerState.IsLoaded && testCharacter == Plugin.PlayerState.ContentId;
+            testCharacter = 0;
+            if (!sameCharacter) { Status = ""; return; }
+            var model = testModel ?? "gpt-4.1-mini";
+            var detail = result.HttpError is int error ? $"HTTP {error}" : result.Failure ??
+                (string.IsNullOrWhiteSpace(result.Text)
+                    ? Loc.L("返信本文なし", "No reply text")
+                    : Loc.L("成功（返信本文を受信）", "Success (received reply text)"));
+            Status = Loc.L("接続テスト", "Connection test") + $" ({model}): {detail}";
+            return;
+        }
         if (!Enabled || target.Length == 0 ||
             (target == "/p" ? !Party || partyId != Plugin.PartyList.PartyId : !Tell)) return;
-        var result = reply.IsCompletedSuccessfully ? reply.Result : default;
         if (result.HttpError is int code)
         {
             Status = UseGemini ? $"Gemini ({GeminiModel}): HTTP {code}" : $"OpenAI API: HTTP {code}";
