@@ -34,8 +34,12 @@ public sealed partial class MainWindow
             aiSettingsError = Loc.L("AI会話の設定を読み込めませんでした。", "Could not load AI chat settings.");
         }
         reply.UseGemini = saved?.Gemini ?? false;
-        reply.GeminiModel = saved?.GeminiModel == AiChatReply.HydrogenModel
-            ? AiChatReply.HydrogenModel : AiChatReply.FlashLiteModel;
+        reply.GeminiModel = saved?.GeminiModel switch
+        {
+            AiChatReply.HydrogenModel => AiChatReply.HydrogenModel,
+            AiChatReply.Flash36Model => AiChatReply.Flash36Model,
+            _ => AiChatReply.FlashLiteModel,
+        };
         reply.Tell = saved?.Tell ?? false;
         reply.Party = saved?.Party ?? false;
         reply.PartyRespondWithoutName = saved?.WithoutName ?? false;
@@ -86,6 +90,11 @@ public sealed partial class MainWindow
             }
             if (reply.UseGemini && ImGui.BeginCombo(Loc.L("Geminiモデル", "Gemini model"), reply.GeminiModel))
             {
+                if (ImGui.Selectable(AiChatReply.Flash36Model, reply.GeminiModel == AiChatReply.Flash36Model))
+                {
+                    reply.GeminiModel = AiChatReply.Flash36Model;
+                    changed = true;
+                }
                 if (ImGui.Selectable(AiChatReply.FlashLiteModel, reply.GeminiModel == AiChatReply.FlashLiteModel))
                 {
                     reply.GeminiModel = AiChatReply.FlashLiteModel;
