@@ -1924,6 +1924,18 @@ public sealed partial class MainWindow : Window
             plugin.CharacterLink.SettingsChanged();
         }
         var bmrRole = (int)plugin.Configuration.BossModRole;
+        var syncBmr = plugin.Configuration.SyncBmrControls;
+        if (ImGui.Checkbox(Loc.L("BMR操作・プリセットを同期（各クライアントで設定）", "Sync BMR controls and presets (per client)"), ref syncBmr))
+        {
+            plugin.Configuration.SyncBmrControls = syncBmr;
+            plugin.Configuration.Save();
+        }
+        if (syncBmr && plugin.CharacterLink.IsLeader)
+        {
+            if (ImGui.Button("BMR AI ON")) plugin.CharacterLink.SetLinkedBmrAi(true);
+            ImGui.SameLine();
+            if (ImGui.Button("BMR AI OFF")) plugin.CharacterLink.SetLinkedBmrAi(false);
+        }
         if (ImGui.Combo(Loc.L("BMRの戦闘担当", "BMR combat role"), ref bmrRole,
             Loc.IsEnglish ? new[] { "Preserve existing BMR settings", "Movement only", "Movement and actions" }
                 : new[] { "BMRの既存設定を維持（標準）", "移動のみ", "移動＋スキル回し" }, 3))
