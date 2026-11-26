@@ -553,6 +553,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             return;
         }
         WorldLinkStatus = "同じワールド・連携可能";
+        SyncLeaderBmrControls(leader);
         if (!vnavRecoveryActive && IsVnavMovementRunning() && !lifestreamBusyThisFrame)
         {
             smoothFollow.Stop();
@@ -2008,6 +2009,7 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                 TreasureStatus = TreasureStatus,
                 WorldLinkStatus = WorldLinkStatus,
             };
+            AddBmrControlsToState(state);
             var bytes = JsonSerializer.SerializeToUtf8Bytes(state);
             lock (senderLock)
                 sender?.Send(bytes, bytes.Length, new IPEndPoint(Group, Port));
@@ -3078,6 +3080,11 @@ internal readonly record struct OccultAetheryte(uint TerritoryType, uint PlaceNa
 
 public sealed class LinkedCharacterState
 {
+    public string? BmrPreset { get; set; }
+    public bool BmrPresetKnown { get; set; }
+    public bool BmrForceDisabled { get; set; }
+    public bool? BmrAiEnabled { get; set; }
+    public Guid BmrAiOperation { get; set; }
     public int Protocol { get; set; }
     public uint Sequence { get; set; }
     public string LinkKey { get; set; } = string.Empty;
