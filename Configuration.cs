@@ -40,6 +40,7 @@ public sealed class Configuration : IPluginConfiguration
     public bool CombatLinkEnabled { get; set; }
     public bool AutoBarrierLeaderEnabled { get; set; } = true;
     public bool UseBossModReborn { get; set; } = true;
+    public bool SyncBmrControls { get; set; }
     public BossModCombatRole BossModRole { get; set; } = BossModCombatRole.PreserveExisting;
     public bool UseRotationSolverReborn { get; set; } = true;
     public float DeepDungeonCombatDelaySeconds { get; set; } = 3f;
