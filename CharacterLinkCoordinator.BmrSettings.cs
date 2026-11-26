@@ -7,7 +7,87 @@ public sealed partial class CharacterLinkCoordinator
 {
     private readonly TemporaryBooleanSetting bmrForbidActions = new();
     private long nextBmrRestoreAt;
+    private Guid bmrAiOperation;
+    private Guid lastFollowerBmrAiOperation;
+    private long bmrAiExpiresAt;
+    private bool bmrAiEnabled;
+    private long nextBmrSyncAt;
+    private (ulong Leader, string? Preset, bool Disabled)? lastBmrPreset;
     public string BmrSettingStatus { get; private set; } = "BMRの既存設定を尊重";
+
+    private bool CanSyncBmr => plugin.Configuration.SyncBmrControls &&
+        plugin.Configuration.LinkEnabled && !runtimeStopped &&
+        IsPluginLoaded("BossModReborn") && !IsPluginLoaded("BossMod");
+
+    internal void SetLinkedBmrAi(bool enabled)
+    {
+        if (!IsLeader || !CanSyncBmr ||
+            !Plugin.CommandManager.ProcessCommand(enabled ? "/bmrai on" : "/bmrai off")) return;
+        bmrAiEnabled = enabled;
+        bmrAiOperation = Guid.NewGuid();
+        bmrAiExpiresAt = Environment.TickCount64 + 3000;
+        BroadcastState();
+    }
+
+    private void AddBmrControlsToState(LinkedCharacterState state)
+    {
+        if (!IsLeader || !CanSyncBmr) return;
+        if (bmrAiOperation != Guid.Empty && Environment.TickCount64 < bmrAiExpiresAt)
+        {
+            state.BmrAiEnabled = bmrAiEnabled;
+            state.BmrAiOperation = bmrAiOperation;
+        }
+        try
+        {
+            state.BmrPreset = Plugin.PluginInterface.GetIpcSubscriber<string?>("BossMod.Presets.GetActive").InvokeFunc();
+            state.BmrForceDisabled = Plugin.PluginInterface.GetIpcSubscriber<bool>("BossMod.Presets.GetForceDisabled").InvokeFunc();
+            state.BmrPresetKnown = true;
+        }
+        catch (Exception) { /* Older BMR versions may not expose these IPC calls. */ }
+    }
+
+    private void SyncLeaderBmrControls(LinkedCharacterState leader)
+    {
+        if (!CanSyncBmr)
+        {
+            lastBmrPreset = null;
+            return;
+        }
+        if (Environment.TickCount64 < nextBmrSyncAt) return;
+        nextBmrSyncAt = Environment.TickCount64 + 500;
+        if (leader.BmrAiEnabled is bool enabled && leader.BmrAiOperation != Guid.Empty &&
+            lastFollowerBmrAiOperation != leader.BmrAiOperation)
+        {
+            lastFollowerBmrAiOperation = leader.BmrAiOperation;
+            Plugin.CommandManager.ProcessCommand(enabled ? "/bmrai on" : "/bmrai off");
+        }
+        if (!leader.BmrPresetKnown) { lastBmrPreset = null; return; }
+        var desired = (leader.ContentId, leader.BmrPreset, leader.BmrForceDisabled);
+        if (lastBmrPreset == desired) return;
+        lastBmrPreset = desired;
+        try
+        {
+            var ipc = Plugin.PluginInterface;
+            var current = ipc.GetIpcSubscriber<string?>("BossMod.Presets.GetActive").InvokeFunc();
+            var forceDisabled = ipc.GetIpcSubscriber<bool>("BossMod.Presets.GetForceDisabled").InvokeFunc();
+            if (forceDisabled == leader.BmrForceDisabled &&
+                (forceDisabled || string.Equals(current ?? "", leader.BmrPreset ?? "", StringComparison.Ordinal)))
+            {
+                BmrSettingStatus = "BMRプリセットは同期済み";
+                return;
+            }
+            var applied = leader.BmrForceDisabled
+                ? ipc.GetIpcSubscriber<bool>("BossMod.Presets.SetForceDisabled").InvokeFunc()
+                : string.IsNullOrEmpty(leader.BmrPreset)
+                    ? ipc.GetIpcSubscriber<bool>("BossMod.Presets.ClearActive").InvokeFunc()
+                    : ipc.GetIpcSubscriber<string, bool>("BossMod.Presets.SetActive").InvokeFunc(leader.BmrPreset);
+            BmrSettingStatus = applied ? "BMRプリセットを同期しました" : "BMRプリセットを適用できません";
+        }
+        catch (Exception)
+        {
+            BmrSettingStatus = "BMRプリセット同期のIPCを利用できません";
+        }
+    }
 
     private bool? ReadBmrForbidActions()
     {
