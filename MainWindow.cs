@@ -1936,6 +1936,8 @@ public sealed partial class MainWindow : Window
             ImGui.SameLine();
             if (ImGui.Button("BMR AI OFF")) plugin.CharacterLink.SetLinkedBmrAi(false);
         }
+        if (syncBmr && plugin.CharacterLink.BmrAiControlStatus.Length > 0)
+            ImGui.TextWrapped(plugin.CharacterLink.BmrAiControlStatus);
         if (ImGui.Combo(Loc.L("BMRの戦闘担当", "BMR combat role"), ref bmrRole,
             Loc.IsEnglish ? new[] { "Preserve existing BMR settings", "Movement only", "Movement and actions" }
                 : new[] { "BMRの既存設定を維持（標準）", "移動のみ", "移動＋スキル回し" }, 3))
