@@ -231,7 +231,6 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         ReleaseFollowMovement();
         StopCombatAutomation();
         plugin.SaveSharedSettings();
-        BroadcastSettings();
     }
 
     public void NotifySharedConfigurationChanged(long revision)
@@ -475,13 +474,6 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         }
 
         var now = DateTime.UtcNow;
-        if (observedLeaderId != plugin.Configuration.LinkLeaderContentId)
-        {
-            ClearCrossWorldAutomation();
-            aethernetEvidence.Reset();
-            cityJumpConfirmed = residentialJumpConfirmed = false;
-            observedLeaderId = plugin.Configuration.LinkLeaderContentId;
-        }
         occultSourceApproachActive = false;
         zoneTransitionApproachActive = false;
         if (now < smoothFollowTestUntilUtc && TryGetLeaderObject(out _, out var testLeader) &&
@@ -500,13 +492,14 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
             now - localCharacterReadySinceUtc < TimeSpan.FromSeconds(1))
             return;
 
+        plugin.CheckSharedConfiguration();
+        RefreshLeaderBinding();
         DrainReceivedStates();
         UpdateLeaderMovementObservation();
         UpdateLeaderInteractionBroadcast(now);
         FlushOutboundTeleport();
         FlushOutboundHousingTravel();
 
-        plugin.CheckSharedConfiguration();
         UpdateTravelInterlock(now);
         if (now - lastFastStateBroadcastUtc >= TimeSpan.FromMilliseconds(100))
         {
@@ -614,10 +607,11 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
                     LastAction = "待機中";
                     continue;
                 case "settings":
-                    ApplySettings(state);
+                    // Unversioned snapshots can arrive after a newer shared-config revision.
                     continue;
                 case "configrevision":
                     plugin.CheckSharedConfiguration(state.SharedConfigurationRevision);
+                    RefreshLeaderBinding();
                     continue;
                 case "emote":
                     if (state.TargetContentId == Plugin.PlayerState.ContentId && state.EmoteId != 0)
@@ -2183,99 +2177,15 @@ public sealed partial class CharacterLinkCoordinator : IDisposable
         }
     }
 
-    private void BroadcastSettings()
+    private void RefreshLeaderBinding()
     {
-        if (sender is null)
-            return;
-        try
-        {
-            var message = new LinkedCharacterState
-            {
-                Protocol = CurrentProtocol,
-                Sequence = NextSequence(),
-                LinkKey = plugin.Configuration.LocalLinkKey,
-                Kind = "settings",
-                ContentId = Plugin.PlayerState.ContentId,
-                LinkEnabled = plugin.Configuration.LinkEnabled,
-                LeaderContentId = plugin.Configuration.LinkLeaderContentId,
-                AutoFollow = plugin.Configuration.AutoFollowEnabled,
-                SyncJumpEnabled = plugin.Configuration.SyncJumpEnabled,
-                SyncSprintEnabled = plugin.Configuration.SyncSprintEnabled,
-                AutoRidePillion = plugin.Configuration.AutoRidePillionEnabled,
-                MountRouletteFallbackEnabled = plugin.Configuration.MountRouletteFallbackEnabled,
-                AutoAcceptPartyInviteEnabled = plugin.Configuration.AutoAcceptPartyInviteEnabled,
-                PauseInCombat = plugin.Configuration.PauseLinkInCombat,
-                FollowNearby = plugin.Configuration.FollowNearby,
-                FollowDistance = plugin.Configuration.FollowStartDistance,
-                PreferBossModFollow = plugin.Configuration.PreferBossModFollow,
-                VnavmeshStuckRecoveryEnabled = plugin.Configuration.VnavmeshStuckRecoveryEnabled,
-                SyncLeaderInteractionEnabled = plugin.Configuration.SyncLeaderInteractionEnabled,
-                CombatLinkEnabled = plugin.Configuration.CombatLinkEnabled,
-                AutoBarrierLeaderEnabled = plugin.Configuration.AutoBarrierLeaderEnabled,
-                UseBossModReborn = plugin.Configuration.UseBossModReborn,
-                BossModRole = plugin.Configuration.BossModRole,
-                UseRotationSolverReborn = plugin.Configuration.UseRotationSolverReborn,
-                DeepDungeonCombatDelaySeconds = plugin.Configuration.DeepDungeonCombatDelaySeconds,
-                CombatStopDelaySeconds = plugin.Configuration.CombatStopDelaySeconds,
-                OccultAethernetSyncEnabled = plugin.Configuration.OccultAethernetSyncEnabled,
-                SyncReturnEnabled = plugin.Configuration.SyncReturnEnabled,
-                SyncDutyCommenceEnabled = plugin.Configuration.SyncDutyCommenceEnabled,
-                SyncTeleportInvitationEnabled = plugin.Configuration.SyncTeleportInvitationEnabled,
-                SyncRegularTeleportEnabled = plugin.Configuration.SyncRegularTeleportEnabled,
-                SyncCityAethernetEnabled = plugin.Configuration.SyncCityAethernetEnabled,
-                SyncResidentialAethernetEnabled = plugin.Configuration.SyncResidentialAethernetEnabled,
-                SyncZoneBoundaryEnabled = plugin.Configuration.SyncZoneBoundaryEnabled,
-                SyncFreeCompanyEstateEnabled = plugin.Configuration.SyncFreeCompanyEstateEnabled,
-                AutoOpenNearbyTreasureEnabled = plugin.Configuration.AutoOpenNearbyTreasureEnabled,
-            };
-            var bytes = JsonSerializer.SerializeToUtf8Bytes(message);
-            lock (senderLock)
-            {
-                for (var i = 0; i < 3; i++)
-                    sender?.Send(bytes, bytes.Length, new IPEndPoint(Group, Port));
-            }
-        }
-        catch (Exception exception)
-        {
-            Plugin.Log.Verbose(exception, "AltMateの連携設定を送信できませんでした。");
-        }
-    }
-
-    private void ApplySettings(LinkedCharacterState state)
-    {
+        var leaderId = plugin.Configuration.LinkLeaderContentId;
+        if (observedLeaderId == leaderId) return;
         ReleaseFollowMovement();
-        StopCombatAutomation();
-        plugin.Configuration.LinkEnabled = state.LinkEnabled;
-        plugin.Configuration.LinkLeaderContentId = state.LeaderContentId;
-        plugin.Configuration.AutoFollowEnabled = state.AutoFollow;
-        plugin.Configuration.SyncJumpEnabled = state.SyncJumpEnabled;
-        plugin.Configuration.SyncSprintEnabled = state.SyncSprintEnabled;
-        plugin.Configuration.AutoRidePillionEnabled = state.AutoRidePillion;
-        plugin.Configuration.MountRouletteFallbackEnabled = state.MountRouletteFallbackEnabled;
-        plugin.Configuration.AutoAcceptPartyInviteEnabled = state.AutoAcceptPartyInviteEnabled;
-        plugin.Configuration.PauseLinkInCombat = state.PauseInCombat;
-        plugin.Configuration.FollowNearby = state.FollowNearby;
-        plugin.Configuration.FollowStartDistance = Math.Clamp(state.FollowDistance, 1f, 15f);
-        plugin.Configuration.PreferBossModFollow = state.PreferBossModFollow;
-        plugin.Configuration.VnavmeshStuckRecoveryEnabled = state.VnavmeshStuckRecoveryEnabled;
-        plugin.Configuration.SyncLeaderInteractionEnabled = state.SyncLeaderInteractionEnabled;
-        plugin.Configuration.CombatLinkEnabled = state.CombatLinkEnabled;
-        plugin.Configuration.AutoBarrierLeaderEnabled = state.AutoBarrierLeaderEnabled;
-        plugin.Configuration.UseBossModReborn = state.UseBossModReborn;
-        plugin.Configuration.BossModRole = Enum.IsDefined(state.BossModRole) ? state.BossModRole : BossModCombatRole.PreserveExisting;
-        plugin.Configuration.UseRotationSolverReborn = state.UseRotationSolverReborn;
-        plugin.Configuration.DeepDungeonCombatDelaySeconds = float.IsFinite(state.DeepDungeonCombatDelaySeconds) ? Math.Clamp(state.DeepDungeonCombatDelaySeconds, 0f, 15f) : 3f;
-        plugin.Configuration.CombatStopDelaySeconds = Math.Clamp(state.CombatStopDelaySeconds, 0f, 15f);
-        plugin.Configuration.OccultAethernetSyncEnabled = state.OccultAethernetSyncEnabled;
-        plugin.Configuration.SyncReturnEnabled = state.SyncReturnEnabled;
-        plugin.Configuration.SyncDutyCommenceEnabled = state.SyncDutyCommenceEnabled;
-        plugin.Configuration.SyncTeleportInvitationEnabled = state.SyncTeleportInvitationEnabled;
-        plugin.Configuration.SyncRegularTeleportEnabled = state.SyncRegularTeleportEnabled;
-        plugin.Configuration.SyncCityAethernetEnabled = state.SyncCityAethernetEnabled;
-        plugin.Configuration.SyncResidentialAethernetEnabled = state.SyncResidentialAethernetEnabled;
-        plugin.Configuration.SyncZoneBoundaryEnabled = state.SyncZoneBoundaryEnabled;
-        plugin.Configuration.SyncFreeCompanyEstateEnabled = state.SyncFreeCompanyEstateEnabled;
-        plugin.Configuration.AutoOpenNearbyTreasureEnabled = state.AutoOpenNearbyTreasureEnabled;
+        ClearCrossWorldAutomation();
+        lastBmrPreset = null;
+        bmrAiOperation = Guid.Empty;
+        observedLeaderId = leaderId;
     }
 
     private void RunFollowerAutomation(LinkedCharacterState leader, DateTime now)
