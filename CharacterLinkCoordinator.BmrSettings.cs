@@ -14,6 +14,7 @@ public sealed partial class CharacterLinkCoordinator
     private long nextBmrSyncAt;
     private (ulong Leader, string? Preset, bool Disabled)? lastBmrPreset;
     public string BmrSettingStatus { get; private set; } = "BMRの既存設定を尊重";
+    public string BmrAiControlStatus { get; private set; } = "";
 
     private bool CanSyncBmr => plugin.Configuration.SyncBmrControls &&
         plugin.Configuration.LinkEnabled && !runtimeStopped &&
@@ -21,12 +22,28 @@ public sealed partial class CharacterLinkCoordinator
 
     internal void SetLinkedBmrAi(bool enabled)
     {
-        if (!IsLeader || !CanSyncBmr ||
-            !Plugin.CommandManager.ProcessCommand(enabled ? "/bmrai on" : "/bmrai off")) return;
+        if (!IsLeader || !plugin.Configuration.SyncBmrControls) return;
+        if (!plugin.Configuration.LinkEnabled || runtimeStopped)
+        {
+            BmrAiControlStatus = "先に連携操作を開始・再開してください。";
+            return;
+        }
+        if (!IsPluginLoaded("BossModReborn") || IsPluginLoaded("BossMod"))
+        {
+            BmrAiControlStatus = "BossMod Rebornを有効にし、通常版BossModを無効にしてください。";
+            return;
+        }
+        var command = enabled ? "/bmrai on" : "/bmrai off";
+        if (!TryDispatchBmrAi(command))
+        {
+            BmrAiControlStatus = $"BMRが {command} を受け付けませんでした。";
+            return;
+        }
         bmrAiEnabled = enabled;
         bmrAiOperation = Guid.NewGuid();
         bmrAiExpiresAt = Environment.TickCount64 + 3000;
         BroadcastState();
+        BmrAiControlStatus = $"リーダーで {command} を実行し、同期操作を予約しました。";
     }
 
     private void AddBmrControlsToState(LinkedCharacterState state)
@@ -59,7 +76,10 @@ public sealed partial class CharacterLinkCoordinator
             lastFollowerBmrAiOperation != leader.BmrAiOperation)
         {
             lastFollowerBmrAiOperation = leader.BmrAiOperation;
-            Plugin.CommandManager.ProcessCommand(enabled ? "/bmrai on" : "/bmrai off");
+            var command = enabled ? "/bmrai on" : "/bmrai off";
+            BmrAiControlStatus = TryDispatchBmrAi(command)
+                ? $"リーダーから受信して {command} を実行しました。"
+                : $"リーダーから受信しましたが、BMRが {command} を受け付けませんでした。";
         }
         if (!leader.BmrPresetKnown) { lastBmrPreset = null; return; }
         var desired = (leader.ContentId, leader.BmrPreset, leader.BmrForceDisabled);
@@ -86,6 +106,16 @@ public sealed partial class CharacterLinkCoordinator
         catch (Exception)
         {
             BmrSettingStatus = "BMRプリセット同期のIPCを利用できません";
+        }
+    }
+
+    private static bool TryDispatchBmrAi(string command)
+    {
+        try { return Plugin.CommandManager.ProcessCommand(command); }
+        catch (Exception ex)
+        {
+            Plugin.Log.Warning(ex, "BMR AI command failed.");
+            return false;
         }
     }
 
